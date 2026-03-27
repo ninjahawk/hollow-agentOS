@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+"""
+AgentOS MCP Server
+Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
+
+Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
+All tool calls hit the AgentOS REST API on localhost:7777.
+"""
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+try:
+    import httpx
+except ImportError:
+    print(json.dumps({"error": "Run: pip install httpx"}), file=sys.stderr)
+    sys.exit(1)
+
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent
+except ImportError:
+    print(json.dumps({"error": "Run: pip install mcp"}), file=sys.stderr)
+    sys.exit(1)
+
+CONFIG_PATH = Path("/agentOS/config.json")
+
+
+def _load_config() -> dict:
+    if CONFIG_PATH.exists():
+        return json.loads(CONFIG_PATH.read_text())
+    return {}
+
+
+def _api_base() -> str:
+    config = _load_config()
+    port = config.get("api", {}).get("port", 7777)
+    return f"http://localhost:{port}"
+
+
+def _headers() -> dict:
+    config = _load_config()
+    token = config.get("api", {}).get("token", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+async def _get(path: str, params: dict = None) -> Any:
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.get(f"{_api_base()}{path}", headers=_headers(), params=params or {})
+        return r.json()
+
+
+async def _post(path: str, body: dict = None) -> Any:
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(f"{_api_base()}{path}", headers=_headers(), json=body or {})
+        return r.json()
+
+
+def _out(data: Any) -> list[TextContent]:
+    text = data if isinstance(data, str) else json.dumps(data, indent=2)
+    return [TextContent(type="text", text=text)]
+
+
+# ── Server ────────────────────────────────────────────────────────────────────
+
+server = Server("agentos")
+
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="state",
+            description=(
+                "Get full AgentOS system state in one call: disk, memory, GPU usage, "
+                "workspace file index, recent actions, pending decisions, project context. "
+                "Call this at the start of every session instead of exploring the filesystem."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="shell_exec",
+            description=(
+                "Execute a shell command inside the AgentOS Linux environment. "
+                "Returns structured JSON: stdout, stderr, exit_code, duration. "
+                "Never blocks for input — all interactive prompts are suppressed. "
+                "Use /agentOS/workspace as the working directory for project files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command to execute"},
+                    "cwd": {"type": "string", "description": "Working directory (default: /agentOS/workspace)"},
+                    "timeout": {"type": "integer", "description": "Timeout seconds (default: 30)"}
+                },
+                "required": ["command"]
+            }
+        ),
+        Tool(
+            name="fs_read",
+            description="Read a file. Returns content, line count, size in bytes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute Linux path to file"}
+                },
+                "required": ["path"]
+            }
+        ),
+        Tool(
+            name="fs_write",
+            description="Write content to a file. Creates parent directories automatically. Logs the write to session history.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute Linux path to write"},
+                    "content": {"type": "string", "description": "File content"}
+                },
+                "required": ["path", "content"]
+            }
+        ),
+        Tool(
+            name="fs_list",
+            description="List directory contents with type, size, and last-modified timestamp for each entry.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path (default: /agentOS/workspace)"}
+                }
+            }
+        ),
+        Tool(
+            name="fs_batch_read",
+            description=(
+                "Read multiple files in a single call. More token-efficient than "
+                "calling fs_read repeatedly. Returns a map of path → content."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of absolute file paths to read"
+                    }
+                },
+                "required": ["paths"]
+            }
+        ),
+        Tool(
+            name="search_files",
+            description="Find files by name pattern across the indexed workspace. Returns path, size, line count.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Substring to match against file paths"}
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="search_content",
+            description="Search file contents with regex using ripgrep. Returns matches with file path and line number.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Regex pattern to search for"},
+                    "path": {"type": "string", "description": "Directory to search (default: /agentOS/workspace)"},
+                    "context_lines": {"type": "integer", "description": "Lines of context around each match (default: 0)"}
+                },
+                "required": ["pattern"]
+            }
+        ),
+        Tool(
+            name="git_status",
+            description="Get git status as structured JSON: branch, staged files, unstaged files, untracked files, clean flag.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {"type": "string", "description": "Path to git repository"}
+                },
+                "required": ["repo_path"]
+            }
+        ),
+        Tool(
+            name="git_log",
+            description="Get recent commits as structured JSON: hash, author, email, date, message.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {"type": "string", "description": "Path to git repository"},
+                    "n": {"type": "integer", "description": "Number of commits (default: 20)"}
+                },
+                "required": ["repo_path"]
+            }
+        ),
+        Tool(
+            name="git_diff",
+            description="Get git diff as text. Pass staged=true to see staged-only diff.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {"type": "string", "description": "Path to git repository"},
+                    "staged": {"type": "boolean", "description": "Show staged diff only (default: false)"}
+                },
+                "required": ["repo_path"]
+            }
+        ),
+        Tool(
+            name="git_commit",
+            description="Stage all changes and create a commit. Returns the commit output.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {"type": "string", "description": "Path to git repository"},
+                    "message": {"type": "string", "description": "Commit message"}
+                },
+                "required": ["repo_path", "message"]
+            }
+        ),
+        Tool(
+            name="memory_get",
+            description="Get the full persistent project context — key/value store that survives restarts. Use this to retrieve what was stored in previous sessions.",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="memory_set",
+            description="Store a value in persistent project context. Use this to record decisions, progress, and state so future sessions don't need to rediscover it.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Context key"},
+                    "value": {"description": "Value to store (any JSON type)"}
+                },
+                "required": ["key", "value"]
+            }
+        ),
+        Tool(
+            name="decision_queue",
+            description="Queue a decision that needs human input. Agent continues working unless blocking=true. Decision appears in the AgentOS dashboard.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "The question or decision needed"},
+                    "context": {"type": "object", "description": "Additional context for the human"},
+                    "blocking": {"type": "boolean", "description": "If true, wait for resolution before continuing (default: false)"}
+                },
+                "required": ["message"]
+            }
+        ),
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    try:
+        if name == "state":
+            return _out(await _get("/state"))
+
+        elif name == "shell_exec":
+            return _out(await _post("/shell", arguments))
+
+        elif name == "fs_read":
+            return _out(await _get("/fs/read", {"path": arguments["path"]}))
+
+        elif name == "fs_write":
+            return _out(await _post("/fs/write", arguments))
+
+        elif name == "fs_list":
+            path = arguments.get("path", "/agentOS/workspace")
+            return _out(await _get("/fs/list", {"path": path}))
+
+        elif name == "fs_batch_read":
+            return _out(await _post("/fs/batch-read", {"paths": arguments["paths"]}))
+
+        elif name == "search_files":
+            return _out(await _get("/fs/search", {"q": arguments["query"]}))
+
+        elif name == "search_content":
+            path = arguments.get("path", "/agentOS/workspace")
+            ctx = arguments.get("context_lines", 0)
+            pattern = arguments["pattern"]
+            ctx_flag = f"-C {ctx}" if ctx else ""
+            cmd = f"rg --json {ctx_flag} {json.dumps(pattern)} {json.dumps(path)}"
+            result = await _post("/shell", {"command": cmd, "timeout": 30})
+            # Parse ripgrep JSON lines into a clean list
+            matches = []
+            for line in result.get("stdout", "").splitlines():
+                try:
+                    obj = json.loads(line)
+                    if obj.get("type") == "match":
+                        data = obj["data"]
+                        matches.append({
+                            "file": data["path"]["text"],
+                            "line": data["line_number"],
+                            "text": data["lines"]["text"].rstrip()
+                        })
+                except Exception:
+                    pass
+            return _out({"matches": matches, "count": len(matches)})
+
+        elif name == "git_status":
+            result = await _post("/shell", {
+                "command": f"git -C {json.dumps(arguments['repo_path'])} status --porcelain=v1 -b"
+            })
+            lines = result.get("stdout", "").splitlines()
+            branch = lines[0].replace("## ", "").split("...")[0] if lines else "unknown"
+            staged, unstaged, untracked = [], [], []
+            for line in lines[1:]:
+                if len(line) < 3:
+                    continue
+                x, y, path = line[0], line[1], line[3:]
+                if x not in (" ", "?"):
+                    staged.append({"file": path, "status": x})
+                if y not in (" ", "?"):
+                    unstaged.append({"file": path, "status": y})
+                if line[:2] == "??":
+                    untracked.append(path)
+            return _out({
+                "branch": branch,
+                "staged": staged,
+                "unstaged": unstaged,
+                "untracked": untracked,
+                "clean": not staged and not unstaged and not untracked
+            })
+
+        elif name == "git_log":
+            n = arguments.get("n", 20)
+            repo = json.dumps(arguments["repo_path"])
+            result = await _post("/shell", {
+                "command": f"git -C {repo} log --pretty=format:'%H|%an|%ae|%ai|%s' -n {n}"
+            })
+            commits = []
+            for line in result.get("stdout", "").splitlines():
+                parts = line.split("|", 4)
+                if len(parts) == 5:
+                    commits.append({
+                        "hash": parts[0], "author": parts[1],
+                        "email": parts[2], "date": parts[3], "message": parts[4]
+                    })
+            return _out({"commits": commits, "count": len(commits)})
+
+        elif name == "git_diff":
+            repo = json.dumps(arguments["repo_path"])
+            flag = "--staged" if arguments.get("staged") else ""
+            result = await _post("/shell", {
+                "command": f"git -C {repo} --no-pager diff {flag}"
+            })
+            return _out({"diff": result.get("stdout", ""), "ok": result.get("exit_code") == 0})
+
+        elif name == "git_commit":
+            repo = json.dumps(arguments["repo_path"])
+            msg = json.dumps(arguments["message"])
+            await _post("/shell", {"command": f"git -C {repo} add -A"})
+            result = await _post("/shell", {"command": f"git -C {repo} commit -m {msg}"})
+            return _out(result)
+
+        elif name == "memory_get":
+            return _out(await _get("/memory/project"))
+
+        elif name == "memory_set":
+            return _out(await _post("/memory/project", {"key": arguments["key"], "value": arguments["value"]}))
+
+        elif name == "decision_queue":
+            # Map to shell call since there's no dedicated endpoint
+            from memory.manager import queue_decision
+            did = queue_decision(
+                arguments["message"],
+                arguments.get("context", {}),
+                arguments.get("blocking", False)
+            )
+            return _out({"ok": True, "decision_id": did})
+
+        else:
+            return _out({"error": f"Unknown tool: {name}"})
+
+    except Exception as e:
+        return _out({"error": str(e), "tool": name})
+
+
+async def main():
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

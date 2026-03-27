@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOS Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: 'Courier New', monospace; font-size: 13px; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 14px; color: #7fff7f; letter-spacing: 2px; text-transform: uppercase; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7fff7f; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #1a1a1a; height: calc(100vh - 45px); }
+  .panel { background: #0d0d0d; padding: 16px; overflow-y: auto; }
+  .panel-title { color: #555; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #1a1a1a; padding-bottom: 8px; }
+  .panel-title.sep { margin-top: 16px; }
+  .stat-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #111; }
+  .stat-label { color: #555; }
+  .stat-value { color: #e0e0e0; }
+  .action-item { padding: 6px 0; border-bottom: 1px solid #111; }
+  .action-time { color: #444; font-size: 11px; }
+  .action-cmd { color: #7fff7f; font-size: 12px; }
+  .decision-item { background: #1a1200; border: 1px solid #332200; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
+  .decision-msg { color: #ffcc44; margin-bottom: 8px; }
+  .decision-id { color: #444; font-size: 11px; margin-bottom: 8px; }
+  .btn { background: #1a2a1a; border: 1px solid #336633; color: #7fff7f; padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 12px; border-radius: 2px; }
+  .btn:hover { background: #2a3a2a; }
+  .btn-deny { background: #2a1a1a; border-color: #663333; color: #ff7777; }
+  .btn-deny:hover { background: #3a2a2a; }
+  .bar { background: #111; border-radius: 2px; height: 6px; margin-top: 4px; margin-bottom: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; transition: width 1s; }
+  .bar-green { background: linear-gradient(90deg, #336633, #7fff7f); }
+  .bar-yellow { background: linear-gradient(90deg, #554400, #ffcc44); }
+  .bar-red { background: linear-gradient(90deg, #662222, #ff4444); }
+  .shell-input { width: 100%; background: #111; border: 1px solid #222; color: #7fff7f; font-family: inherit; font-size: 13px; padding: 8px; margin-top: 8px; }
+  .shell-input:focus { outline: none; border-color: #336633; }
+  .shell-output { margin-top: 8px; color: #888; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 2px; font-size: 10px; margin-left: 6px; }
+  .tag-ok { background: #0a2a0a; color: #7fff7f; }
+  .tag-err { background: #2a0a0a; color: #ff7777; }
+  #api-url { color: #444; font-size: 11px; margin-left: auto; }
+  .workspace-file { padding: 2px 0; color: #666; font-size: 11px; }
+  .workspace-file:hover { color: #aaa; cursor: default; }
+  .empty { color: #333; text-align: center; padding: 40px 0; }
+  .model-chip { display: inline-block; background: #0a1a0a; border: 1px solid #224422; color: #7fff7f; padding: 2px 8px; border-radius: 2px; font-size: 11px; }
+  .hl-green { color: #7fff7f; }
+  .hl-dim { color: #333; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="status-dot" id="status-dot"></div>
+  <h1>AgentOS</h1>
+  <span style="color:#333">|</span>
+  <span id="header-time" style="color:#444">--:--:--</span>
+  <span id="api-url">API: localhost:7777</span>
+</header>
+
+<div class="grid">
+
+  <!-- LEFT: System State -->
+  <div class="panel">
+    <div class="panel-title">System State</div>
+    <div id="state-content"><div class="empty">Loading...</div></div>
+
+    <div class="panel-title sep">Run Command</div>
+    <input class="shell-input" id="shell-input" placeholder="$ agent command..." />
+    <div class="shell-output" id="shell-output"></div>
+  </div>
+
+  <!-- CENTER: Agent Activity -->
+  <div class="panel">
+    <div class="panel-title">Agent Activity <span id="action-count" style="color:#333"></span></div>
+    <div id="actions-content"><div class="empty">No actions yet</div></div>
+  </div>
+
+  <!-- RIGHT: Decisions + Workspace -->
+  <div class="panel">
+    <div class="panel-title">Pending Decisions</div>
+    <div id="decisions-content"><div class="empty">No pending decisions</div></div>
+
+    <div class="panel-title sep">Workspace <span id="file-count" style="color:#333"></span></div>
+    <div id="workspace-content"><div class="empty">Not indexed</div></div>
+  </div>
+
+</div>
+
+<script>
+const API = 'http://localhost:7777';
+const TOKEN = localStorage.getItem('agentOS-token') || '';
+
+async function apiFetch(path, opts = {}) {
+  try {
+    const r = await fetch(API + path, {
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      ...opts
+    });
+    return await r.json();
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+function fmt(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleTimeString();
+}
+
+function barClass(pct) {
+  if (pct >= 90) return 'bar-red';
+  if (pct >= 75) return 'bar-yellow';
+  return 'bar-green';
+}
+
+function ageStr(isoTs) {
+  if (!isoTs) return '';
+  const ms = Date.now() - new Date(isoTs).getTime();
+  const min = Math.round(ms / 60000);
+  return min < 60 ? `${min}m ago` : `${Math.round(min / 60)}h ago`;
+}
+
+function renderState(data) {
+  if (!data || data.error) return `<div class="empty">API offline</div>`;
+  const sys = data.system || {};
+  const ws = data.workspace || {};
+  const gpu = sys.gpu;
+  const disk = sys.disk || {};
+
+  let html = '';
+
+  // --- GPU ---
+  if (gpu) {
+    const pct = gpu.memory_total_mb > 0 ? Math.round((gpu.memory_used_mb / gpu.memory_total_mb) * 100) : 0;
+    html += `
+      <div class="stat-row"><span class="stat-label">GPU</span><span class="stat-value">${gpu.name}</span></div>
+      <div class="stat-row"><span class="stat-label">VRAM</span><span class="stat-value">${gpu.memory_used_mb} / ${gpu.memory_total_mb} MB (${pct}%)</span></div>
+      <div class="bar"><div class="bar-fill ${barClass(pct)}" style="width:${pct}%"></div></div>
+      <div class="stat-row"><span class="stat-label">GPU util</span><span class="stat-value">${gpu.utilization_pct}%</span></div>
+    `;
+  }
+
+  // --- Windows C: disk ---
+  const wc = disk.windows_c || {};
+  if (wc.total_gb) {
+    const pct = Math.round(wc.pct_used || 0);
+    html += `
+      <div class="panel-title sep">Windows C:</div>
+      <div class="stat-row"><span class="stat-label">Used</span><span class="stat-value">${wc.used_gb} GB / ${wc.total_gb} GB</span></div>
+      <div class="stat-row"><span class="stat-label">Free</span><span class="stat-value ${pct >= 90 ? 'bar-red' : ''}">${wc.free_gb} GB (${100 - pct}%)</span></div>
+      <div class="bar"><div class="bar-fill ${barClass(pct)}" style="width:${pct}%"></div></div>
+    `;
+  }
+
+  // --- Ollama ---
+  const ollama = data.ollama || {};
+  const running = ollama.running || [];
+  html += `<div class="panel-title sep">Ollama</div>`;
+
+  if (running.length) {
+    running.forEach(m => {
+      const name = typeof m === 'string' ? m : (m.name || JSON.stringify(m));
+      html += `<div class="stat-row"><span class="stat-label">Loaded</span><span class="stat-value"><span class="model-chip">${name}</span></span></div>`;
+    });
+  } else {
+    html += `<div class="stat-row"><span class="stat-label">Loaded</span><span class="stat-value hl-dim">none</span></div>`;
+  }
+
+  const ollamaCalls = (data.recent_actions || []).filter(a => a.action === 'ollama_chat');
+  if (ollamaCalls.length) {
+    const last = ollamaCalls[ollamaCalls.length - 1];
+    const d = last.details || {};
+    if (d.ms && d.tokens_out) {
+      const tps = (d.tokens_out / (d.ms / 1000)).toFixed(1);
+      html += `<div class="stat-row"><span class="stat-label">Last tok/sec</span><span class="stat-value hl-green">${tps}</span></div>`;
+      html += `<div class="stat-row"><span class="stat-label">Last model</span><span class="stat-value">${d.model || ''}</span></div>`;
+      html += `<div class="stat-row"><span class="stat-label">Last I/O</span><span class="stat-value">${d.tokens_in || 0} in / ${d.tokens_out || 0} out</span></div>`;
+    }
+    html += `<div class="stat-row"><span class="stat-label">Session calls</span><span class="stat-value">${ollamaCalls.length}</span></div>`;
+  }
+  html += `<div class="stat-row"><span class="stat-label">Models available</span><span class="stat-value">${(ollama.available || []).length}</span></div>`;
+
+  // --- Semantic index ---
+  const sem = data.semantic || {};
+  html += `<div class="panel-title sep">Semantic Index</div>`;
+  if (sem.total_chunks) {
+    html += `
+      <div class="stat-row"><span class="stat-label">Chunks</span><span class="stat-value hl-green">${sem.total_chunks}</span></div>
+      <div class="stat-row"><span class="stat-label">Files</span><span class="stat-value">${sem.total_files}</span></div>
+      <div class="stat-row"><span class="stat-label">Embed model</span><span class="stat-value">${sem.model || 'nomic-embed-text'}</span></div>
+      <div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">${fmt(sem.indexed_at)} (${ageStr(sem.indexed_at)})</span></div>
+    `;
+  } else {
+    html += `<div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" style="color:#664444">not indexed</span></div>`;
+  }
+
+  // --- Workspace summary ---
+  html += `
+    <div class="panel-title sep">Workspace</div>
+    <div class="stat-row"><span class="stat-label">Files</span><span class="stat-value">${ws.total_files || 0}</span></div>
+    <div class="stat-row"><span class="stat-label">Dirs</span><span class="stat-value">${ws.total_dirs || 0}</span></div>
+    <div class="stat-row"><span class="stat-label">Tools</span><span class="stat-value">${data.tool_count || 0}</span></div>
+    <div class="stat-row"><span class="stat-label">Pending decisions</span><span class="stat-value">${(data.pending_decisions || []).length}</span></div>
+  `;
+
+  const ctx = data.project_context || {};
+  if (Object.keys(ctx).length > 0) {
+    html += `<div class="panel-title sep">Project Context</div>`;
+    for (const [k, v] of Object.entries(ctx)) {
+      if (k === 'updated_at') continue;
+      html += `<div class="stat-row"><span class="stat-label">${k}</span><span class="stat-value">${JSON.stringify(v).substring(0, 40)}</span></div>`;
+    }
+  }
+
+  return html;
+}
+
+function renderActions(actions) {
+  if (!actions || !actions.length) return '<div class="empty">No actions yet</div>';
+  return [...actions].reverse().map(a => {
+    const details = a.details || {};
+    const cmd = details.command || '';
+    const tag = details.exit_code === 0 || details.exit_code === undefined
+      ? '<span class="tag tag-ok">ok</span>'
+      : `<span class="tag tag-err">exit ${details.exit_code}</span>`;
+    return `
+      <div class="action-item">
+        <div class="action-time">${fmt(a.timestamp)} &mdash; ${a.action}${tag}</div>
+        ${cmd ? `<div class="action-cmd">$ ${cmd.substring(0, 80)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderDecisions(decisions) {
+  if (!decisions || !decisions.length) return '<div class="empty">No pending decisions</div>';
+  return decisions.map(d => `
+    <div class="decision-item">
+      <div class="decision-id">ID: ${d.id}</div>
+      <div class="decision-msg">${d.message}</div>
+      <button class="btn" onclick="resolveDecision('${d.id}','approved')">Approve</button>
+      <button class="btn btn-deny" onclick="resolveDecision('${d.id}','denied')" style="margin-left:8px">Deny</button>
+    </div>
+  `).join('');
+}
+
+function renderWorkspace(data) {
+  if (!data || data.error) return '<div class="empty">Not indexed</div>';
+  const files = Object.keys(data.files || {}).slice(0, 50);
+  if (!files.length) return '<div class="empty">No files indexed</div>';
+  return files.map(f => `<div class="workspace-file">${f}</div>`).join('');
+}
+
+async function resolveDecision(id, resolution) {
+  await apiFetch('/decisions/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ decision_id: id, resolution })
+  });
+  await refresh();
+}
+
+async function refresh() {
+  const [state, actionsData, decisionsData] = await Promise.all([
+    apiFetch('/state'),
+    apiFetch('/memory/actions?n=100'),
+    apiFetch('/decisions')
+  ]);
+
+  document.getElementById('state-content').innerHTML = renderState(state);
+
+  const actions = actionsData.actions || [];
+  document.getElementById('action-count').textContent = `(${actions.length})`;
+  document.getElementById('actions-content').innerHTML = renderActions(actions);
+
+  document.getElementById('decisions-content').innerHTML = renderDecisions(decisionsData.pending || []);
+
+  const wmap = state.workspace || {};
+  document.getElementById('file-count').textContent = `(${wmap.total_files || 0})`;
+
+  const wmapFull = await apiFetch('/memory/context');
+  document.getElementById('workspace-content').innerHTML = renderWorkspace(wmapFull.workspace_map || {});
+
+  document.getElementById('status-dot').style.background = state.error ? '#ff4444' : '#7fff7f';
+}
+
+document.getElementById('shell-input').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const cmd = e.target.value.trim();
+  if (!cmd) return;
+  e.target.value = '';
+  document.getElementById('shell-output').textContent = 'running...';
+  const result = await apiFetch('/shell', { method: 'POST', body: JSON.stringify({ command: cmd }) });
+  document.getElementById('shell-output').textContent = JSON.stringify(result, null, 2);
+});
+
+setInterval(() => {
+  document.getElementById('header-time').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

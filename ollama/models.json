@@ -1,0 +1,36 @@
+{
+  "models": {
+    "code-large": {
+      "name": "qwen2.5-coder:32b-instruct-q4_K_M",
+      "use": "Primary coding agent — complex tasks, architecture, multi-file edits",
+      "vram_gb": 20,
+      "context_length": 32768,
+      "speed": "medium"
+    },
+    "code-fast": {
+      "name": "qwen2.5-coder:7b-instruct-q8_0",
+      "use": "Quick tasks — single file edits, lookups, fast responses",
+      "vram_gb": 8,
+      "context_length": 32768,
+      "speed": "fast"
+    },
+    "embed": {
+      "name": "nomic-embed-text",
+      "use": "Semantic search across workspace — find relevant files by meaning",
+      "vram_gb": 1,
+      "context_length": 8192,
+      "speed": "very fast"
+    }
+  },
+  "routing": {
+    "simple_task": "code-fast",
+    "complex_task": "code-large",
+    "search": "embed",
+    "default": "code-fast"
+  },
+  "gpu": {
+    "model": "RTX 5070",
+    "vram_gb": 12,
+    "note": "Run code-large OR code-fast at a time, not both. embed can run alongside either."
+  }
+}

@@ -1,0 +1,32 @@
+# Runtime config — copy to config.json and fill in your token
+config.json
+
+# Generated runtime data — not source
+memory/semantic-index.json
+memory/session-log.json
+memory/workspace-map.json
+memory/token-totals.json
+memory/decisions-needed.json
+memory/handoff.json
+memory/project-context.json
+memory/tool-registry.json
+
+# Logs
+logs/
+ollama/install.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
