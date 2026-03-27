@@ -1,0 +1,250 @@
+"""
+Agent Registry — identity, isolation, capabilities, resource accounting.
+
+Every process that wants to use AgentOS must register and get an agent_id + token.
+The master token (from config) acts as root — it can register/terminate agents
+but runs as the "root" agent with full capabilities.
+"""
+
+import json
+import hashlib
+import hmac
+import time
+import uuid
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Optional
+import threading
+
+REGISTRY_PATH = Path("/agentOS/memory/agent-registry.json")
+WORKSPACE_ROOT = Path("/agentOS/workspace/agents")
+
+# All possible capabilities an agent can be granted
+ALL_CAPS = {
+    "shell",      # run shell commands (scoped to workspace)
+    "shell_root", # run shell commands anywhere (root agents only)
+    "fs_read",    # read any file
+    "fs_write",   # write files (scoped to workspace unless fs_root)
+    "fs_root",    # write anywhere
+    "ollama",     # call local models
+    "spawn",      # create child agents
+    "message",    # send/receive inter-agent messages
+    "semantic",   # semantic search
+    "admin",      # manage other agents
+}
+
+# Default capability sets by role
+ROLE_DEFAULTS: dict[str, set[str]] = {
+    "root":      ALL_CAPS,
+    "orchestrator": {"shell", "fs_read", "fs_write", "ollama", "spawn", "message", "semantic"},
+    "worker":    {"shell", "fs_read", "fs_write", "ollama", "message", "semantic"},
+    "readonly":  {"fs_read", "semantic", "message"},
+    "coder":     {"shell", "fs_read", "fs_write", "ollama", "message", "semantic"},
+    "reasoner":  {"fs_read", "ollama", "message", "semantic"},
+    "custom":    {"fs_read", "message"},
+}
+
+# Default resource budgets by role (soft limits — warn; hard limits — block)
+ROLE_BUDGETS: dict[str, dict] = {
+    "root":         {"shell_calls": 10000, "tokens_in": 10_000_000, "tokens_out": 10_000_000},
+    "orchestrator": {"shell_calls": 1000,  "tokens_in": 500_000,    "tokens_out": 500_000},
+    "worker":       {"shell_calls": 200,   "tokens_in": 100_000,    "tokens_out": 100_000},
+    "readonly":     {"shell_calls": 0,     "tokens_in": 50_000,     "tokens_out": 0},
+    "coder":        {"shell_calls": 500,   "tokens_in": 200_000,    "tokens_out": 200_000},
+    "reasoner":     {"shell_calls": 10,    "tokens_in": 200_000,    "tokens_out": 200_000},
+    "custom":       {"shell_calls": 50,    "tokens_in": 50_000,     "tokens_out": 50_000},
+}
+
+
+@dataclass
+class AgentRecord:
+    agent_id: str
+    name: str
+    role: str
+    capabilities: list[str]
+    token_hash: str          # sha256 of the actual token — never store raw
+    workspace_dir: str
+    status: str              # registered | active | suspended | terminated
+    budget: dict             # max limits
+    usage: dict              # current usage
+    created_at: float
+    parent_id: Optional[str] = None
+    current_task: Optional[str] = None
+    metadata: dict = field(default_factory=dict)
+
+    def has_cap(self, cap: str) -> bool:
+        return cap in self.capabilities
+
+    def over_budget(self) -> Optional[str]:
+        """Return the resource name if over hard limit, else None."""
+        for key, limit in self.budget.items():
+            if self.usage.get(key, 0) >= limit:
+                return key
+        return None
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d.pop("token_hash")  # never expose hash via API
+        return d
+
+
+def _token_for(agent_id: str, master_secret: str) -> str:
+    """Derive agent token from agent_id + master secret. Deterministic."""
+    return hmac.new(
+        master_secret.encode(),
+        agent_id.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+class AgentRegistry:
+    def __init__(self, master_token: str):
+        self._lock = threading.Lock()
+        self._agents: dict[str, AgentRecord] = {}
+        self._master_token = master_token
+        self._master_hash = _hash_token(master_token)
+        WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+        self._load()
+        self._ensure_root()
+
+    def _ensure_root(self):
+        """Root agent always exists — represents the master token caller."""
+        if "root" not in self._agents:
+            root = AgentRecord(
+                agent_id="root",
+                name="root",
+                role="root",
+                capabilities=list(ALL_CAPS),
+                token_hash=self._master_hash,
+                workspace_dir=str(WORKSPACE_ROOT / "root"),
+                status="active",
+                budget=ROLE_BUDGETS["root"].copy(),
+                usage={"shell_calls": 0, "tokens_in": 0, "tokens_out": 0},
+                created_at=time.time(),
+            )
+            self._agents["root"] = root
+            Path(root.workspace_dir).mkdir(parents=True, exist_ok=True)
+            self._save()
+
+    def register(
+        self,
+        name: str,
+        role: str = "worker",
+        capabilities: Optional[list[str]] = None,
+        budget: Optional[dict] = None,
+        parent_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> tuple[AgentRecord, str]:
+        """Register a new agent. Returns (record, raw_token)."""
+        role = role if role in ROLE_DEFAULTS else "custom"
+        agent_id = str(uuid.uuid4())[:8]
+
+        # Capabilities: intersection of requested and role defaults
+        allowed = ROLE_DEFAULTS[role]
+        if capabilities:
+            caps = list(allowed & set(capabilities))
+        else:
+            caps = list(allowed)
+
+        raw_token = _token_for(agent_id, self._master_token)
+        workspace = WORKSPACE_ROOT / agent_id
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        record = AgentRecord(
+            agent_id=agent_id,
+            name=name,
+            role=role,
+            capabilities=caps,
+            token_hash=_hash_token(raw_token),
+            workspace_dir=str(workspace),
+            status="active",
+            budget=(budget or ROLE_BUDGETS.get(role, ROLE_BUDGETS["custom"])).copy(),
+            usage={"shell_calls": 0, "tokens_in": 0, "tokens_out": 0},
+            created_at=time.time(),
+            parent_id=parent_id,
+            metadata=metadata or {},
+        )
+
+        with self._lock:
+            self._agents[agent_id] = record
+            self._save()
+
+        return record, raw_token
+
+    def authenticate(self, token: str) -> Optional[AgentRecord]:
+        """Resolve a raw token to an agent. Returns None if invalid."""
+        # Master token → root agent
+        if token == self._master_token:
+            return self._agents.get("root")
+
+        token_hash = _hash_token(token)
+        for agent in self._agents.values():
+            if agent.token_hash == token_hash and agent.status == "active":
+                return agent
+        return None
+
+    def get(self, agent_id: str) -> Optional[AgentRecord]:
+        return self._agents.get(agent_id)
+
+    def list_agents(self) -> list[AgentRecord]:
+        return list(self._agents.values())
+
+    def update_usage(self, agent_id: str, shell_calls: int = 0,
+                     tokens_in: int = 0, tokens_out: int = 0):
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if not a:
+                return
+            a.usage["shell_calls"] = a.usage.get("shell_calls", 0) + shell_calls
+            a.usage["tokens_in"] = a.usage.get("tokens_in", 0) + tokens_in
+            a.usage["tokens_out"] = a.usage.get("tokens_out", 0) + tokens_out
+            self._save()
+
+    def set_task(self, agent_id: str, task: Optional[str]):
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if a:
+                a.current_task = task
+                self._save()
+
+    def terminate(self, agent_id: str):
+        if agent_id == "root":
+            raise ValueError("Cannot terminate root agent")
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if a:
+                a.status = "terminated"
+                self._save()
+
+    def suspend(self, agent_id: str):
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if a and a.status == "active":
+                a.status = "suspended"
+                self._save()
+
+    def resume(self, agent_id: str):
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if a and a.status == "suspended":
+                a.status = "active"
+                self._save()
+
+    def _load(self):
+        if REGISTRY_PATH.exists():
+            try:
+                data = json.loads(REGISTRY_PATH.read_text())
+                for d in data.values():
+                    r = AgentRecord(**d)
+                    self._agents[r.agent_id] = r
+            except Exception:
+                pass
+
+    def _save(self):
+        REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        out = {aid: asdict(a) for aid, a in self._agents.items()}
+        REGISTRY_PATH.write_text(json.dumps(out, indent=2))

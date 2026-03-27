@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """
-AgentOS API Server v0.3.0
+AgentOS API Server v0.4.0
 REST interface for agent control — filesystem, processes, memory, state,
 Ollama model routing, semantic search, decisions, token tracking,
-agent handoff/pickup, state diffing, and read_context.
+agent handoff/pickup, state diffing, read_context.
+
+v0.4.0 adds real agent OS primitives:
+  - Agent identity & per-agent tokens  (/agents/register)
+  - Isolated per-agent workspaces      (each agent gets /workspace/agents/<id>/)
+  - Capability enforcement             (agents can only use what they were granted)
+  - Resource budgets & accounting      (shell calls, token in/out per agent)
+  - Inter-agent message bus            (/messages)
+  - Task scheduler w/ model routing    (/tasks/submit)
+  - Agent spawning                     (/agents/spawn)
 """
 
 import asyncio
@@ -37,6 +46,10 @@ from memory.manager import (
     get_token_totals, write_handoff, read_handoff
 )
 from shell.agent_shell import run as shell_run
+from agents.registry import AgentRegistry
+from agents.bus import MessageBus
+from agents.scheduler import TaskScheduler
+import api.agent_routes as agent_routes
 
 CONFIG_PATH = Path("/agentOS/config.json")
 
@@ -64,12 +77,27 @@ def _load_config() -> dict:
 
 
 def _verify_token(authorization: Optional[str]) -> None:
+    """Accept master token only (used for admin-only endpoints)."""
     config = _load_config()
     expected = config.get("api", {}).get("token", "")
     if not expected:
         return
     if not authorization or authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _verify_any_token(authorization: Optional[str]) -> None:
+    """Accept master token OR any registered active agent token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = authorization.removeprefix("Bearer ").strip()
+    config = _load_config()
+    master = config.get("api", {}).get("token", "")
+    if token == master:
+        return
+    if _registry and _registry.authenticate(token):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _now() -> str:
@@ -86,7 +114,7 @@ async def _shell(command: str, cwd: str = None, timeout: int = 30) -> dict:
     return await loop.run_in_executor(None, partial(shell_run, command, cwd, timeout))
 
 
-app = FastAPI(title="AgentOS API", version="0.3.0", docs_url="/docs")
+app = FastAPI(title="AgentOS API", version="0.4.0", docs_url="/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +122,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Agent OS singletons — initialized at startup ──────────────────────────────
+_registry: AgentRegistry = None
+_bus: MessageBus = None
+_scheduler: TaskScheduler = None
+
+
+@app.on_event("startup")
+async def _startup():
+    global _registry, _bus, _scheduler
+    config = _load_config()
+    master_token = config.get("api", {}).get("token", "")
+    _registry = AgentRegistry(master_token)
+    _bus = MessageBus()
+    _scheduler = TaskScheduler(_registry, _bus, master_token)
+    agent_routes.init(_registry, _bus, _scheduler)
+
+
+app.include_router(agent_routes.router)
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -306,7 +353,7 @@ async def _build_state() -> dict:
 
 @app.get("/state")
 async def get_state(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         result = await _build_state()
         # Update cache for diff endpoint
@@ -324,7 +371,7 @@ async def get_state_diff(since: str = None, authorization: Optional[str] = Heade
     If no cache exists or cache is older than `since`, returns full state.
     Eliminates repeated full-state parsing for agents that poll frequently.
     """
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         fresh = await _build_state()
         _state_cache["data"] = fresh
@@ -373,8 +420,30 @@ async def get_state_diff(since: str = None, authorization: Optional[str] = Heade
 
 @app.post("/shell")
 async def run_command(req: ShellRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
-    result = await _shell(req.command, req.cwd, req.timeout)
+    _verify_any_token(authorization)
+
+    # Scope non-root agents to their isolated workspace
+    cwd = req.cwd
+    if _registry:
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        agent = _registry.authenticate(token)
+        if agent and agent.agent_id != "root":
+            # Enforce shell capability
+            if not agent.has_cap("shell") and not agent.has_cap("shell_root"):
+                raise HTTPException(status_code=403, detail="Agent lacks shell capability")
+            # Check budget
+            if over := agent.over_budget():
+                raise HTTPException(status_code=429, detail=f"Shell budget exceeded: {over}")
+            # Restrict cwd unless agent has shell_root
+            if not agent.has_cap("shell_root"):
+                workspace = agent.workspace_dir
+                if cwd and not cwd.startswith(workspace):
+                    cwd = workspace   # silently redirect to workspace
+                elif not cwd:
+                    cwd = workspace
+            _registry.update_usage(agent.agent_id, shell_calls=1)
+
+    result = await _shell(req.command, cwd, req.timeout)
     log_action("shell_command", {
         "command":   req.command,
         "exit_code": result.get("exit_code"),
@@ -387,7 +456,7 @@ async def run_command(req: ShellRequest, authorization: Optional[str] = Header(N
 
 @app.get("/fs/list")
 async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     p = Path(path)
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"Path not found: {path}")
@@ -406,7 +475,7 @@ async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str]
 
 @app.get("/fs/read")
 async def fs_read(path: str, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     p = Path(path)
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
@@ -424,7 +493,7 @@ async def fs_read(path: str, authorization: Optional[str] = Header(None)):
 
 @app.post("/fs/write")
 async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     p = Path(req.path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(req.content)
@@ -434,7 +503,7 @@ async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None
 
 @app.post("/fs/batch-read")
 async def fs_batch_read(req: BatchReadRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     results = {}
     for path in req.paths:
         p = Path(path)
@@ -450,14 +519,14 @@ async def fs_batch_read(req: BatchReadRequest, authorization: Optional[str] = He
 
 @app.get("/fs/search")
 async def fs_search(q: str, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     matches = find_files(q)
     return {"query": q, "matches": matches, "count": len(matches)}
 
 
 @app.post("/fs/index")
 async def fs_index(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, index_workspace)
     return {"ok": True, "stats": result["stats"]}
@@ -470,7 +539,7 @@ async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] 
     Eliminates the common search → read → search pattern.
     The semantic query is auto-derived from the file's path + content header.
     """
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     p = Path(req.path)
     if not p.exists() or not p.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {req.path}")
@@ -508,7 +577,7 @@ async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] 
 
 @app.post("/ollama/chat")
 async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "messages": req.messages, "stream": False}
     if req.temperature is not None or req.max_tokens is not None:
@@ -550,7 +619,7 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
 
 @app.post("/ollama/generate")
 async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "prompt": req.prompt, "stream": False}
     if req.temperature is not None:
@@ -588,7 +657,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
 
 @app.get("/ollama/models")
 async def ollama_models(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             tags = (await client.get(f"{_ollama_host()}/api/tags")).json()
@@ -611,7 +680,7 @@ async def ollama_models(authorization: Optional[str] = Header(None)):
 
 @app.post("/semantic/search")
 async def semantic_search(req: SemanticSearchRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         from tools.semantic import search
         loop = asyncio.get_running_loop()
@@ -623,7 +692,7 @@ async def semantic_search(req: SemanticSearchRequest, authorization: Optional[st
 
 @app.post("/semantic/index")
 async def semantic_index(req: SemanticIndexRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         from tools import semantic
         loop = asyncio.get_running_loop()
@@ -639,7 +708,7 @@ async def semantic_index(req: SemanticIndexRequest, authorization: Optional[str]
 
 @app.get("/semantic/stats")
 async def semantic_stats(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     try:
         from tools.semantic import stats
         return stats()
@@ -656,7 +725,7 @@ async def agent_handoff(req: HandoffRequest, authorization: Optional[str] = Head
     Eliminates cold-start re-discovery: the next agent calls /agent/pickup
     and immediately knows what was done, what's in progress, and what files matter.
     """
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     result = write_handoff(
         agent_id=req.agent_id,
         summary=req.summary,
@@ -675,7 +744,7 @@ async def agent_pickup(authorization: Optional[str] = Header(None)):
     Returns: last handoff + what changed since + current state summary.
     One call replaces: read memory → explore workspace → check what changed.
     """
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     handoff = read_handoff()
 
     # Get current lean state (just what matters for startup)
@@ -716,32 +785,32 @@ async def agent_pickup(authorization: Optional[str] = Header(None)):
 
 @app.get("/memory/context")
 async def memory_context(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     return get_session_context()
 
 
 @app.get("/memory/actions")
 async def memory_actions(n: int = 50, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     return {"actions": get_recent_actions(n)}
 
 
 @app.post("/memory/session")
 async def memory_session(req: SessionRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     session_id = start_session(req.agent_id)
     return {"ok": True, "session_id": session_id}
 
 
 @app.get("/memory/project")
 async def memory_project(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     return get_project_context()
 
 
 @app.post("/memory/project")
 async def memory_project_set(req: ContextRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     set_project_context(req.key, req.value)
     return {"ok": True}
 
@@ -750,13 +819,13 @@ async def memory_project_set(req: ContextRequest, authorization: Optional[str] =
 
 @app.get("/decisions")
 async def decisions_list(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     return {"pending": get_pending_decisions()}
 
 
 @app.post("/decisions/resolve")
 async def decisions_resolve(req: DecisionResolveRequest, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     ok = resolve_decision(req.decision_id, req.resolution)
     if not ok:
         raise HTTPException(status_code=404, detail="Decision not found")
@@ -767,7 +836,7 @@ async def decisions_resolve(req: DecisionResolveRequest, authorization: Optional
 
 @app.get("/processes")
 async def processes_list(authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     result = await _shell("ps aux --no-headers")
     procs = []
     for line in result.get("stdout", "").splitlines():
@@ -785,7 +854,7 @@ async def processes_list(authorization: Optional[str] = Header(None)):
 
 @app.delete("/processes/{pid}")
 async def processes_kill(pid: int, authorization: Optional[str] = Header(None)):
-    _verify_token(authorization)
+    _verify_any_token(authorization)
     result = await _shell(f"kill {pid}")
     log_action("process_kill", {"pid": pid})
     return {"ok": result["success"], "exit_code": result["exit_code"]}
@@ -797,5 +866,5 @@ if __name__ == "__main__":
     config = _load_config()
     host = config.get("api", {}).get("host", "0.0.0.0")
     port = config.get("api", {}).get("port", 7777)
-    print(json.dumps({"starting": True, "host": host, "port": port, "version": "0.3.0"}))
+    print(json.dumps({"starting": True, "host": host, "port": port, "version": "0.4.0"}))
     uvicorn.run(app, host=host, port=port, log_level="warning")
