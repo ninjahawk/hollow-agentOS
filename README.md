@@ -83,6 +83,20 @@ An agent that finishes writes a structured handoff. The next agent calls `GET /a
 
 ---
 
+## See it live
+
+![hollow token demo](demo.gif)
+
+Two real tasks. Both approaches execute against your live system. Token counts are measured, not estimated.
+
+Run it yourself:
+
+```bash
+python3 /agentOS/tools/token_demo.py
+```
+
+---
+
 ## Benchmarks
 
 Measured against a capable agent using raw shell commands on the same system.
@@ -96,7 +110,7 @@ Measured against a capable agent using raw shell commands on the same system.
 | File + context vs cat 3 full files | 12,632 tok | 6,202 tok | **51%** |
 | **Total** | **34,688 tok** | **10,913 tok** | **68.5%** |
 
-Run the benchmark yourself: `python3 /agentOS/tools/benchmark.py`
+Run the full benchmark: `python3 /agentOS/tools/bench_compare.py`
 
 Run integration tests (hits the live API, no mocks): `python3 /agentOS/tools/test_integration.py`
 
@@ -119,6 +133,8 @@ hollow-agentOS/
 │   └── manager.py         # Session log, workspace map, token tracking, handoffs
 ├── tools/
 │   ├── semantic.py        # AST-aware chunker + embedding search
+│   ├── token_demo.py      # 30-second live token efficiency demo
+│   ├── bench_compare.py   # Head-to-head token benchmark (3 scenarios)
 │   ├── benchmark.py       # Token efficiency benchmark suite
 │   └── test_integration.py # 58 live API integration tests (0 mocks)
 ├── shell/
