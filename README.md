@@ -10,7 +10,7 @@
 
 **An operating system built for agents. Not humans.**
 
-[![Version](https://img.shields.io/badge/version-0.4.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-0.5.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-WSL2%20%2F%20Linux-orange?style=flat-square)](#setup)
@@ -99,6 +99,8 @@ Measured against a capable agent using raw shell commands on the same system.
 
 Run the benchmark yourself: `python3 /agentOS/tools/benchmark.py`
 
+Run integration tests (hits the live API, no mocks): `python3 /agentOS/tools/test_integration.py`
+
 ---
 
 ## Architecture
@@ -113,12 +115,13 @@ hollow-agentOS/
 │   ├── bus.py             # Inter-agent message bus
 │   └── scheduler.py       # Task routing and agent spawning
 ├── mcp/
-│   └── server.py          # 22 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 35 MCP tools for Claude Code and compatible agents
 ├── memory/
 │   └── manager.py         # Session log, workspace map, token tracking, handoffs
 ├── tools/
 │   ├── semantic.py        # AST-aware chunker + embedding search
-│   └── benchmark.py       # Token efficiency benchmark suite
+│   ├── benchmark.py       # Token efficiency benchmark suite
+│   └── test_integration.py # 58 live API integration tests (0 mocks)
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── dashboard/
