@@ -11,7 +11,7 @@
   header h1 { font-size: 14px; color: #7fff7f; letter-spacing: 2px; text-transform: uppercase; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7fff7f; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
-  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #1a1a1a; height: calc(100vh - 45px); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1px; background: #1a1a1a; height: calc(100vh - 45px); }
   .panel { background: #0d0d0d; padding: 16px; overflow-y: auto; }
   .panel-title { color: #555; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #1a1a1a; padding-bottom: 8px; }
   .panel-title.sep { margin-top: 16px; }
@@ -86,6 +86,18 @@
 
     <div class="panel-title sep">Workspace <span id="file-count" style="color:#333"></span></div>
     <div id="workspace-content"><div class="empty">Not indexed</div></div>
+  </div>
+
+  <!-- FAR RIGHT: Agent OS -->
+  <div class="panel">
+    <div class="panel-title">Agent Registry <span id="agent-count" style="color:#333"></span></div>
+    <div id="agents-content"><div class="empty">Loading...</div></div>
+
+    <div class="panel-title sep">Message Bus</div>
+    <div id="bus-content"><div class="empty">No messages</div></div>
+
+    <div class="panel-title sep">Task Queue <span id="task-count" style="color:#333"></span></div>
+    <div id="tasks-content"><div class="empty">No tasks</div></div>
   </div>
 
 </div>
@@ -310,13 +322,66 @@ async function resolveDecision(id, resolution) {
   await refresh();
 }
 
+function renderAgents(agents) {
+  if (!agents || !agents.length) return '<div class="empty">No agents registered</div>';
+  const statusColor = { active: '#7fff7f', suspended: '#ffcc44', terminated: '#ff4444', registered: '#888' };
+  return agents.map(a => {
+    const color = statusColor[a.status] || '#888';
+    const budgetUsed = a.budget?.shell_calls > 0
+      ? Math.round((a.usage?.shell_calls || 0) / a.budget.shell_calls * 100)
+      : 0;
+    return `
+      <div class="action-item">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:${color};font-size:11px">● ${a.status}</span>
+          <span style="color:#444;font-size:10px">${a.agent_id}</span>
+        </div>
+        <div style="color:#aaa;font-size:12px">${a.name} <span style="color:#555">${a.role}</span></div>
+        <div style="color:#444;font-size:10px">caps:${a.capabilities?.length || 0} · shells:${a.usage?.shell_calls || 0} · tok_in:${(a.usage?.tokens_in || 0).toLocaleString()}</div>
+        ${budgetUsed > 0 ? `<div class="bar"><div class="bar-fill ${budgetUsed>=90?'bar-red':budgetUsed>=75?'bar-yellow':'bar-green'}" style="width:${budgetUsed}%"></div></div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function renderBus(tasks) {
+  // Show recent tasks as a proxy for bus activity
+  if (!tasks || !tasks.length) return '<div class="empty">No recent messages</div>';
+  const taskMsgs = tasks.filter(t => t.status === 'done' || t.status === 'running').slice(0, 5);
+  if (!taskMsgs.length) return '<div class="empty">No recent messages</div>';
+  return taskMsgs.map(t => `
+    <div class="action-item">
+      <div class="action-time">${fmt(t.created_at * 1000)} &mdash; scheduler→${t.submitted_by?.substring(0,8)}</div>
+      <div style="color:#7fff7f;font-size:11px">→ ${t.assigned_to || '?'} · ${t.status}</div>
+    </div>`).join('');
+}
+
+function renderTasks(tasks) {
+  if (!tasks || !tasks.length) return '<div class="empty">No tasks yet</div>';
+  return tasks.slice(0, 8).map(t => {
+    const ms = t.finished_at && t.started_at ? Math.round((t.finished_at - t.started_at) * 1000) : null;
+    const statusColor = t.status === 'done' ? '#7fff7f' : t.status === 'running' ? '#ffcc44' : t.status === 'failed' ? '#ff4444' : '#555';
+    const preview = (t.result?.response || t.description || '').substring(0, 60);
+    return `
+      <div class="action-item">
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:${statusColor};font-size:11px">${t.status}</span>
+          <span style="color:#444;font-size:10px">${ms ? ms+'ms' : ''}</span>
+        </div>
+        <div style="color:#888;font-size:11px">${t.assigned_to || '?'} · c${t.complexity}</div>
+        <div style="color:#666;font-size:10px">${preview}</div>
+      </div>`;
+  }).join('');
+}
+
 async function refresh() {
-  const [state, actionsData, decisionsData, handoffData, wmapFull] = await Promise.all([
+  const [state, actionsData, decisionsData, handoffData, wmapFull, agentsData, tasksData] = await Promise.all([
     apiFetch('/state'),
     apiFetch('/memory/actions?n=100'),
     apiFetch('/decisions'),
     apiFetch('/agent/pickup'),
-    apiFetch('/memory/context')
+    apiFetch('/memory/context'),
+    apiFetch('/agents'),
+    apiFetch('/tasks'),
   ]);
 
   document.getElementById('state-content').innerHTML = renderState(state);
@@ -333,6 +398,15 @@ async function refresh() {
   document.getElementById('file-count').textContent = `(${wmap.total_files || 0})`;
 
   document.getElementById('workspace-content').innerHTML = renderWorkspace(wmapFull.workspace_map || {});
+
+  const agents = agentsData.agents || [];
+  document.getElementById('agent-count').textContent = `(${agents.length})`;
+  document.getElementById('agents-content').innerHTML = renderAgents(agents);
+
+  const tasks = tasksData.tasks || [];
+  document.getElementById('task-count').textContent = `(${tasks.length})`;
+  document.getElementById('bus-content').innerHTML = renderBus(tasks);
+  document.getElementById('tasks-content').innerHTML = renderTasks(tasks);
 
   document.getElementById('status-dot').style.background = state.error ? '#ff4444' : '#7fff7f';
 }
