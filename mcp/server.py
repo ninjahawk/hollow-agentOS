@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.3.0
+AgentOS MCP Server v0.5.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (22 total):
+Tools (35 total):
   System:    state, state_diff
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
   Search:    search_files, search_content, semantic_search
   Git:       git_status, git_log, git_diff, git_commit
   Ollama:    ollama_chat
-  Agent:     agent_handoff, agent_pickup
+  Agent OS:  agent_register, agent_list, agent_get, agent_spawn,
+             agent_suspend, agent_resume, agent_terminate,
+             task_submit, task_get, task_list,
+             message_send, message_inbox, message_thread
+  Session:   agent_handoff, agent_pickup
   Memory:    memory_get, memory_set
   Decisions: decision_queue
   Workspace: workspace_diff
@@ -317,6 +321,178 @@ async def list_tools() -> list[Tool]:
             }
         ),
 
+        # ── Agent OS ──────────────────────────────────────────────────────────
+
+        Tool(
+            name="agent_register",
+            description=(
+                "Register a new agent with a name, role, and optional custom capabilities. "
+                "Returns agent_id and token (shown once — store it). "
+                "Roles: root, orchestrator, worker, coder, reasoner, readonly."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name":         {"type": "string", "description": "Human-readable agent name"},
+                    "role":         {"type": "string", "description": "Agent role (worker, coder, orchestrator, etc.)"},
+                    "capabilities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional capability override (shell, fs_read, fs_write, ollama, spawn, message, admin)"
+                    }
+                },
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="agent_list",
+            description="List all registered agents with their status, role, capabilities, and usage. Requires admin capability.",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="agent_get",
+            description="Get a single agent's record: status, role, capabilities, workspace, budget, usage.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to look up"}
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_spawn",
+            description=(
+                "Spawn a child agent, run one task with it, then auto-terminate it. "
+                "The scheduler routes the task to the right local model automatically. "
+                "Requires: spawn capability."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name":       {"type": "string", "description": "Name for the child agent"},
+                    "task":       {"type": "string", "description": "Task description to run"},
+                    "role":       {"type": "string", "description": "Child agent role (default: worker)"},
+                    "complexity": {"type": "integer", "description": "Task complexity 1-5 (routes to model tier)"}
+                },
+                "required": ["name", "task"]
+            }
+        ),
+        Tool(
+            name="agent_suspend",
+            description="Suspend an active agent. Its token will be rejected until resumed.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to suspend"}
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_resume",
+            description="Resume a suspended agent.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to resume"}
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_terminate",
+            description="Terminate an agent permanently. Cannot be undone. Cannot terminate root.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to terminate"}
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="task_submit",
+            description=(
+                "Submit a task to the scheduler. Complexity routes to the right local model automatically: "
+                "1-2 → mistral-nemo:12b (general), 3-4 → qwen2.5:14b (code), 5 → qwen3.5-35b-moe (reasoning). "
+                "Returns result synchronously with token usage and latency."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "description":   {"type": "string", "description": "Task description / prompt"},
+                    "complexity":    {"type": "integer", "description": "Complexity 1-5 (default: 2)"},
+                    "context":       {"type": "object", "description": "Optional extra context dict"},
+                    "system_prompt": {"type": "string", "description": "Optional system prompt override"}
+                },
+                "required": ["description"]
+            }
+        ),
+        Tool(
+            name="task_get",
+            description="Get a task result by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task ID from task_submit"}
+                },
+                "required": ["task_id"]
+            }
+        ),
+        Tool(
+            name="task_list",
+            description="List recent tasks with status, model role, complexity, and response preview.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max tasks to return (default: 20)"}
+                }
+            }
+        ),
+        Tool(
+            name="message_send",
+            description=(
+                "Send a typed message to another agent's inbox. "
+                "Types: task, result, alert, data, ping, log. "
+                "Use to_id='broadcast' to send to all agents. "
+                "Returns msg_id for threading."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "to_id":       {"type": "string", "description": "Recipient agent ID (or 'broadcast')"},
+                    "content":     {"type": "object", "description": "Message payload (any JSON object)"},
+                    "msg_type":    {"type": "string", "description": "Message type: task, result, alert, data, ping, log"},
+                    "reply_to":    {"type": "string", "description": "Parent msg_id for threading (optional)"},
+                    "ttl_seconds": {"type": "number", "description": "Message TTL in seconds (optional)"}
+                },
+                "required": ["to_id", "content"]
+            }
+        ),
+        Tool(
+            name="message_inbox",
+            description="Read messages from the current agent's inbox. Returns unread messages by default.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "unread_only": {"type": "boolean", "description": "Return only unread messages (default: true)"},
+                    "limit":       {"type": "integer", "description": "Max messages to return (default: 20)"}
+                }
+            }
+        ),
+        Tool(
+            name="message_thread",
+            description="Get a message and all its replies in chronological order.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "msg_id": {"type": "string", "description": "Root message ID"}
+                },
+                "required": ["msg_id"]
+            }
+        ),
+
         # ── Agent handoff ─────────────────────────────────────────────────────
         Tool(
             name="agent_handoff",
@@ -520,6 +696,77 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "ollama_chat":
             return _out(await _post("/ollama/chat", arguments))
+
+        elif name == "agent_register":
+            return _out(await _post("/agents/register", {
+                "name": arguments["name"],
+                "role": arguments.get("role", "worker"),
+                "capabilities": arguments.get("capabilities"),
+            }))
+
+        elif name == "agent_list":
+            return _out(await _get("/agents"))
+
+        elif name == "agent_get":
+            return _out(await _get(f"/agents/{arguments['agent_id']}"))
+
+        elif name == "agent_spawn":
+            return _out(await _post("/agents/spawn", {
+                "name":       arguments["name"],
+                "task":       arguments["task"],
+                "role":       arguments.get("role", "worker"),
+                "complexity": arguments.get("complexity", 2),
+            }))
+
+        elif name == "agent_suspend":
+            return _out(await _post(f"/agents/{arguments['agent_id']}/suspend"))
+
+        elif name == "agent_resume":
+            return _out(await _post(f"/agents/{arguments['agent_id']}/resume"))
+
+        elif name == "agent_terminate":
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=30) as c:
+                r = await c.delete(
+                    f"{_api_base()}/agents/{arguments['agent_id']}",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "task_submit":
+            return _out(await _post("/tasks/submit", {
+                "description":   arguments["description"],
+                "complexity":    arguments.get("complexity", 2),
+                "context":       arguments.get("context"),
+                "system_prompt": arguments.get("system_prompt"),
+            }))
+
+        elif name == "task_get":
+            return _out(await _get(f"/tasks/{arguments['task_id']}"))
+
+        elif name == "task_list":
+            params = {}
+            if "limit" in arguments:
+                params["limit"] = arguments["limit"]
+            return _out(await _get("/tasks", params))
+
+        elif name == "message_send":
+            return _out(await _post("/messages", {
+                "to_id":       arguments["to_id"],
+                "content":     arguments["content"],
+                "msg_type":    arguments.get("msg_type", "data"),
+                "reply_to":    arguments.get("reply_to"),
+                "ttl_seconds": arguments.get("ttl_seconds"),
+            }))
+
+        elif name == "message_inbox":
+            return _out(await _get("/messages", {
+                "unread_only": str(arguments.get("unread_only", True)).lower(),
+                "limit":       arguments.get("limit", 20),
+            }))
+
+        elif name == "message_thread":
+            return _out(await _get(f"/messages/thread/{arguments['msg_id']}"))
 
         elif name == "agent_handoff":
             body = {
