@@ -14,6 +14,8 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-WSL2%20%2F%20Linux-orange?style=flat-square)](#setup)
 
+![hollow token demo](demo.gif)
+
 </div>
 
 ---
@@ -80,20 +82,6 @@ POST /fs/read_context  →  file content + semantically related neighbors (1 cal
 ### Session Continuity
 
 An agent that finishes writes a structured handoff. The next agent calls `GET /agent/pickup` and gets everything — what was in progress, decisions made, relevant files, next steps, and all actions taken since the handoff was written. Cold-start re-discovery costs 83% fewer tokens with a handoff than without.
-
----
-
-## See it live
-
-![hollow token demo](demo.gif)
-
-Two real tasks. Both approaches execute against your live system. Token counts are measured, not estimated.
-
-Run it yourself:
-
-```bash
-python3 /agentOS/tools/token_demo.py
-```
 
 ---
 
