@@ -3,8 +3,13 @@
 AgentOS Semantic Search
 Embeds workspace files using nomic-embed-text via Ollama.
 Cosine similarity search over workspace chunks — no external vector DB needed.
+
+Chunking strategy:
+  .py files  → AST-aware: one chunk per function/class (finds the right code, not nearby lines)
+  other files → char-based with overlap (600 chars, 80 overlap)
 """
 
+import ast
 import json
 import math
 from datetime import datetime, timezone
@@ -15,8 +20,8 @@ import urllib.request
 SEMANTIC_INDEX_PATH = Path("/agentOS/memory/semantic-index.json")
 CONFIG_PATH = Path("/agentOS/config.json")
 EMBED_MODEL = "nomic-embed-text"
-CHUNK_SIZE = 600   # chars per chunk
-CHUNK_OVERLAP = 80 # overlap to preserve context across chunk boundaries
+CHUNK_SIZE = 600    # chars — used for non-Python files
+CHUNK_OVERLAP = 80  # overlap to preserve context across boundaries
 
 
 def _load_config() -> dict:
@@ -54,13 +59,100 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+# ── Char-based chunker (non-Python files) ────────────────────────────────────
+
 def chunk_text(text: str) -> list[str]:
+    """Naive character-based chunking with overlap. Used for non-Python files."""
     chunks, start = [], 0
     while start < len(text):
         chunks.append(text[start:start + CHUNK_SIZE])
         start += CHUNK_SIZE - CHUNK_OVERLAP
     return [c for c in chunks if c.strip()]
 
+
+# ── AST-aware chunker (Python files) ─────────────────────────────────────────
+
+def chunk_python_ast(text: str) -> list[str]:
+    """
+    AST-aware chunking for Python source files.
+    Each top-level function, async function, and class becomes its own chunk.
+    Large classes are split into header + per-method chunks.
+    Module-level code (imports, constants) becomes a separate leading chunk.
+    Falls back to char-based chunking on parse error.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return chunk_text(text)
+
+    lines = text.splitlines(keepends=True)
+    chunks = []
+
+    # Collect line ranges of top-level definitions
+    def_ranges = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for ln in range(node.lineno, node.end_lineno + 1):
+                def_ranges.add(ln)
+
+    # Module-level chunk: imports + top-level constants/assignments
+    module_lines = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            start = node.lineno - 1
+            end = node.end_lineno if hasattr(node, "end_lineno") else node.lineno
+            module_lines.extend(lines[start:end])
+    if module_lines:
+        chunk = "".join(module_lines).strip()
+        if chunk:
+            chunks.append(chunk)
+
+    # One chunk per top-level function / class
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+
+        start = node.lineno - 1
+        end = node.end_lineno
+        full_text = "".join(lines[start:end])
+
+        if isinstance(node, ast.ClassDef) and len(full_text) > CHUNK_SIZE * 3:
+            # Large class: emit class header (up to first method) + each method separately
+            first_method_line = None
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    first_method_line = item.lineno - 1
+                    break
+
+            header_end = first_method_line if first_method_line else end
+            header = "".join(lines[start:header_end]).strip()
+            if header:
+                chunks.append(header)
+
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    mstart = item.lineno - 1
+                    mend = item.end_lineno
+                    method = "".join(lines[mstart:mend]).strip()
+                    if method:
+                        chunks.append(method)
+        else:
+            if full_text.strip():
+                chunks.append(full_text.strip())
+
+    return chunks if chunks else chunk_text(text)
+
+
+# ── Dispatcher: picks chunker by file type ────────────────────────────────────
+
+def chunk_file(text: str, filepath: str) -> list[str]:
+    """Choose chunking strategy based on file extension."""
+    if filepath.endswith(".py"):
+        return chunk_python_ast(text)
+    return chunk_text(text)
+
+
+# ── Index ─────────────────────────────────────────────────────────────────────
 
 def load_index() -> dict:
     if SEMANTIC_INDEX_PATH.exists():
@@ -80,7 +172,6 @@ def index_files(paths: list[str]) -> dict:
     """Embed a list of files and update the semantic index."""
     index = load_index()
     path_set = set(paths)
-    # Drop stale entries for files being re-indexed
     index["chunks"] = [c for c in index["chunks"] if c["file"] not in path_set]
 
     added, failed = 0, 0
@@ -94,7 +185,7 @@ def index_files(paths: list[str]) -> dict:
             failed += 1
             continue
 
-        for i, chunk in enumerate(chunk_text(text)):
+        for i, chunk in enumerate(chunk_file(text, path)):
             vec = embed(chunk)
             if vec is None:
                 failed += 1
@@ -181,6 +272,12 @@ if __name__ == "__main__":
         print(json.dumps(search(q), indent=2))
     elif cmd == "stats":
         print(json.dumps(stats()))
+    elif cmd == "test-chunker":
+        path = sys.argv[2] if len(sys.argv) > 2 else __file__
+        text = Path(path).read_text()
+        chunks = chunk_file(text, path)
+        print(json.dumps({"file": path, "chunks": len(chunks),
+                          "previews": [c[:80] for c in chunks]}, indent=2))
     else:
         print(json.dumps({"error": f"unknown command: {cmd}"}))
         sys.exit(1)

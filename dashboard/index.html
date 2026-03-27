@@ -76,10 +76,13 @@
     <div id="actions-content"><div class="empty">No actions yet</div></div>
   </div>
 
-  <!-- RIGHT: Decisions + Workspace -->
+  <!-- RIGHT: Decisions + Handoff + Workspace -->
   <div class="panel">
     <div class="panel-title">Pending Decisions</div>
     <div id="decisions-content"><div class="empty">No pending decisions</div></div>
+
+    <div class="panel-title sep">Agent Handoff</div>
+    <div id="handoff-content"><div class="empty">Loading...</div></div>
 
     <div class="panel-title sep">Workspace <span id="file-count" style="color:#333"></span></div>
     <div id="workspace-content"><div class="empty">Not indexed</div></div>
@@ -213,6 +216,32 @@ function renderState(data) {
     }
   }
 
+  // --- Token Budget ---
+  const tt = data.token_totals || {};
+  const lf = tt.lifetime || {};
+  html += `<div class="panel-title sep">Token Budget</div>`;
+  if (lf.shell_calls !== undefined) {
+    html += `
+      <div class="stat-row"><span class="stat-label">Shell calls</span><span class="stat-value">${lf.shell_calls}</span></div>
+      <div class="stat-row"><span class="stat-label">File reads</span><span class="stat-value">${lf.file_reads}</span></div>
+      <div class="stat-row"><span class="stat-label">File writes</span><span class="stat-value">${lf.file_writes}</span></div>
+      <div class="stat-row"><span class="stat-label">Ollama calls</span><span class="stat-value">${lf.ollama_calls}</span></div>
+      <div class="stat-row"><span class="stat-label">Ollama in</span><span class="stat-value">${(lf.ollama_tokens_in || 0).toLocaleString()} tok</span></div>
+      <div class="stat-row"><span class="stat-label">Ollama out</span><span class="stat-value hl-green">${(lf.ollama_tokens_out || 0).toLocaleString()} tok</span></div>
+    `;
+    const byModel = tt.by_model || {};
+    const modelNames = Object.keys(byModel);
+    if (modelNames.length) {
+      html += `<div class="panel-title sep">By Model</div>`;
+      modelNames.forEach(m => {
+        const md = byModel[m];
+        html += `<div class="stat-row"><span class="stat-label">${m.split(':')[0]}</span><span class="stat-value">${md.calls}× · ${(md.tokens_in||0)+(md.tokens_out||0)} tok</span></div>`;
+      });
+    }
+  } else {
+    html += `<div class="stat-row"><span class="stat-label">Status</span><span class="stat-value hl-dim">no data</span></div>`;
+  }
+
   return html;
 }
 
@@ -252,6 +281,27 @@ function renderWorkspace(data) {
   return files.map(f => `<div class="workspace-file">${f}</div>`).join('');
 }
 
+function renderHandoff(data) {
+  if (!data || data.error) return '<div class="empty">No handoff yet</div>';
+  const h = data.handoff;
+  if (!h) return '<div class="empty">No handoff written</div>';
+  let html = '';
+  html += `<div class="stat-row"><span class="stat-label">Written</span><span class="stat-value">${fmt(h.written_at)} (${ageStr(h.written_at)})</span></div>`;
+  html += `<div class="stat-row"><span class="stat-label">By</span><span class="stat-value">${h.written_by || '—'}</span></div>`;
+  if (h.summary) html += `<div style="color:#aaa;font-size:12px;padding:4px 0;border-bottom:1px solid #111">${h.summary.substring(0, 120)}</div>`;
+  if (h.in_progress && h.in_progress.length) {
+    html += `<div class="panel-title sep">In Progress</div>`;
+    h.in_progress.forEach(t => html += `<div class="workspace-file" style="color:#ffcc44">▸ ${t}</div>`);
+  }
+  if (h.next_steps && h.next_steps.length) {
+    html += `<div class="panel-title sep">Next Steps</div>`;
+    h.next_steps.forEach(t => html += `<div class="workspace-file" style="color:#7fff7f">→ ${t}</div>`);
+  }
+  const changes = data.changes_since || [];
+  html += `<div class="stat-row" style="margin-top:8px"><span class="stat-label">Changes since</span><span class="stat-value">${changes.length}</span></div>`;
+  return html;
+}
+
 async function resolveDecision(id, resolution) {
   await apiFetch('/decisions/resolve', {
     method: 'POST',
@@ -261,10 +311,12 @@ async function resolveDecision(id, resolution) {
 }
 
 async function refresh() {
-  const [state, actionsData, decisionsData] = await Promise.all([
+  const [state, actionsData, decisionsData, handoffData, wmapFull] = await Promise.all([
     apiFetch('/state'),
     apiFetch('/memory/actions?n=100'),
-    apiFetch('/decisions')
+    apiFetch('/decisions'),
+    apiFetch('/agent/pickup'),
+    apiFetch('/memory/context')
   ]);
 
   document.getElementById('state-content').innerHTML = renderState(state);
@@ -275,10 +327,11 @@ async function refresh() {
 
   document.getElementById('decisions-content').innerHTML = renderDecisions(decisionsData.pending || []);
 
+  document.getElementById('handoff-content').innerHTML = renderHandoff(handoffData);
+
   const wmap = state.workspace || {};
   document.getElementById('file-count').textContent = `(${wmap.total_files || 0})`;
 
-  const wmapFull = await apiFetch('/memory/context');
   document.getElementById('workspace-content').innerHTML = renderWorkspace(wmapFull.workspace_map || {});
 
   document.getElementById('status-dot').style.background = state.error ? '#ff4444' : '#7fff7f';

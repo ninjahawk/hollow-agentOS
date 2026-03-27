@@ -20,6 +20,7 @@ SESSION_LOG     = MEMORY_PATH / "session-log.json"
 TOOL_REGISTRY   = MEMORY_PATH / "tool-registry.json"
 PROJECT_CONTEXT = MEMORY_PATH / "project-context.json"
 DECISIONS       = MEMORY_PATH / "decisions-needed.json"
+TOKEN_TOTALS    = MEMORY_PATH / "token-totals.json"
 
 
 def _now() -> str:
@@ -40,7 +41,7 @@ def _save(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2))
 
 
-# ── Workspace Map ─────────────────────────────────────────────────────────────
+# ── Workspace Map ────────────────────────────────────────────────────────────
 
 def index_workspace(root: str = None) -> dict:
     """Scan workspace and build a file index. Skips hidden dirs and common noise."""
@@ -66,7 +67,6 @@ def index_workspace(root: str = None) -> dict:
     }
 
     for item in root_path.rglob("*"):
-        # skip hidden and noisy dirs
         if any(part in SKIP_DIRS for part in item.parts):
             continue
         if item.name.startswith("."):
@@ -117,10 +117,10 @@ def find_files(pattern: str) -> list:
     ]
 
 
-# ── Session Log ───────────────────────────────────────────────────────────────
+# ── Session Log ──────────────────────────────────────────────────────────────
 
 def log_action(action: str, details: dict = None) -> None:
-    """Append an action to the session log."""
+    """Append an action to the session log and update persistent token totals."""
     log = _load(SESSION_LOG, {"sessions": [], "current_session": None, "actions": []})
     config = _load(CONFIG_PATH, {})
     max_entries = config.get("memory", {}).get("max_session_log_entries", 10000)
@@ -133,11 +133,26 @@ def log_action(action: str, details: dict = None) -> None:
 
     log["actions"].append(entry)
 
-    # trim if too long
     if len(log["actions"]) > max_entries:
         log["actions"] = log["actions"][-max_entries:]
 
     _save(SESSION_LOG, log)
+
+    # Update persistent token totals for trackable actions
+    d = details or {}
+    if action == "shell_command":
+        update_token_totals("shell_call")
+    elif action == "file_read":
+        update_token_totals("file_read")
+    elif action == "file_write":
+        update_token_totals("file_write")
+    elif action in ("ollama_chat", "ollama_generate"):
+        update_token_totals(
+            "ollama",
+            model=d.get("model"),
+            tokens_in=d.get("tokens_in", 0),
+            tokens_out=d.get("tokens_out", 0)
+        )
 
 
 def start_session(agent_id: str = "agent") -> str:
@@ -157,7 +172,58 @@ def get_recent_actions(n: int = 50) -> list:
     return log["actions"][-n:]
 
 
-# ── Tool Registry ─────────────────────────────────────────────────────────────
+# ── Token Totals (persistent across sessions) ────────────────────────────────
+
+def update_token_totals(action_type: str, model: str = None,
+                        tokens_in: int = 0, tokens_out: int = 0) -> None:
+    """Update lifetime token/usage counters. Called automatically from log_action."""
+    totals = _load(TOKEN_TOTALS, {
+        "updated_at": _now(),
+        "lifetime": {
+            "shell_calls": 0,
+            "file_reads": 0,
+            "file_writes": 0,
+            "ollama_calls": 0,
+            "ollama_tokens_in": 0,
+            "ollama_tokens_out": 0
+        },
+        "by_model": {}
+    })
+
+    lt = totals["lifetime"]
+    if action_type == "shell_call":
+        lt["shell_calls"] = lt.get("shell_calls", 0) + 1
+    elif action_type == "file_read":
+        lt["file_reads"] = lt.get("file_reads", 0) + 1
+    elif action_type == "file_write":
+        lt["file_writes"] = lt.get("file_writes", 0) + 1
+    elif action_type == "ollama":
+        lt["ollama_calls"] = lt.get("ollama_calls", 0) + 1
+        lt["ollama_tokens_in"] = lt.get("ollama_tokens_in", 0) + (tokens_in or 0)
+        lt["ollama_tokens_out"] = lt.get("ollama_tokens_out", 0) + (tokens_out or 0)
+        if model:
+            bm = totals.setdefault("by_model", {})
+            m = bm.setdefault(model, {"calls": 0, "tokens_in": 0, "tokens_out": 0})
+            m["calls"] += 1
+            m["tokens_in"] += tokens_in or 0
+            m["tokens_out"] += tokens_out or 0
+
+    totals["updated_at"] = _now()
+    _save(TOKEN_TOTALS, totals)
+
+
+def get_token_totals() -> dict:
+    """Get lifetime token usage counters."""
+    return _load(TOKEN_TOTALS, {
+        "lifetime": {
+            "shell_calls": 0, "file_reads": 0, "file_writes": 0,
+            "ollama_calls": 0, "ollama_tokens_in": 0, "ollama_tokens_out": 0
+        },
+        "by_model": {}
+    })
+
+
+# ── Tool Registry ────────────────────────────────────────────────────────────
 
 def register_tool(name: str, description: str, usage: str, path: str) -> None:
     registry = _load(TOOL_REGISTRY, {"tools": {}})
@@ -192,7 +258,7 @@ def bootstrap_tool_registry() -> None:
         register_tool(name, desc, usage, path)
 
 
-# ── Project Context ───────────────────────────────────────────────────────────
+# ── Project Context ──────────────────────────────────────────────────────────
 
 def set_project_context(key: str, value: Any) -> None:
     ctx = _load(PROJECT_CONTEXT, {})
@@ -205,7 +271,7 @@ def get_project_context() -> dict:
     return _load(PROJECT_CONTEXT, {})
 
 
-# ── Decisions Queue ───────────────────────────────────────────────────────────
+# ── Decisions Queue ──────────────────────────────────────────────────────────
 
 def queue_decision(message: str, context: dict = None, blocking: bool = False) -> str:
     """
@@ -244,6 +310,38 @@ def resolve_decision(decision_id: str, resolution: str) -> bool:
 
 def get_pending_decisions() -> list:
     return _load(DECISIONS, {"pending": []})["pending"]
+
+
+# ── Agent Handoff ────────────────────────────────────────────────────────────
+
+HANDOFF_PATH = MEMORY_PATH / "handoff.json"
+
+
+def write_handoff(agent_id: str, summary: str, in_progress: list = None,
+                  decisions_made: list = None, relevant_files: list = None,
+                  next_steps: list = None) -> dict:
+    """
+    Write a structured handoff for the next agent session.
+    This eliminates session-start token waste from re-discovery.
+    """
+    handoff = {
+        "written_at": _now(),
+        "written_by": agent_id,
+        "summary": summary,
+        "in_progress": in_progress or [],
+        "decisions_made": decisions_made or [],
+        "relevant_files": relevant_files or [],
+        "next_steps": next_steps or [],
+        "token_totals_at_handoff": get_token_totals()
+    }
+    _save(HANDOFF_PATH, handoff)
+    log_action("agent_handoff", {"agent_id": agent_id, "summary": summary[:100]})
+    return handoff
+
+
+def read_handoff() -> dict:
+    """Get the last handoff written by a previous agent session."""
+    return _load(HANDOFF_PATH, None)
 
 
 # ── Session Context Dump ──────────────────────────────────────────────────────
@@ -303,6 +401,14 @@ if __name__ == "__main__":
         value = json.loads(sys.argv[3])
         set_project_context(key, value)
         print(json.dumps({"ok": True}))
+
+    elif cmd == "token-totals":
+        print(json.dumps(get_token_totals(), indent=2))
+
+    elif cmd == "handoff":
+        summary = sys.argv[2] if len(sys.argv) > 2 else "No summary provided"
+        result = write_handoff("cli", summary)
+        print(json.dumps({"ok": True, "written_at": result["written_at"]}))
 
     else:
         print(json.dumps({"error": f"Unknown command: {cmd}"}))

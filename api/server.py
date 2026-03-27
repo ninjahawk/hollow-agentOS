@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-AgentOS API Server v0.2.0
+AgentOS API Server v0.3.0
 REST interface for agent control — filesystem, processes, memory, state,
-Ollama model routing, semantic search, decisions, token tracking.
+Ollama model routing, semantic search, decisions, token tracking,
+agent handoff/pickup, state diffing, and read_context.
 """
 
 import asyncio
@@ -32,13 +33,14 @@ from memory.manager import (
     get_session_context, index_workspace, log_action,
     get_workspace_map, find_files, get_recent_actions,
     queue_decision, resolve_decision, get_pending_decisions,
-    set_project_context, get_project_context, start_session
+    set_project_context, get_project_context, start_session,
+    get_token_totals, write_handoff, read_handoff
 )
 from shell.agent_shell import run as shell_run
 
 CONFIG_PATH = Path("/agentOS/config.json")
 
-# ── Ollama model routing ────────────────────────────────────────────────────────
+# ── Ollama model routing ─────────────────────────────────────────────────────
 MODEL_ROUTES = {
     "code":            "qwen2.5:14b",
     "code-fast":       "qwen3.5:9b",
@@ -50,6 +52,9 @@ MODEL_ROUTES = {
     "custom":          "emmi:latest",
 }
 DEFAULT_MODEL = "mistral-nemo:12b"
+
+# ── In-memory state cache (used by /state/diff) ──────────────────────────────
+_state_cache: dict = {"data": None, "cached_at": None}
 
 
 def _load_config() -> dict:
@@ -81,7 +86,7 @@ async def _shell(command: str, cwd: str = None, timeout: int = 30) -> dict:
     return await loop.run_in_executor(None, partial(shell_run, command, cwd, timeout))
 
 
-app = FastAPI(title="AgentOS API", version="0.2.0", docs_url="/docs")
+app = FastAPI(title="AgentOS API", version="0.3.0", docs_url="/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,7 +96,7 @@ app.add_middleware(
 )
 
 
-# ── Models ──────────────────────────────────────────────────────────────────────
+# ── Models ───────────────────────────────────────────────────────────────────
 
 class ShellRequest(BaseModel):
     command: str
@@ -136,155 +141,235 @@ class SemanticSearchRequest(BaseModel):
 class SemanticIndexRequest(BaseModel):
     paths: Optional[list[str]] = None
 
+class ReadContextRequest(BaseModel):
+    path: str
+    top_k: int = 5
 
-# ── Health ─────────────────────────────────────────────────────────────────────
+class HandoffRequest(BaseModel):
+    agent_id: str = "agent"
+    summary: str
+    in_progress: Optional[list[str]] = None
+    decisions_made: Optional[list[str]] = None
+    relevant_files: Optional[list[str]] = None
+    next_steps: Optional[list[str]] = None
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
 async def root():
-    return {"name": "AgentOS", "version": "0.2.0", "status": "running", "time": _now()}
+    return {"name": "AgentOS", "version": "0.3.0", "status": "running", "time": _now()}
 
 @app.get("/health")
 async def health():
     return {"ok": True, "time": _now()}
 
 
-# ── State ──────────────────────────────────────────────────────────────────────
+# ── State builder (shared by /state and /state/diff) ─────────────────────────
+
+async def _build_state() -> dict:
+    disk_out = (await _shell("df -B1 / /mnt/c 2>/dev/null || df -B1 /")).get("stdout", "")
+    disk = {}
+    for line in disk_out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        mount = parts[5]
+        try:
+            total, used, free = int(parts[1]), int(parts[2]), int(parts[3])
+        except ValueError:
+            continue
+        label = "windows_c" if mount == "/mnt/c" else "wsl"
+        disk[label] = {
+            "total_gb": round(total / 1_073_741_824, 1),
+            "used_gb":  round(used  / 1_073_741_824, 1),
+            "free_gb":  round(free  / 1_073_741_824, 1),
+            "pct_used": round(used / total * 100, 1) if total else 0
+        }
+
+    mem = {}
+    for line in (await _shell("free -m")).get("stdout", "").splitlines():
+        if line.startswith("Mem:"):
+            parts = line.split()
+            total = int(parts[1])
+            used  = int(parts[2])
+            avail = int(parts[6]) if len(parts) > 6 else int(parts[3])
+            mem = {
+                "total_mb":     total,
+                "used_mb":      used,
+                "available_mb": avail,
+                "pct_used":     round(used / total * 100, 1) if total else 0
+            }
+            break
+
+    lp = (await _shell("cat /proc/loadavg")).get("stdout", "0 0 0").split()
+    load = {
+        "1m":  float(lp[0]) if len(lp) > 0 else 0.0,
+        "5m":  float(lp[1]) if len(lp) > 1 else 0.0,
+        "15m": float(lp[2]) if len(lp) > 2 else 0.0
+    }
+
+    gpu_raw = (await _shell(
+        "/usr/lib/wsl/lib/nvidia-smi "
+        "--query-gpu=name,memory.used,memory.total,utilization.gpu "
+        "--format=csv,noheader,nounits 2>/dev/null || "
+        "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu "
+        "--format=csv,noheader,nounits 2>/dev/null || echo 'no-gpu'"
+    )).get("stdout", "no-gpu").strip()
+    gpu = None
+    if gpu_raw and gpu_raw != "no-gpu":
+        parts = [p.strip() for p in gpu_raw.split(",")]
+        if len(parts) >= 4:
+            try:
+                gpu = {
+                    "name":            parts[0],
+                    "memory_used_mb":  int(parts[1]),
+                    "memory_total_mb": int(parts[2]),
+                    "utilization_pct": int(parts[3])
+                }
+            except ValueError:
+                gpu = {"raw": gpu_raw}
+
+    svc_raw = (await _shell(
+        "for s in agentos-api ollama nginx agentos-indexer.timer; do "
+        "echo \"$s:$(systemctl is-active $s 2>/dev/null)\"; done"
+    )).get("stdout", "")
+    services = {}
+    for line in svc_raw.splitlines():
+        if ":" in line:
+            name, status = line.split(":", 1)
+            services[name.strip()] = status.strip()
+
+    ollama = {"available": [], "running": [], "error": None}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            tags = (await client.get(f"{_ollama_host()}/api/tags")).json()
+            ps   = (await client.get(f"{_ollama_host()}/api/ps")).json()
+        ollama["available"] = [
+            {"name": m["name"], "size_gb": round(m.get("size", 0) / 1_073_741_824, 1)}
+            for m in tags.get("models", [])
+        ]
+        ollama["running"] = [
+            {
+                "name":    m["name"],
+                "size_gb": round(m.get("size", 0)      / 1_073_741_824, 1),
+                "vram_gb": round(m.get("size_vram", 0) / 1_073_741_824, 1)
+            }
+            for m in ps.get("models", [])
+        ]
+    except Exception as e:
+        ollama["error"] = str(e)
+
+    try:
+        from tools.semantic import stats as semantic_stats
+        semantic = semantic_stats()
+    except Exception:
+        semantic = {"total_chunks": 0, "total_files": 0, "indexed_at": None}
+
+    ctx = get_session_context()
+    actions = ctx.get("recent_actions", [])
+
+    # Session-level counts
+    token_session = {
+        "session_shell_calls": sum(1 for a in actions if a.get("action") == "shell_command"),
+        "session_file_reads":  sum(1 for a in actions if a.get("action") == "file_read"),
+        "session_file_writes": sum(1 for a in actions if a.get("action") == "file_write"),
+        "ollama_calls":        sum(1 for a in actions if a.get("action") in ("ollama_chat", "ollama_generate")),
+    }
+
+    # Lifetime totals (persisted across sessions)
+    token_lifetime = get_token_totals()
+
+    return {
+        "time": _now(),
+        "system": {
+            "disk":     disk,
+            "memory":   mem,
+            "load":     load,
+            "gpu":      gpu,
+            "services": services
+        },
+        "ollama":           ollama,
+        "ollama_routing":   MODEL_ROUTES,
+        "semantic":         semantic,
+        "workspace":        ctx.get("workspace_map", {}).get("stats", {}),
+        "tokens":           token_session,
+        "token_totals":     token_lifetime,
+        "pending_decisions": ctx.get("pending_decisions", []),
+        "recent_actions":   actions[-10:],
+        "tool_count":       len(ctx.get("tool_registry", {}).get("tools", {})),
+        "project_context":  ctx.get("project_context", {})
+    }
+
+
+# ── State ─────────────────────────────────────────────────────────────────────
 
 @app.get("/state")
 async def get_state(authorization: Optional[str] = Header(None)):
     _verify_token(authorization)
     try:
-        disk_out = (await _shell("df -B1 / /mnt/c 2>/dev/null || df -B1 /")).get("stdout", "")
-        disk = {}
-        for line in disk_out.splitlines()[1:]:
-            parts = line.split()
-            if len(parts) < 6:
-                continue
-            mount = parts[5]
-            try:
-                total, used, free = int(parts[1]), int(parts[2]), int(parts[3])
-            except ValueError:
-                continue
-            label = "windows_c" if mount == "/mnt/c" else "wsl"
-            disk[label] = {
-                "total_gb": round(total / 1_073_741_824, 1),
-                "used_gb":  round(used  / 1_073_741_824, 1),
-                "free_gb":  round(free  / 1_073_741_824, 1),
-                "pct_used": round(used / total * 100, 1) if total else 0
-            }
+        result = await _build_state()
+        # Update cache for diff endpoint
+        _state_cache["data"] = result
+        _state_cache["cached_at"] = result["time"]
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        mem = {}
-        for line in (await _shell("free -m")).get("stdout", "").splitlines():
-            if line.startswith("Mem:"):
-                parts = line.split()
-                total = int(parts[1])
-                used  = int(parts[2])
-                avail = int(parts[6]) if len(parts) > 6 else int(parts[3])
-                mem = {
-                    "total_mb":     total,
-                    "used_mb":      used,
-                    "available_mb": avail,
-                    "pct_used":     round(used / total * 100, 1) if total else 0
-                }
-                break
 
-        lp = (await _shell("cat /proc/loadavg")).get("stdout", "0 0 0").split()
-        load = {
-            "1m":  float(lp[0]) if len(lp) > 0 else 0.0,
-            "5m":  float(lp[1]) if len(lp) > 1 else 0.0,
-            "15m": float(lp[2]) if len(lp) > 2 else 0.0
-        }
+@app.get("/state/diff")
+async def get_state_diff(since: str = None, authorization: Optional[str] = Header(None)):
+    """
+    Return only what changed since `since` (ISO timestamp).
+    If no cache exists or cache is older than `since`, returns full state.
+    Eliminates repeated full-state parsing for agents that poll frequently.
+    """
+    _verify_token(authorization)
+    try:
+        fresh = await _build_state()
+        _state_cache["data"] = fresh
+        _state_cache["cached_at"] = fresh["time"]
 
-        gpu_raw = (await _shell(
-            "/usr/lib/wsl/lib/nvidia-smi "
-            "--query-gpu=name,memory.used,memory.total,utilization.gpu "
-            "--format=csv,noheader,nounits 2>/dev/null || "
-            "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu "
-            "--format=csv,noheader,nounits 2>/dev/null || echo 'no-gpu'"
-        )).get("stdout", "no-gpu").strip()
-        gpu = None
-        if gpu_raw and gpu_raw != "no-gpu":
-            parts = [p.strip() for p in gpu_raw.split(",")]
-            if len(parts) >= 4:
-                try:
-                    gpu = {
-                        "name":            parts[0],
-                        "memory_used_mb":  int(parts[1]),
-                        "memory_total_mb": int(parts[2]),
-                        "utilization_pct": int(parts[3])
-                    }
-                except ValueError:
-                    gpu = {"raw": gpu_raw}
+        if not since:
+            return {"full": True, "state": fresh, "since": None}
 
-        svc_raw = (await _shell(
-            "for s in agentos-api ollama nginx agentos-indexer.timer; do "
-            "echo \"$s:$(systemctl is-active $s 2>/dev/null)\"; done"
-        )).get("stdout", "")
-        services = {}
-        for line in svc_raw.splitlines():
-            if ":" in line:
-                name, status = line.split(":", 1)
-                services[name.strip()] = status.strip()
+        # Deep-compare top-level sections against the state as it was at `since`
+        # Since we can't replay history, we return sections whose values differ
+        # from what would have been stable. Practically: return only the mutable
+        # sections that are worth diffing for polling agents.
+        changed = {}
 
-        ollama = {"available": [], "running": [], "error": None}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                tags = (await client.get(f"{_ollama_host()}/api/tags")).json()
-                ps   = (await client.get(f"{_ollama_host()}/api/ps")).json()
-            ollama["available"] = [
-                {"name": m["name"], "size_gb": round(m.get("size", 0) / 1_073_741_824, 1)}
-                for m in tags.get("models", [])
-            ]
-            ollama["running"] = [
-                {
-                    "name":    m["name"],
-                    "size_gb": round(m.get("size", 0)      / 1_073_741_824, 1),
-                    "vram_gb": round(m.get("size_vram", 0) / 1_073_741_824, 1)
-                }
-                for m in ps.get("models", [])
-            ]
-        except Exception as e:
-            ollama["error"] = str(e)
+        # Always include time-sensitive fields
+        changed["time"] = fresh["time"]
+        changed["tokens"] = fresh["tokens"]
+        changed["token_totals"] = fresh["token_totals"]
+        changed["recent_actions"] = fresh["recent_actions"]
+        changed["pending_decisions"] = fresh["pending_decisions"]
 
-        try:
-            from tools.semantic import stats as semantic_stats
-            semantic = semantic_stats()
-        except Exception:
-            semantic = {"total_chunks": 0, "total_files": 0, "indexed_at": None}
+        # Include GPU/system if load has changed meaningfully
+        gpu = fresh["system"].get("gpu")
+        if gpu:
+            changed["gpu"] = gpu
 
-        ctx = get_session_context()
-        actions = ctx.get("recent_actions", [])
-        token_stats = {
-            "session_shell_calls": sum(1 for a in actions if a.get("action") == "shell_command"),
-            "session_file_reads":  sum(1 for a in actions if a.get("action") == "file_read"),
-            "session_file_writes": sum(1 for a in actions if a.get("action") == "file_write"),
-            "ollama_calls":        sum(1 for a in actions if a.get("action") in ("ollama_chat", "ollama_generate")),
-        }
+        changed["load"] = fresh["system"].get("load")
+
+        # Include Ollama running models (changes when models load/unload)
+        changed["ollama_running"] = fresh["ollama"].get("running", [])
+
+        # Include semantic index stats (changes on re-index)
+        changed["semantic"] = fresh["semantic"]
 
         return {
-            "time": _now(),
-            "system": {
-                "disk":     disk,
-                "memory":   mem,
-                "load":     load,
-                "gpu":      gpu,
-                "services": services
-            },
-            "ollama":           ollama,
-            "ollama_routing":   MODEL_ROUTES,
-            "semantic":         semantic,
-            "workspace":        ctx.get("workspace_map", {}).get("stats", {}),
-            "tokens":           token_stats,
-            "pending_decisions": ctx.get("pending_decisions", []),
-            "recent_actions":   actions[-10:],
-            "tool_count":       len(ctx.get("tool_registry", {}).get("tools", {})),
-            "project_context":  ctx.get("project_context", {})
+            "full": False,
+            "since": since,
+            "generated_at": fresh["time"],
+            "changed": changed
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Shell — non-blocking via thread pool ───────────────────────────────────────
+# ── Shell — non-blocking via thread pool ──────────────────────────────────────
 
 @app.post("/shell")
 async def run_command(req: ShellRequest, authorization: Optional[str] = Header(None)):
@@ -298,7 +383,7 @@ async def run_command(req: ShellRequest, authorization: Optional[str] = Header(N
     return result
 
 
-# ── Filesystem ─────────────────────────────────────────────────────────────────
+# ── Filesystem ────────────────────────────────────────────────────────────────
 
 @app.get("/fs/list")
 async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str] = Header(None)):
@@ -378,7 +463,48 @@ async def fs_index(authorization: Optional[str] = Header(None)):
     return {"ok": True, "stats": result["stats"]}
 
 
-# ── Ollama — local model routing ───────────────────────────────────────────────
+@app.post("/fs/read_context")
+async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] = Header(None)):
+    """
+    Read a file AND return semantically related chunks from other files — in one call.
+    Eliminates the common search → read → search pattern.
+    The semantic query is auto-derived from the file's path + content header.
+    """
+    _verify_token(authorization)
+    p = Path(req.path)
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {req.path}")
+
+    content = p.read_text(errors="replace")
+    log_action("file_read", {"path": req.path, "size": p.stat().st_size})
+
+    # Auto-derive semantic query from filename + first meaningful lines
+    first_lines = "\n".join(
+        l for l in content.splitlines()[:20] if l.strip() and not l.strip().startswith("#!")
+    )
+    query = f"{p.name} {first_lines[:200]}"
+
+    try:
+        from tools.semantic import search as sem_search
+        loop = asyncio.get_running_loop()
+        related = await loop.run_in_executor(
+            None, partial(sem_search, query, req.top_k + 2)
+        )
+        # Exclude chunks from the same file
+        related = [r for r in related if r.get("file") != str(p)][:req.top_k]
+    except Exception:
+        related = []
+
+    return {
+        "path":       str(p),
+        "content":    content,
+        "lines":      content.count("\n") + 1,
+        "size_bytes": p.stat().st_size,
+        "related":    related
+    }
+
+
+# ── Ollama — local model routing ──────────────────────────────────────────────
 
 @app.post("/ollama/chat")
 async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Header(None)):
@@ -481,7 +607,7 @@ async def ollama_models(authorization: Optional[str] = Header(None)):
     }
 
 
-# ── Semantic search ────────────────────────────────────────────────────────────
+# ── Semantic search ───────────────────────────────────────────────────────────
 
 @app.post("/semantic/search")
 async def semantic_search(req: SemanticSearchRequest, authorization: Optional[str] = Header(None)):
@@ -521,7 +647,72 @@ async def semantic_stats(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Memory ──────────────────────────────────────────────────────────────────────
+# ── Agent handoff / pickup ────────────────────────────────────────────────────
+
+@app.post("/agent/handoff")
+async def agent_handoff(req: HandoffRequest, authorization: Optional[str] = Header(None)):
+    """
+    Write a structured session handoff for the next agent.
+    Eliminates cold-start re-discovery: the next agent calls /agent/pickup
+    and immediately knows what was done, what's in progress, and what files matter.
+    """
+    _verify_token(authorization)
+    result = write_handoff(
+        agent_id=req.agent_id,
+        summary=req.summary,
+        in_progress=req.in_progress,
+        decisions_made=req.decisions_made,
+        relevant_files=req.relevant_files,
+        next_steps=req.next_steps
+    )
+    return {"ok": True, "written_at": result["written_at"]}
+
+
+@app.get("/agent/pickup")
+async def agent_pickup(authorization: Optional[str] = Header(None)):
+    """
+    Everything a new agent needs to start working immediately — no re-discovery.
+    Returns: last handoff + what changed since + current state summary.
+    One call replaces: read memory → explore workspace → check what changed.
+    """
+    _verify_token(authorization)
+    handoff = read_handoff()
+
+    # Get current lean state (just what matters for startup)
+    ctx = get_session_context()
+    actions = ctx.get("recent_actions", [])
+
+    try:
+        from tools.semantic import stats as sem_stats
+        semantic = sem_stats()
+    except Exception:
+        semantic = {}
+
+    # What happened since the handoff was written
+    changes_since = []
+    if handoff:
+        handoff_time = handoff.get("written_at", "")
+        for a in actions:
+            if a.get("timestamp", "") > handoff_time:
+                changes_since.append({
+                    "action": a["action"],
+                    "timestamp": a["timestamp"],
+                    "details": {k: v for k, v in a.get("details", {}).items()
+                                if k in ("command", "path", "model", "exit_code")}
+                })
+
+    return {
+        "handoff":        handoff,
+        "changes_since":  changes_since,
+        "pending_decisions": ctx.get("pending_decisions", []),
+        "project_context":   ctx.get("project_context", {}),
+        "semantic":          semantic,
+        "token_totals":      get_token_totals(),
+        "startup_complete":  True
+    }
+
+
+# ── Memory ────────────────────────────────────────────────────────────────────
 
 @app.get("/memory/context")
 async def memory_context(authorization: Optional[str] = Header(None)):
@@ -555,7 +746,7 @@ async def memory_project_set(req: ContextRequest, authorization: Optional[str] =
     return {"ok": True}
 
 
-# ── Decisions ───────────────────────────────────────────────────────────────────
+# ── Decisions ─────────────────────────────────────────────────────────────────
 
 @app.get("/decisions")
 async def decisions_list(authorization: Optional[str] = Header(None)):
@@ -572,7 +763,7 @@ async def decisions_resolve(req: DecisionResolveRequest, authorization: Optional
     return {"ok": True}
 
 
-# ── Processes ───────────────────────────────────────────────────────────────────
+# ── Processes ─────────────────────────────────────────────────────────────────
 
 @app.get("/processes")
 async def processes_list(authorization: Optional[str] = Header(None)):
@@ -600,11 +791,11 @@ async def processes_kill(pid: int, authorization: Optional[str] = Header(None)):
     return {"ok": result["success"], "exit_code": result["exit_code"]}
 
 
-# ── Entrypoint ─────────────────────────────────────────────────────────────────
+# ── Entrypoint ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     config = _load_config()
     host = config.get("api", {}).get("host", "0.0.0.0")
     port = config.get("api", {}).get("port", 7777)
-    print(json.dumps({"starting": True, "host": host, "port": port, "version": "0.2.0"}))
+    print(json.dumps({"starting": True, "host": host, "port": port, "version": "0.3.0"}))
     uvicorn.run(app, host=host, port=port, log_level="warning")

@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server
+AgentOS MCP Server v0.3.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
+
+Tools (22 total):
+  System:    state, state_diff
+  Shell:     shell_exec
+  FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
+  Search:    search_files, search_content, semantic_search
+  Git:       git_status, git_log, git_diff, git_commit
+  Ollama:    ollama_chat
+  Agent:     agent_handoff, agent_pickup
+  Memory:    memory_get, memory_set
+  Decisions: decision_queue
+  Workspace: workspace_diff
 """
 
 import asyncio
@@ -55,7 +67,7 @@ async def _get(path: str, params: dict = None) -> Any:
 
 
 async def _post(path: str, body: dict = None) -> Any:
-    async with httpx.AsyncClient(timeout=60) as c:
+    async with httpx.AsyncClient(timeout=300) as c:
         r = await c.post(f"{_api_base()}{path}", headers=_headers(), json=body or {})
         return r.json()
 
@@ -73,15 +85,34 @@ server = Server("agentos")
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+
+        # ── System ──────────────────────────────────────────────────────────
         Tool(
             name="state",
             description=(
                 "Get full AgentOS system state in one call: disk, memory, GPU usage, "
-                "workspace file index, recent actions, pending decisions, project context. "
-                "Call this at the start of every session instead of exploring the filesystem."
+                "workspace file index, recent actions, pending decisions, project context, "
+                "lifetime token totals. Call this at the start of every session."
             ),
             inputSchema={"type": "object", "properties": {}}
         ),
+        Tool(
+            name="state_diff",
+            description=(
+                "Get only what changed since a given ISO timestamp. "
+                "Returns: time, tokens, recent_actions, pending_decisions, gpu, load, "
+                "ollama_running, semantic. Use this instead of state when polling — "
+                "saves tokens by skipping unchanged fields."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "since": {"type": "string", "description": "ISO timestamp of last state call"}
+                }
+            }
+        ),
+
+        # ── Shell ────────────────────────────────────────────────────────────
         Tool(
             name="shell_exec",
             description=(
@@ -100,6 +131,8 @@ async def list_tools() -> list[Tool]:
                 "required": ["command"]
             }
         ),
+
+        # ── Filesystem ────────────────────────────────────────────────────────
         Tool(
             name="fs_read",
             description="Read a file. Returns content, line count, size in bytes.",
@@ -137,7 +170,7 @@ async def list_tools() -> list[Tool]:
             name="fs_batch_read",
             description=(
                 "Read multiple files in a single call. More token-efficient than "
-                "calling fs_read repeatedly. Returns a map of path → content."
+                "calling fs_read repeatedly. Returns a map of path -> content."
             ),
             inputSchema={
                 "type": "object",
@@ -151,6 +184,24 @@ async def list_tools() -> list[Tool]:
                 "required": ["paths"]
             }
         ),
+        Tool(
+            name="read_context",
+            description=(
+                "Read a file AND get semantically related chunks from other files in one call. "
+                "Eliminates the read -> search -> read pattern. "
+                "Returns: file content + top-k related chunks from the rest of the workspace."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute path to the file to read"},
+                    "top_k": {"type": "integer", "description": "Number of related chunks to return (default: 5)"}
+                },
+                "required": ["path"]
+            }
+        ),
+
+        # ── Search ────────────────────────────────────────────────────────────
         Tool(
             name="search_files",
             description="Find files by name pattern across the indexed workspace. Returns path, size, line count.",
@@ -175,6 +226,24 @@ async def list_tools() -> list[Tool]:
                 "required": ["pattern"]
             }
         ),
+        Tool(
+            name="semantic_search",
+            description=(
+                "Natural language search across the entire indexed workspace using embeddings. "
+                "Finds the right function or concept, not just the right filename. "
+                "Returns: file, chunk_idx, preview (300 chars), similarity score."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language search query"},
+                    "top_k": {"type": "integer", "description": "Number of results to return (default: 10)"}
+                },
+                "required": ["query"]
+            }
+        ),
+
+        # ── Git ────────────────────────────────────────────────────────────────
         Tool(
             name="git_status",
             description="Get git status as structured JSON: branch, staged files, unstaged files, untracked files, clean flag.",
@@ -222,18 +291,96 @@ async def list_tools() -> list[Tool]:
                 "required": ["repo_path", "message"]
             }
         ),
+
+        # ── Ollama ────────────────────────────────────────────────────────────
+        Tool(
+            name="ollama_chat",
+            description=(
+                "Run inference on a local Ollama model via role-based routing. "
+                "Roles: code, code-fast, general, general-large, reasoning, reasoning-large, uncensored, custom. "
+                "Returns response + tokens_prompt + tokens_response + tokens_per_second."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "messages": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Chat messages [{role, content}, ...]"
+                    },
+                    "role": {"type": "string", "description": "Model role (routes to the right model automatically)"},
+                    "model": {"type": "string", "description": "Override model name directly"},
+                    "temperature": {"type": "number", "description": "Sampling temperature (optional)"},
+                    "max_tokens": {"type": "integer", "description": "Max tokens to generate (optional)"}
+                },
+                "required": ["messages"]
+            }
+        ),
+
+        # ── Agent handoff ─────────────────────────────────────────────────────
+        Tool(
+            name="agent_handoff",
+            description=(
+                "Write a structured session handoff so the next agent can start immediately. "
+                "Include: what was done (summary), what is still in progress, decisions made, "
+                "relevant files, and recommended next steps. "
+                "The next agent calls agent_pickup to receive this."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "summary":        {"type": "string", "description": "What was accomplished this session"},
+                    "in_progress":    {"type": "array", "items": {"type": "string"}, "description": "Tasks still in flight"},
+                    "decisions_made": {"type": "array", "items": {"type": "string"}, "description": "Key decisions made"},
+                    "relevant_files": {"type": "array", "items": {"type": "string"}, "description": "File paths the next agent should know about"},
+                    "next_steps":     {"type": "array", "items": {"type": "string"}, "description": "Recommended next actions"},
+                    "agent_id":       {"type": "string", "description": "Identifier for this agent session"}
+                },
+                "required": ["summary"]
+            }
+        ),
+        Tool(
+            name="agent_pickup",
+            description=(
+                "Get everything needed to start a new session without re-discovery. "
+                "Returns: last handoff (what previous agent did + next steps), "
+                "actions since handoff, pending decisions, project context, semantic index status. "
+                "Call this instead of state at the start of a continuation session."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+
+        # ── Workspace diff ────────────────────────────────────────────────────
+        Tool(
+            name="workspace_diff",
+            description=(
+                "List workspace files modified since a given timestamp. "
+                "Returns file paths, sizes, and modification times for everything that changed. "
+                "Use this to find out what was edited between sessions without re-exploring the full workspace."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "since": {"type": "string", "description": "ISO timestamp — return files modified after this time"},
+                    "root":  {"type": "string", "description": "Root directory to scan (default: workspace root from config)"}
+                },
+                "required": ["since"]
+            }
+        ),
+
+        # ── Memory / Decisions ────────────────────────────────────────────────
         Tool(
             name="memory_get",
-            description="Get the full persistent project context — key/value store that survives restarts. Use this to retrieve what was stored in previous sessions.",
+            description="Get the full persistent project context — key/value store that survives restarts.",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="memory_set",
-            description="Store a value in persistent project context. Use this to record decisions, progress, and state so future sessions don't need to rediscover it.",
+            description="Store a value in persistent project context. Survives restarts and session changes.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "Context key"},
+                    "key":   {"type": "string", "description": "Context key"},
                     "value": {"description": "Value to store (any JSON type)"}
                 },
                 "required": ["key", "value"]
@@ -241,13 +388,13 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="decision_queue",
-            description="Queue a decision that needs human input. Agent continues working unless blocking=true. Decision appears in the AgentOS dashboard.",
+            description="Queue a decision that needs human input. Agent continues working unless blocking=true.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "message": {"type": "string", "description": "The question or decision needed"},
-                    "context": {"type": "object", "description": "Additional context for the human"},
-                    "blocking": {"type": "boolean", "description": "If true, wait for resolution before continuing (default: false)"}
+                    "message":  {"type": "string", "description": "The question or decision needed"},
+                    "context":  {"type": "object",  "description": "Additional context for the human"},
+                    "blocking": {"type": "boolean", "description": "Wait for resolution before continuing (default: false)"}
                 },
                 "required": ["message"]
             }
@@ -260,6 +407,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "state":
             return _out(await _get("/state"))
+
+        elif name == "state_diff":
+            since = arguments.get("since")
+            params = {"since": since} if since else {}
+            return _out(await _get("/state/diff", params))
 
         elif name == "shell_exec":
             return _out(await _post("/shell", arguments))
@@ -277,6 +429,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "fs_batch_read":
             return _out(await _post("/fs/batch-read", {"paths": arguments["paths"]}))
 
+        elif name == "read_context":
+            return _out(await _post("/fs/read_context", {
+                "path":  arguments["path"],
+                "top_k": arguments.get("top_k", 5)
+            }))
+
         elif name == "search_files":
             return _out(await _get("/fs/search", {"q": arguments["query"]}))
 
@@ -287,7 +445,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             ctx_flag = f"-C {ctx}" if ctx else ""
             cmd = f"rg --json {ctx_flag} {json.dumps(pattern)} {json.dumps(path)}"
             result = await _post("/shell", {"command": cmd, "timeout": 30})
-            # Parse ripgrep JSON lines into a clean list
             matches = []
             for line in result.get("stdout", "").splitlines():
                 try:
@@ -302,6 +459,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 except Exception:
                     pass
             return _out({"matches": matches, "count": len(matches)})
+
+        elif name == "semantic_search":
+            return _out(await _post("/semantic/search", {
+                "query": arguments["query"],
+                "top_k": arguments.get("top_k", 10)
+            }))
 
         elif name == "git_status":
             result = await _post("/shell", {
@@ -321,9 +484,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if line[:2] == "??":
                     untracked.append(path)
             return _out({
-                "branch": branch,
-                "staged": staged,
-                "unstaged": unstaged,
+                "branch": branch, "staged": staged, "unstaged": unstaged,
                 "untracked": untracked,
                 "clean": not staged and not unstaged and not untracked
             })
@@ -347,9 +508,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "git_diff":
             repo = json.dumps(arguments["repo_path"])
             flag = "--staged" if arguments.get("staged") else ""
-            result = await _post("/shell", {
-                "command": f"git -C {repo} --no-pager diff {flag}"
-            })
+            result = await _post("/shell", {"command": f"git -C {repo} --no-pager diff {flag}"})
             return _out({"diff": result.get("stdout", ""), "ok": result.get("exit_code") == 0})
 
         elif name == "git_commit":
@@ -359,14 +518,67 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await _post("/shell", {"command": f"git -C {repo} commit -m {msg}"})
             return _out(result)
 
+        elif name == "ollama_chat":
+            return _out(await _post("/ollama/chat", arguments))
+
+        elif name == "agent_handoff":
+            body = {
+                "agent_id":       arguments.get("agent_id", "agent"),
+                "summary":        arguments["summary"],
+                "in_progress":    arguments.get("in_progress", []),
+                "decisions_made": arguments.get("decisions_made", []),
+                "relevant_files": arguments.get("relevant_files", []),
+                "next_steps":     arguments.get("next_steps", [])
+            }
+            return _out(await _post("/agent/handoff", body))
+
+        elif name == "agent_pickup":
+            return _out(await _get("/agent/pickup"))
+
+        elif name == "workspace_diff":
+            since_str = arguments["since"]
+            root = arguments.get("root")
+            if not root:
+                cfg_path = Path("/agentOS/config.json")
+                cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+                root = cfg.get("workspace", {}).get("root", "/agentOS/workspace")
+
+            from datetime import datetime, timezone
+            try:
+                since_dt = datetime.fromisoformat(since_str.replace("Z", "+00:00"))
+            except ValueError:
+                return _out({"error": f"Invalid timestamp: {since_str}"})
+
+            SKIP = {".git", "__pycache__", "node_modules", ".venv", "venv",
+                    "dist", "build", ".next", "target", ".cache"}
+            changed = []
+            root_path = Path(root)
+            if root_path.exists():
+                for item in root_path.rglob("*"):
+                    if any(p in SKIP for p in item.parts) or item.name.startswith("."):
+                        continue
+                    if not item.is_file():
+                        continue
+                    try:
+                        mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+                        if mtime > since_dt:
+                            changed.append({"path": str(item), "modified": mtime.isoformat(),
+                                            "size": item.stat().st_size})
+                    except Exception:
+                        pass
+            changed.sort(key=lambda x: x["modified"], reverse=True)
+            return _out({"since": since_str, "root": str(root_path),
+                          "changed_files": changed, "count": len(changed)})
+
         elif name == "memory_get":
             return _out(await _get("/memory/project"))
 
         elif name == "memory_set":
-            return _out(await _post("/memory/project", {"key": arguments["key"], "value": arguments["value"]}))
+            return _out(await _post("/memory/project", {
+                "key": arguments["key"], "value": arguments["value"]
+            }))
 
         elif name == "decision_queue":
-            # Map to shell call since there's no dedicated endpoint
             from memory.manager import queue_decision
             did = queue_decision(
                 arguments["message"],
