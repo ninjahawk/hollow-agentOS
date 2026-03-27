@@ -1,14 +1,14 @@
 ```
- _   _   ___   _       _       ___   __      __
-| | | | / _ \ | |     | |     / _ \  \ \    / /
-| |_| || | | || |     | |    | | | |  \ \  / /
-|  _  || |_| || |___  | |___ | |_| |   \ \/ /
-|_| |_| \___/ |_____| |_____| \___/     \__/
+ _   _   ___   _       _       ___   __          __
+| | | | / _ \ | |     | |     / _ \  \ \        / /
+| |_| || | | || |     | |    | | | |  \ \  /\  / /
+|  _  || |_| || |___  | |___ | |_| |   \ \/ /\/ /
+|_| |_| \___/ |_____| |_____| \___/     \__/ \__/
 ```
 
 <div align="center">
 
-**An operating system built for agents. Not humans.**
+**An open-source agent OS that cuts token usage by 68.5%. Built for agents, not humans.**
 
 [![Version](https://img.shields.io/badge/version-0.5.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
