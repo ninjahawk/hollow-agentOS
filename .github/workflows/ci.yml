@@ -102,8 +102,9 @@ jobs:
 
       - name: Start API server in background
         run: |
+          mkdir -p /tmp/hollow-memory
           cd api
-          PYTHONPATH=.. python3 -m uvicorn server:app \
+          PYTHONPATH=.. AGENTOS_CONFIG=../config.json AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace python3 -m uvicorn server:app \
             --host 0.0.0.0 --port 7777 --log-level error &
           echo "API_PID=$!" >> "$GITHUB_ENV"
 

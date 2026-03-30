@@ -11,13 +11,14 @@ import hashlib
 import hmac
 import time
 import uuid
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 import threading
 
-REGISTRY_PATH = Path("/agentOS/memory/agent-registry.json")
-WORKSPACE_ROOT = Path("/agentOS/workspace/agents")
+REGISTRY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory") + "/agent-registry.json")
+WORKSPACE_ROOT = Path(os.getenv("AGENTOS_WORKSPACE_ROOT", "/agentOS/workspace/agents"))
 
 # All possible capabilities an agent can be granted
 ALL_CAPS = {
