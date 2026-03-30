@@ -14,6 +14,7 @@ Complexity scale:
 """
 
 import json
+import sys
 import time
 import uuid
 import threading
@@ -99,8 +100,25 @@ class TaskScheduler:
         self._run_task(task, system_prompt)
         return task
 
-    def _run_task(self, task: Task, system_prompt: Optional[str] = None):
+    def _run_task(self, task: Task, system_prompt: Optional[str] = None,
+                  standards_context: Optional[str] = None):
         role = COMPLEXITY_ROUTING.get(task.complexity, "general")
+
+        # Model policy check — does the submitting agent allow this role?
+        agent = self._registry.get(task.submitted_by)
+        model_for_role = {
+            "general": "mistral-nemo:12b",
+            "code": "qwen2.5:14b",
+            "reasoning": "qwen3.5-35b-moe:latest",
+        }.get(role, "mistral-nemo:12b")
+        if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
+            task.status = "failed"
+            task.error = f"Agent model policy blocks use of '{model_for_role}' for role '{role}'"
+            task.finished_at = time.time()
+            with self._lock:
+                self._save()
+            return
+
         task.assigned_to = role
         task.status = "running"
         task.started_at = time.time()
@@ -115,8 +133,24 @@ class TaskScheduler:
 
         try:
             messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
+
+            # Build system prompt — inject standards context if available
+            effective_system = system_prompt or ""
+            if standards_context:
+                effective_system = (effective_system + "\n\n" + standards_context).strip()
+            elif not system_prompt:
+                # Auto-fetch relevant standards for this task
+                try:
+                    sys.path.insert(0, str(Path(__file__).parent.parent))
+                    from agents.standards import get_relevant_standards_text
+                    auto_standards = get_relevant_standards_text(task.description)
+                    if auto_standards:
+                        effective_system = auto_standards
+                except Exception:
+                    pass
+
+            if effective_system:
+                messages.append({"role": "system", "content": effective_system})
             if task.context.get("history"):
                 messages.extend(task.context["history"])
             messages.append({"role": "user", "content": task.description})

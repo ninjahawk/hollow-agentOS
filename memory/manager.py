@@ -21,6 +21,8 @@ TOOL_REGISTRY   = MEMORY_PATH / "tool-registry.json"
 PROJECT_CONTEXT = MEMORY_PATH / "project-context.json"
 DECISIONS       = MEMORY_PATH / "decisions-needed.json"
 TOKEN_TOTALS    = MEMORY_PATH / "token-totals.json"
+STATE_HISTORY   = MEMORY_PATH / "state-history.json"
+SPECS_STORE     = MEMORY_PATH / "specs.json"
 
 
 def _now() -> str:
@@ -359,6 +361,135 @@ def get_session_context() -> dict:
         "pending_decisions": get_pending_decisions(),
         "loaded_at": _now()
     }
+
+
+# ── State History (temporal context) ────────────────────────────────────────
+
+STATE_HISTORY_MAX = 100  # rolling window
+
+
+def record_state_snapshot(state: dict) -> None:
+    """Append a state snapshot to the rolling history. Trims to STATE_HISTORY_MAX."""
+    history = _load(STATE_HISTORY, {"snapshots": []})
+    history["snapshots"].append({
+        "recorded_at": _now(),
+        "state": state
+    })
+    if len(history["snapshots"]) > STATE_HISTORY_MAX:
+        history["snapshots"] = history["snapshots"][-STATE_HISTORY_MAX:]
+    _save(STATE_HISTORY, history)
+
+
+def get_state_history(since: str = None) -> list:
+    """
+    Return state snapshots newer than `since` (ISO timestamp).
+    Returns all snapshots if since is None.
+    Each entry: {recorded_at, state}
+    """
+    history = _load(STATE_HISTORY, {"snapshots": []})
+    snapshots = history["snapshots"]
+    if since:
+        snapshots = [s for s in snapshots if s.get("recorded_at", "") > since]
+    return snapshots
+
+
+def get_state_diff_since(since: str) -> dict:
+    """
+    Derive what changed between the snapshot just before `since` and the latest snapshot.
+    Returns a dict of top-level keys whose values differ.
+    """
+    snapshots = get_state_history()
+    if not snapshots:
+        return {}
+
+    before = None
+    after = None
+    for s in snapshots:
+        ts = s.get("recorded_at", "")
+        if ts <= since:
+            before = s["state"]
+        else:
+            after = s["state"]
+            break
+
+    if not after:
+        after = snapshots[-1]["state"]
+
+    if not before:
+        return after  # no baseline — return latest
+
+    changed = {}
+    for key in after:
+        if after[key] != before.get(key):
+            changed[key] = after[key]
+    return changed
+
+
+# ── Spec Storage ─────────────────────────────────────────────────────────────
+
+import uuid as _uuid
+
+
+def create_spec(title: str, description: str = "", content: dict = None,
+                created_by: str = "agent") -> dict:
+    """Create a new feature spec. Returns the spec record."""
+    specs = _load(SPECS_STORE, {"specs": {}, "active_spec_id": None})
+    spec_id = _uuid.uuid4().hex[:10]
+    spec = {
+        "id": spec_id,
+        "title": title,
+        "description": description,
+        "content": content or {},
+        "created_by": created_by,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "status": "draft"
+    }
+    specs["specs"][spec_id] = spec
+    _save(SPECS_STORE, specs)
+    return spec
+
+
+def get_spec(spec_id: str) -> dict:
+    specs = _load(SPECS_STORE, {"specs": {}})
+    return specs["specs"].get(spec_id)
+
+
+def list_specs() -> list:
+    specs = _load(SPECS_STORE, {"specs": {}})
+    return sorted(specs["specs"].values(), key=lambda s: s["created_at"], reverse=True)
+
+
+def activate_spec(spec_id: str) -> bool:
+    specs = _load(SPECS_STORE, {"specs": {}, "active_spec_id": None})
+    if spec_id not in specs["specs"]:
+        return False
+    specs["active_spec_id"] = spec_id
+    specs["specs"][spec_id]["status"] = "active"
+    # Deactivate others
+    for sid, s in specs["specs"].items():
+        if sid != spec_id and s["status"] == "active":
+            s["status"] = "draft"
+    _save(SPECS_STORE, specs)
+    return True
+
+
+def get_active_spec() -> dict:
+    specs = _load(SPECS_STORE, {"specs": {}, "active_spec_id": None})
+    active_id = specs.get("active_spec_id")
+    if active_id:
+        return specs["specs"].get(active_id)
+    return None
+
+
+def update_spec(spec_id: str, updates: dict) -> dict:
+    specs = _load(SPECS_STORE, {"specs": {}})
+    if spec_id not in specs["specs"]:
+        return None
+    specs["specs"][spec_id].update(updates)
+    specs["specs"][spec_id]["updated_at"] = _now()
+    _save(SPECS_STORE, specs)
+    return specs["specs"][spec_id]
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

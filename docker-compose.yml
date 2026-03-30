@@ -1,0 +1,67 @@
+version: "3.9"
+
+# Hollow AgentOS — full stack
+#
+# Default (no GPU / no Ollama):
+#   docker-compose up
+#
+# With local Ollama inference (requires NVIDIA GPU + nvidia-container-toolkit):
+#   docker-compose --profile ollama up
+#
+# Dashboard: http://localhost:7778
+# API:       http://localhost:7777
+# API docs:  http://localhost:7777/docs
+
+services:
+  api:
+    build: .
+    container_name: hollow-api
+    ports:
+      - "7777:7777"
+    volumes:
+      - hollow-memory:/agentOS/memory
+      - hollow-workspace:/agentOS/workspace
+      - ./config.json:/agentOS/config.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7777/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dashboard:
+    image: nginx:alpine
+    container_name: hollow-dashboard
+    ports:
+      - "7778:80"
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    container_name: hollow-ollama
+    profiles:
+      - ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hollow-memory:
+  hollow-workspace:
+  ollama-models:

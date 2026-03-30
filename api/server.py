@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-AgentOS API Server v0.4.0
+AgentOS API Server v0.6.0
 REST interface for agent control — filesystem, processes, memory, state,
 Ollama model routing, semantic search, decisions, token tracking,
-agent handoff/pickup, state diffing, read_context.
+agent handoff/pickup, state diffing, read_context, standards, specs, project context.
 
-v0.4.0 adds real agent OS primitives:
-  - Agent identity & per-agent tokens  (/agents/register)
-  - Isolated per-agent workspaces      (each agent gets /workspace/agents/<id>/)
-  - Capability enforcement             (agents can only use what they were granted)
-  - Resource budgets & accounting      (shell calls, token in/out per agent)
-  - Inter-agent message bus            (/messages)
-  - Task scheduler w/ model routing    (/tasks/submit)
-  - Agent spawning                     (/agents/spawn)
+v0.6.0 adds:
+  - Temporal state history             (GET /state/history)
+  - Standards layer                    (GET/POST/DELETE /standards)
+  - Feature specs                      (GET/POST/PATCH /specs)
+  - Project context                    (GET/POST /project)
+  - Agent locks                        (POST/DELETE /agents/{id}/lock/{name})
+  - Per-agent usage breakdown          (GET /agents/{id}/usage, GET /usage)
+  - Multi-model capability policies    (model_policies on registration)
+  - Ollama-optional mode               (graceful 503 when Ollama unavailable)
+  - OpenAI tool schema                 (GET /tools/openai)
+  - Enhanced agent/pickup              (includes active spec + standards + temporal context)
 """
 
 import asyncio
@@ -43,15 +46,49 @@ from memory.manager import (
     get_workspace_map, find_files, get_recent_actions,
     queue_decision, resolve_decision, get_pending_decisions,
     set_project_context, get_project_context, start_session,
-    get_token_totals, write_handoff, read_handoff
+    get_token_totals, write_handoff, read_handoff,
+    record_state_snapshot, get_state_history,
+    create_spec, get_spec, list_specs, activate_spec, get_active_spec, update_spec,
 )
 from shell.agent_shell import run as shell_run
 from agents.registry import AgentRegistry
 from agents.bus import MessageBus
 from agents.scheduler import TaskScheduler
+from agents.standards import (
+    set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
+)
 import api.agent_routes as agent_routes
 
 CONFIG_PATH = Path("/agentOS/config.json")
+
+# ── Ollama availability ───────────────────────────────────────────────────────
+_ollama_available: bool = False
+
+
+async def _check_ollama_available() -> bool:
+    """Non-blocking check if Ollama is reachable. Updates global flag."""
+    global _ollama_available
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{_ollama_host()}/api/tags")
+            _ollama_available = r.status_code == 200
+    except Exception:
+        _ollama_available = False
+    return _ollama_available
+
+
+def _require_ollama():
+    """Raise 503 with a clear message if Ollama is not available."""
+    if not _ollama_available:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Ollama is not available. Core features (state, filesystem, memory, shell, "
+                "standards, handoffs) work without Ollama. To enable model routing and semantic "
+                "search, install Ollama and pull: nomic-embed-text, mistral-nemo:12b"
+            )
+        )
+
 
 # ── Ollama model routing ─────────────────────────────────────────────────────
 MODEL_ROUTES = {
@@ -114,7 +151,7 @@ async def _shell(command: str, cwd: str = None, timeout: int = 30) -> dict:
     return await loop.run_in_executor(None, partial(shell_run, command, cwd, timeout))
 
 
-app = FastAPI(title="AgentOS API", version="0.4.0", docs_url="/docs")
+app = FastAPI(title="AgentOS API", version="0.6.0", docs_url="/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -138,6 +175,7 @@ async def _startup():
     _bus = MessageBus()
     _scheduler = TaskScheduler(_registry, _bus, master_token)
     agent_routes.init(_registry, _bus, _scheduler)
+    await _check_ollama_available()
 
 
 app.include_router(agent_routes.router)
@@ -356,10 +394,31 @@ async def get_state(authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
     try:
         result = await _build_state()
-        # Update cache for diff endpoint
         _state_cache["data"] = result
         _state_cache["cached_at"] = result["time"]
+        # Record snapshot for temporal history (non-blocking)
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, partial(record_state_snapshot, result))
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/state/history")
+async def get_state_history_endpoint(since: str = None, authorization: Optional[str] = Header(None)):
+    """
+    Return recorded state snapshots since `since` (ISO timestamp).
+    Returns all stored snapshots (up to 100) if since is omitted.
+    Enables agents to ask "what changed since I last looked" without re-running discovery.
+    """
+    _verify_any_token(authorization)
+    try:
+        snapshots = get_state_history(since=since)
+        return {
+            "since": since,
+            "count": len(snapshots),
+            "snapshots": snapshots,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -578,6 +637,7 @@ async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] 
 @app.post("/ollama/chat")
 async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "messages": req.messages, "stream": False}
     if req.temperature is not None or req.max_tokens is not None:
@@ -620,6 +680,7 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
 @app.post("/ollama/generate")
 async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "prompt": req.prompt, "stream": False}
     if req.temperature is not None:
@@ -658,6 +719,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
 @app.get("/ollama/models")
 async def ollama_models(authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             tags = (await client.get(f"{_ollama_host()}/api/tags")).json()
@@ -681,6 +743,7 @@ async def ollama_models(authorization: Optional[str] = Header(None)):
 @app.post("/semantic/search")
 async def semantic_search(req: SemanticSearchRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     try:
         from tools.semantic import search
         loop = asyncio.get_running_loop()
@@ -693,6 +756,7 @@ async def semantic_search(req: SemanticSearchRequest, authorization: Optional[st
 @app.post("/semantic/index")
 async def semantic_index(req: SemanticIndexRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     try:
         from tools import semantic
         loop = asyncio.get_running_loop()
@@ -709,6 +773,7 @@ async def semantic_index(req: SemanticIndexRequest, authorization: Optional[str]
 @app.get("/semantic/stats")
 async def semantic_stats(authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    _require_ollama()
     try:
         from tools.semantic import stats
         return stats()
@@ -770,11 +835,35 @@ async def agent_pickup(authorization: Optional[str] = Header(None)):
                                 if k in ("command", "path", "model", "exit_code")}
                 })
 
+    # Active spec — what are we building right now?
+    active_spec = get_active_spec()
+
+    # Relevant standards — what conventions apply to the current work?
+    relevant_standards = []
+    if handoff:
+        task_hint = handoff.get("summary", "") + " ".join(handoff.get("in_progress", []))
+        if task_hint.strip():
+            try:
+                relevant_standards = get_relevant_standards(task_hint, top_k=3)
+            except Exception:
+                pass
+
+    # Temporal context — state snapshots since last handoff
+    temporal_changes = []
+    if handoff:
+        handoff_time = handoff.get("written_at", "")
+        if handoff_time:
+            temporal_changes = get_state_history(since=handoff_time)
+
     return {
-        "handoff":        handoff,
-        "changes_since":  changes_since,
+        "handoff":           handoff,
+        "changes_since":     changes_since,
+        "temporal_snapshots": len(temporal_changes),
+        "state_since_handoff": temporal_changes[-1]["state"] if temporal_changes else None,
         "pending_decisions": ctx.get("pending_decisions", []),
         "project_context":   ctx.get("project_context", {}),
+        "active_spec":       active_spec,
+        "relevant_standards": relevant_standards,
         "semantic":          semantic,
         "token_totals":      get_token_totals(),
         "startup_complete":  True
@@ -858,6 +947,429 @@ async def processes_kill(pid: int, authorization: Optional[str] = Header(None)):
     result = await _shell(f"kill {pid}")
     log_action("process_kill", {"pid": pid})
     return {"ok": result["success"], "exit_code": result["exit_code"]}
+
+
+# ── Project context ──────────────────────────────────────────────────────────
+
+class ProjectUpdateRequest(BaseModel):
+    mission: Optional[str] = None
+    tech_stack: Optional[str] = None
+    goals: Optional[list[str]] = None
+    extra: Optional[dict] = None
+
+
+@app.get("/project")
+async def project_get(authorization: Optional[str] = Header(None)):
+    """
+    Get structured project context: mission, tech stack, goals.
+    Agents call this to understand *what* they're building before starting work.
+    Included automatically in GET /agent/pickup.
+    """
+    _verify_any_token(authorization)
+    ctx = get_project_context()
+    return {"project": ctx}
+
+
+@app.post("/project")
+async def project_set(req: ProjectUpdateRequest, authorization: Optional[str] = Header(None)):
+    """Update project context. Fields are merged, not replaced."""
+    _verify_any_token(authorization)
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if req.extra:
+        updates.update(req.extra)
+        del updates["extra"]
+    for k, v in updates.items():
+        set_project_context(k, v)
+    return {"ok": True, "updated": list(updates.keys())}
+
+
+# ── Standards ─────────────────────────────────────────────────────────────────
+
+class StandardRequest(BaseModel):
+    name: str
+    content: str
+    description: str = ""
+    tags: Optional[list[str]] = None
+
+
+@app.post("/standards")
+async def standards_set(req: StandardRequest, authorization: Optional[str] = Header(None)):
+    """
+    Store a named project convention. Computes embeddings automatically.
+    Convention text should be rule-first, concise, and include a code example where helpful.
+    Relevant standards are auto-injected into tasks via the scheduler.
+    """
+    _verify_any_token(authorization)
+    standard = set_standard(
+        name=req.name,
+        content=req.content,
+        description=req.description,
+        tags=req.tags or [],
+    )
+    return {"ok": True, "standard": standard}
+
+
+@app.get("/standards")
+async def standards_list(authorization: Optional[str] = Header(None)):
+    """List all stored standards."""
+    _verify_any_token(authorization)
+    return {"standards": list_standards(), "count": len(list_standards())}
+
+
+@app.get("/standards/relevant")
+async def standards_relevant(task: str, top_k: int = 5, authorization: Optional[str] = Header(None)):
+    """
+    Return standards most relevant to a task description.
+    Uses embedding similarity (or keyword fallback if Ollama unavailable).
+    """
+    _verify_any_token(authorization)
+    results = get_relevant_standards(task, top_k=top_k)
+    return {"task": task, "results": results, "count": len(results)}
+
+
+@app.delete("/standards/{name}")
+async def standards_delete(name: str, authorization: Optional[str] = Header(None)):
+    """Remove a standard by name."""
+    _verify_any_token(authorization)
+    deleted = delete_standard(name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Standard '{name}' not found")
+    return {"ok": True, "deleted": name}
+
+
+# ── Specs ─────────────────────────────────────────────────────────────────────
+
+class SpecCreateRequest(BaseModel):
+    title: str
+    description: str = ""
+    content: Optional[dict] = None
+
+
+class SpecUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[dict] = None
+    status: Optional[str] = None
+
+
+@app.post("/specs")
+async def specs_create(req: SpecCreateRequest, authorization: Optional[str] = Header(None)):
+    """
+    Create a feature spec. Specs give agents structured context about what's being built.
+    Activate a spec to have it included automatically in GET /agent/pickup.
+    """
+    _verify_any_token(authorization)
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    agent = _registry.authenticate(token) if _registry else None
+    created_by = agent.agent_id if agent else "api"
+    spec = create_spec(
+        title=req.title,
+        description=req.description,
+        content=req.content,
+        created_by=created_by,
+    )
+    return {"ok": True, "spec": spec}
+
+
+@app.get("/specs")
+async def specs_list(authorization: Optional[str] = Header(None)):
+    """List all specs, newest first."""
+    _verify_any_token(authorization)
+    specs = list_specs()
+    active = get_active_spec()
+    return {"specs": specs, "count": len(specs), "active_id": active["id"] if active else None}
+
+
+@app.get("/specs/{spec_id}")
+async def specs_get(spec_id: str, authorization: Optional[str] = Header(None)):
+    """Get a specific spec by ID."""
+    _verify_any_token(authorization)
+    spec = get_spec(spec_id)
+    if not spec:
+        raise HTTPException(status_code=404, detail=f"Spec '{spec_id}' not found")
+    return {"spec": spec}
+
+
+@app.patch("/specs/{spec_id}/activate")
+async def specs_activate(spec_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Set a spec as active. The active spec is included in every GET /agent/pickup response
+    so agents always know what feature is currently being built.
+    """
+    _verify_any_token(authorization)
+    ok = activate_spec(spec_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Spec '{spec_id}' not found")
+    return {"ok": True, "active_spec_id": spec_id}
+
+
+@app.patch("/specs/{spec_id}")
+async def specs_update(spec_id: str, req: SpecUpdateRequest, authorization: Optional[str] = Header(None)):
+    """Update a spec's title, description, content, or status."""
+    _verify_any_token(authorization)
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    spec = update_spec(spec_id, updates)
+    if not spec:
+        raise HTTPException(status_code=404, detail=f"Spec '{spec_id}' not found")
+    return {"ok": True, "spec": spec}
+
+
+# ── OpenAI tool schema — framework compatibility ──────────────────────────────
+
+@app.get("/tools/openai")
+async def tools_openai_schema(authorization: Optional[str] = Header(None)):
+    """
+    Return all Hollow tools as OpenAI function definitions.
+    Plug the response directly into any OpenAI-compatible agent framework
+    (LangChain, AutoGen, CrewAI, LlamaIndex, etc.) to use Hollow without MCP.
+
+    Usage:
+        tools = requests.get("http://localhost:7777/tools/openai").json()
+        # Pass to openai.ChatCompletion, LangChain tools, AutoGen, etc.
+    """
+    _verify_any_token(authorization)
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_state",
+                "description": "Get full system snapshot: disk, memory, GPU, services, Ollama, semantic index, tokens. One call replaces 9 shell commands.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_state_diff",
+                "description": "Return only what changed since a given ISO timestamp. Use for polling — 57% fewer tokens than full state.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "since": {"type": "string", "description": "ISO timestamp"}
+                    },
+                    "required": []
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_state_history",
+                "description": "Return recorded state snapshots since a given ISO timestamp for temporal context.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "since": {"type": "string", "description": "ISO timestamp"}
+                    },
+                    "required": []
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_shell",
+                "description": "Run a shell command in the agent's isolated workspace. Returns stdout, stderr, exit_code.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string"},
+                        "timeout": {"type": "integer", "default": 30}
+                    },
+                    "required": ["command"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_read",
+                "description": "Read a file. Returns content, line count, and size.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_write",
+                "description": "Write content to a file. Creates parent directories.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["path", "content"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_list",
+                "description": "List a directory. Returns name, type, size, modified for each entry.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_batch_read",
+                "description": "Read multiple files in one call.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "paths": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["paths"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_read_context",
+                "description": "Read a file AND return semantically related chunks from other files. 51% fewer tokens than cat + grep.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "top_k": {"type": "integer", "default": 5}
+                    },
+                    "required": ["path"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_semantic_search",
+                "description": "Natural language search over the workspace using local embeddings. 91% fewer tokens than grep + cat.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "top_k": {"type": "integer", "default": 10}
+                    },
+                    "required": ["query"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_agent_pickup",
+                "description": "Everything a new agent needs to start: last handoff, temporal state, active spec, relevant standards, pending decisions. 83% fewer tokens than cold log parsing.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_agent_handoff",
+                "description": "Write a structured session handoff for the next agent. Include summary, in_progress items, decisions made, relevant files, next steps.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "in_progress": {"type": "array", "items": {"type": "string"}},
+                        "decisions_made": {"type": "array", "items": {"type": "string"}},
+                        "relevant_files": {"type": "array", "items": {"type": "string"}},
+                        "next_steps": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["summary"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_standards_relevant",
+                "description": "Get project conventions most relevant to the current task. Auto-injected into scheduler tasks.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "task": {"type": "string"},
+                        "top_k": {"type": "integer", "default": 5}
+                    },
+                    "required": ["task"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_standards_set",
+                "description": "Store a project convention for future injection. Rule-first format, concise.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "content": {"type": "string"},
+                        "description": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["name", "content"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_task_submit",
+                "description": "Submit a task to the scheduler. It routes to the right local model based on complexity (1=trivial, 5=deep reasoning).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "complexity": {"type": "integer", "minimum": 1, "maximum": 5, "default": 2},
+                        "context": {"type": "object"}
+                    },
+                    "required": ["description"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_project_get",
+                "description": "Get structured project context: mission, tech stack, current goals.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_specs_list",
+                "description": "List feature specs. The active spec is injected into every agent/pickup response.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_agent_usage",
+                "description": "Get per-agent token and resource usage breakdown with budget remaining.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"agent_id": {"type": "string"}},
+                    "required": ["agent_id"]
+                },
+            }
+        },
+    ]
+
+    return {"tools": tools, "count": len(tools), "format": "openai-function-calling"}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

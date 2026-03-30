@@ -69,6 +69,7 @@ class RegisterRequest(BaseModel):
     capabilities: Optional[list[str]] = None
     budget: Optional[dict] = None
     metadata: Optional[dict] = None
+    model_policies: Optional[dict] = None  # e.g. {"qwen2.5:14b": ["fs_read"], "*": ["fs_read", "fs_write"]}
 
 
 class SendMessageRequest(BaseModel):
@@ -113,6 +114,7 @@ def register_agent(req: RegisterRequest, authorization: Optional[str] = Header(N
         budget=req.budget,
         parent_id=caller.agent_id,
         metadata=req.metadata,
+        model_policies=req.model_policies,
     )
 
     return {
@@ -305,3 +307,120 @@ def list_tasks(
     if not caller.has_cap("admin"):
         agent_id = caller.agent_id
     return {"tasks": _scheduler.list_tasks(agent_id=agent_id, limit=limit)}
+
+
+# ── Agent locks ──────────────────────────────────────────────────────────────
+
+@router.post("/agents/{agent_id}/lock/{lock_name}")
+def acquire_lock(
+    agent_id: str,
+    lock_name: str,
+    ttl_seconds: float = 300,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Acquire a named timed lock for an agent.
+    Locks expire after ttl_seconds (default 300s).
+    Returns 409 if another agent already holds the lock.
+    Agents that fail to acquire a lock they need are detected as stalled/hallucinating.
+    """
+    caller = _resolve_agent(authorization)
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot acquire lock for another agent")
+
+    acquired = _registry.acquire_lock(agent_id, lock_name, ttl_seconds)
+    if not acquired:
+        raise HTTPException(status_code=409, detail=f"Lock '{lock_name}' already held by another agent")
+    return {"ok": True, "agent_id": agent_id, "lock": lock_name, "ttl_seconds": ttl_seconds}
+
+
+@router.delete("/agents/{agent_id}/lock/{lock_name}")
+def release_lock(
+    agent_id: str,
+    lock_name: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Release a named lock held by an agent."""
+    caller = _resolve_agent(authorization)
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot release lock for another agent")
+
+    released = _registry.release_lock(agent_id, lock_name)
+    if not released:
+        raise HTTPException(status_code=404, detail=f"Lock '{lock_name}' not found for agent '{agent_id}'")
+    return {"ok": True, "agent_id": agent_id, "lock": lock_name, "status": "released"}
+
+
+# ── Token usage ──────────────────────────────────────────────────────────────
+
+@router.get("/agents/{agent_id}/usage")
+def get_agent_usage(agent_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Per-agent token and resource usage breakdown.
+    Shows shell calls, tokens in/out, and budget remaining.
+    """
+    caller = _resolve_agent(authorization)
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Can only view own usage")
+
+    a = _registry.get(agent_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    budget = a.budget
+    usage = a.usage
+    remaining = {
+        k: max(0, budget.get(k, 0) - usage.get(k, 0))
+        for k in budget
+    }
+    pct_used = {
+        k: round(usage.get(k, 0) / budget[k] * 100, 1) if budget.get(k, 0) > 0 else 0
+        for k in budget
+    }
+    return {
+        "agent_id": agent_id,
+        "name": a.name,
+        "role": a.role,
+        "usage": usage,
+        "budget": budget,
+        "remaining": remaining,
+        "pct_used": pct_used,
+        "active_locks": _registry.get_locks(agent_id),
+    }
+
+
+@router.get("/usage")
+def get_aggregate_usage(authorization: Optional[str] = Header(None)):
+    """
+    Aggregate token usage across all agents, broken down by pipeline stage.
+    Shows where token spend concentrates across the whole system.
+    """
+    caller = _resolve_agent(authorization)
+    _require_cap(caller, "admin")
+
+    agents = _registry.list_agents()
+    totals = {
+        "shell_calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+    }
+    per_agent = []
+    for a in agents:
+        u = a.usage
+        for k in totals:
+            totals[k] += u.get(k, 0)
+        per_agent.append({
+            "agent_id": a.agent_id,
+            "name": a.name,
+            "role": a.role,
+            "status": a.status,
+            "usage": u,
+        })
+
+    per_agent.sort(key=lambda x: x["usage"].get("tokens_in", 0) + x["usage"].get("tokens_out", 0), reverse=True)
+
+    return {
+        "totals": totals,
+        "by_agent": per_agent,
+        "agent_count": len(agents),
+    }
