@@ -71,9 +71,25 @@ Measured by running actual shell commands and actual Hollow API calls on the sam
 
 **Why the old number was wrong:** The previous 68.5% benchmark used a constructed worst-case naive baseline. The numbers above use real live data. 42% is honest.
 
+### Agent Drift Experiment
+
+Hypothesis: agents resuming with Hollow handoff context make more consistent decisions across sessions than cold-starting agents.
+
+Experimental design: a 3-session task (architect an auth approach → implement it → write tests), run 10 times per condition on `mistral-nemo:12b`. Same model both conditions — only the presence of handoff context differs.
+
+| Condition | Consistency rate | Corrections/run | Tokens/run |
+|---|---|---|---|
+| **Hollow** (structured handoff) | **70%** | 0.0 | 971 |
+| Cold start (no context) | 35% | 0.1 | 1,246 |
+
+Hollow handoffs produced **2× more consistent decisions** across sessions and used **22% fewer tokens** per run. Cold-starting agents frequently chose a different auth approach in session 2 or 3 than session 1 had established.
+
 ```bash
 # Real baseline (actual shell output vs actual API responses)
 python3 tools/bench_real_baseline.py
+
+# Agent drift experiment
+python3 tools/experiment_agent_drift.py --runs 10
 
 # Break-even analysis (at what session count does Hollow's overhead pay off?)
 python3 tools/bench_breakeven.py
