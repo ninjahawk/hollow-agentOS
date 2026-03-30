@@ -316,7 +316,15 @@ def get_pending_decisions() -> list:
 
 # ── Agent Handoff ────────────────────────────────────────────────────────────
 
-HANDOFF_PATH = MEMORY_PATH / "handoff.json"
+HANDOFF_PATH = MEMORY_PATH / "handoff.json"  # legacy single-agent path
+SESSION_LOG_MAX = 1000  # max actions kept in session log before eviction
+MESSAGE_BUS_MAX = 2000  # max messages kept in bus before eviction
+
+
+def _handoff_path(agent_id: str) -> Path:
+    """Per-agent handoff file — prevents concurrent agents from overwriting each other."""
+    safe_id = agent_id.replace("/", "_").replace("..", "_")
+    return MEMORY_PATH / f"handoff-{safe_id}.json"
 
 
 def write_handoff(agent_id: str, summary: str, in_progress: list = None,
@@ -324,7 +332,7 @@ def write_handoff(agent_id: str, summary: str, in_progress: list = None,
                   next_steps: list = None) -> dict:
     """
     Write a structured handoff for the next agent session.
-    This eliminates session-start token waste from re-discovery.
+    Each agent gets its own file — concurrent agents no longer overwrite each other.
     """
     handoff = {
         "written_at": _now(),
@@ -336,13 +344,22 @@ def write_handoff(agent_id: str, summary: str, in_progress: list = None,
         "next_steps": next_steps or [],
         "token_totals_at_handoff": get_token_totals()
     }
+    _save(_handoff_path(agent_id), handoff)
+    # Also keep the legacy shared file for backwards compat
     _save(HANDOFF_PATH, handoff)
     log_action("agent_handoff", {"agent_id": agent_id, "summary": summary[:100]})
     return handoff
 
 
-def read_handoff() -> dict:
-    """Get the last handoff written by a previous agent session."""
+def read_handoff(agent_id: str = None) -> dict:
+    """
+    Get the handoff for a specific agent, or the most recent shared handoff.
+    agent_id=None falls back to the legacy shared handoff file.
+    """
+    if agent_id:
+        per_agent = _handoff_path(agent_id)
+        if per_agent.exists():
+            return _load(per_agent, None)
     return _load(HANDOFF_PATH, None)
 
 
