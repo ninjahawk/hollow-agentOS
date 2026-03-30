@@ -71,6 +71,8 @@ class AgentRecord:
     parent_id: Optional[str] = None
     current_task: Optional[str] = None
     metadata: dict = field(default_factory=dict)
+    locks: dict = field(default_factory=dict)          # name → {acquired_at, expires_at}
+    model_policies: dict = field(default_factory=dict) # model_name → [allowed_caps]
 
     def has_cap(self, cap: str) -> bool:
         return cap in self.capabilities
@@ -138,6 +140,7 @@ class AgentRegistry:
         budget: Optional[dict] = None,
         parent_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        model_policies: Optional[dict] = None,
     ) -> tuple[AgentRecord, str]:
         """Register a new agent. Returns (record, raw_token)."""
         role = role if role in ROLE_DEFAULTS else "custom"
@@ -167,6 +170,8 @@ class AgentRegistry:
             created_at=time.time(),
             parent_id=parent_id,
             metadata=metadata or {},
+            locks={},
+            model_policies=model_policies or {},
         )
 
         with self._lock:
@@ -234,11 +239,78 @@ class AgentRegistry:
                 a.status = "active"
                 self._save()
 
+    def acquire_lock(self, agent_id: str, lock_name: str, ttl_seconds: float = 300) -> bool:
+        """
+        Acquire a named lock for an agent. Returns True if acquired, False if already held
+        by another agent. Locks expire automatically after ttl_seconds.
+        """
+        with self._lock:
+            now = time.time()
+            # Expire stale locks across all agents
+            for a in self._agents.values():
+                stale = [n for n, l in a.locks.items() if l.get("expires_at", 0) < now]
+                for n in stale:
+                    del a.locks[n]
+
+            # Check if any other agent holds this lock
+            for a in self._agents.values():
+                if a.agent_id != agent_id and lock_name in a.locks:
+                    return False
+
+            a = self._agents.get(agent_id)
+            if not a:
+                return False
+            a.locks[lock_name] = {
+                "acquired_at": now,
+                "expires_at": now + ttl_seconds,
+            }
+            self._save()
+            return True
+
+    def release_lock(self, agent_id: str, lock_name: str) -> bool:
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if not a or lock_name not in a.locks:
+                return False
+            del a.locks[lock_name]
+            self._save()
+            return True
+
+    def get_locks(self, agent_id: str) -> dict:
+        a = self._agents.get(agent_id)
+        if not a:
+            return {}
+        now = time.time()
+        return {
+            name: {**lock, "ttl_remaining": max(0, lock["expires_at"] - now)}
+            for name, lock in a.locks.items()
+            if lock.get("expires_at", 0) > now
+        }
+
+    def check_model_policy(self, agent_id: str, model: str, required_cap: str) -> bool:
+        """
+        Check if an agent's model_policies allow `required_cap` for `model`.
+        Returns True if no policy is set (open) or policy includes the cap.
+        """
+        a = self._agents.get(agent_id)
+        if not a or not a.model_policies:
+            return True
+        policy = a.model_policies.get(model)
+        if policy is None:
+            # No explicit policy for this model — check wildcard
+            policy = a.model_policies.get("*")
+        if policy is None:
+            return True  # no policy at all — allow
+        return required_cap in policy
+
     def _load(self):
         if REGISTRY_PATH.exists():
             try:
                 data = json.loads(REGISTRY_PATH.read_text())
                 for d in data.values():
+                    # Backwards compat: add new fields if missing
+                    d.setdefault("locks", {})
+                    d.setdefault("model_policies", {})
                     r = AgentRecord(**d)
                     self._agents[r.agent_id] = r
             except Exception:
