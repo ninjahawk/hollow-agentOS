@@ -1,0 +1,3 @@
+[submodule "agentOS"]
+	path = agentOS
+	url = https://github.com/ninjahawk/hollow-agentOS.git
