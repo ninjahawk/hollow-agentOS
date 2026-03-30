@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.5.0
+AgentOS MCP Server v0.6.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (35 total):
-  System:    state, state_diff
+Tools (45 total):
+  System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
   Search:    search_files, search_content, semantic_search
@@ -15,10 +15,14 @@ Tools (35 total):
   Ollama:    ollama_chat
   Agent OS:  agent_register, agent_list, agent_get, agent_spawn,
              agent_suspend, agent_resume, agent_terminate,
+             agent_lock, agent_lock_release, agent_usage,
              task_submit, task_get, task_list,
              message_send, message_inbox, message_thread
   Session:   agent_handoff, agent_pickup
   Memory:    memory_get, memory_set
+  Standards: standards_set, standards_get, standards_list, standards_relevant, standards_delete
+  Specs:     spec_create, spec_list, spec_get, spec_activate
+  Project:   project_get, project_set
   Decisions: decision_queue
   Workspace: workspace_diff
 """
@@ -575,6 +579,158 @@ async def list_tools() -> list[Tool]:
                 "required": ["message"]
             }
         ),
+
+        # ── New in v0.6.0 ──────────────────────────────────────────────────────
+
+        Tool(
+            name="state_history",
+            description="Return recorded state snapshots since a given ISO timestamp. Enables temporal context — what changed since the agent last looked.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "since": {"type": "string", "description": "ISO timestamp (optional — returns all snapshots if omitted)"}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="standards_set",
+            description="Store a named project convention. Rule-first format. Auto-injected into task scheduler when relevant.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name":        {"type": "string", "description": "Short identifier, e.g. 'api-response-format'"},
+                    "content":     {"type": "string", "description": "Convention text — rule first, then explanation, then code example"},
+                    "description": {"type": "string", "description": "One-line summary for listings"},
+                    "tags":        {"type": "array", "items": {"type": "string"}, "description": "Optional labels"}
+                },
+                "required": ["name", "content"]
+            }
+        ),
+        Tool(
+            name="standards_get",
+            description="Get a specific standard by name.",
+            inputSchema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="standards_list",
+            description="List all stored project conventions.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="standards_relevant",
+            description="Get project conventions most relevant to a task description. Uses embedding similarity.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task":  {"type": "string", "description": "Task description to match standards against"},
+                    "top_k": {"type": "integer", "description": "Max results (default 5)"}
+                },
+                "required": ["task"]
+            }
+        ),
+        Tool(
+            name="standards_delete",
+            description="Remove a project convention by name.",
+            inputSchema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="spec_create",
+            description="Create a feature spec. Specs give agents structured context about what's being built. Activate a spec to inject it into every agent_pickup call.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "title":       {"type": "string"},
+                    "description": {"type": "string"},
+                    "content":     {"type": "object", "description": "Structured spec content (plan, shape, references, etc.)"}
+                },
+                "required": ["title"]
+            }
+        ),
+        Tool(
+            name="spec_list",
+            description="List all feature specs. Shows active spec ID.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="spec_get",
+            description="Get a feature spec by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {"spec_id": {"type": "string"}},
+                "required": ["spec_id"]
+            }
+        ),
+        Tool(
+            name="spec_activate",
+            description="Set a spec as active. The active spec is included in every agent_pickup response.",
+            inputSchema={
+                "type": "object",
+                "properties": {"spec_id": {"type": "string"}},
+                "required": ["spec_id"]
+            }
+        ),
+        Tool(
+            name="project_get",
+            description="Get structured project context: mission, tech stack, current goals. Included in agent_pickup.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="project_set",
+            description="Update project context fields (mission, tech_stack, goals). Fields are merged.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mission":    {"type": "string"},
+                    "tech_stack": {"type": "string"},
+                    "goals":      {"type": "array", "items": {"type": "string"}},
+                    "extra":      {"type": "object"}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="agent_lock",
+            description="Acquire a named timed lock for an agent. Returns 409 if another agent holds it. Expired locks are cleaned up automatically.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":    {"type": "string"},
+                    "lock_name":   {"type": "string"},
+                    "ttl_seconds": {"type": "number", "description": "Lock TTL in seconds (default 300)"}
+                },
+                "required": ["agent_id", "lock_name"]
+            }
+        ),
+        Tool(
+            name="agent_lock_release",
+            description="Release a named lock held by an agent.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":  {"type": "string"},
+                    "lock_name": {"type": "string"}
+                },
+                "required": ["agent_id", "lock_name"]
+            }
+        ),
+        Tool(
+            name="agent_usage",
+            description="Get per-agent token and resource usage breakdown with budget remaining and active locks.",
+            inputSchema={
+                "type": "object",
+                "properties": {"agent_id": {"type": "string"}},
+                "required": ["agent_id"]
+            }
+        ),
     ]
 
 
@@ -833,6 +989,92 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 arguments.get("blocking", False)
             )
             return _out({"ok": True, "decision_id": did})
+
+        # ── New in v0.6.0 ────────────────────────────────────────────────────
+
+        elif name == "state_history":
+            since = arguments.get("since")
+            params = {"since": since} if since else {}
+            return _out(await _get("/state/history", params))
+
+        elif name == "standards_set":
+            return _out(await _post("/standards", {
+                "name":        arguments["name"],
+                "content":     arguments["content"],
+                "description": arguments.get("description", ""),
+                "tags":        arguments.get("tags", []),
+            }))
+
+        elif name == "standards_get":
+            return _out(await _get(f"/standards/relevant", {"task": arguments["name"], "top_k": 1}))
+
+        elif name == "standards_list":
+            return _out(await _get("/standards"))
+
+        elif name == "standards_relevant":
+            return _out(await _get("/standards/relevant", {
+                "task":  arguments["task"],
+                "top_k": arguments.get("top_k", 5),
+            }))
+
+        elif name == "standards_delete":
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.delete(
+                    f"{_api_base()}/standards/{arguments['name']}",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "spec_create":
+            return _out(await _post("/specs", {
+                "title":       arguments["title"],
+                "description": arguments.get("description", ""),
+                "content":     arguments.get("content", {}),
+            }))
+
+        elif name == "spec_list":
+            return _out(await _get("/specs"))
+
+        elif name == "spec_get":
+            return _out(await _get(f"/specs/{arguments['spec_id']}"))
+
+        elif name == "spec_activate":
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.patch(
+                    f"{_api_base()}/specs/{arguments['spec_id']}/activate",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "project_get":
+            return _out(await _get("/project"))
+
+        elif name == "project_set":
+            return _out(await _post("/project", {
+                k: v for k, v in arguments.items() if v is not None
+            }))
+
+        elif name == "agent_lock":
+            agent_id  = arguments["agent_id"]
+            lock_name = arguments["lock_name"]
+            ttl       = arguments.get("ttl_seconds", 300)
+            return _out(await _post(
+                f"/agents/{agent_id}/lock/{lock_name}",
+                {"ttl_seconds": ttl}
+            ))
+
+        elif name == "agent_lock_release":
+            agent_id  = arguments["agent_id"]
+            lock_name = arguments["lock_name"]
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.delete(
+                    f"{_api_base()}/agents/{agent_id}/lock/{lock_name}",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "agent_usage":
+            return _out(await _get(f"/agents/{arguments['agent_id']}/usage"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

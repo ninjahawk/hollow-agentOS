@@ -1,0 +1,66 @@
+{
+  "run_at": "2026-03-30T04:54:55.831556+00:00",
+  "api_url": "http://localhost:7777",
+  "methodology": "Real system data: shell commands executed live via /shell endpoint. Token counts reflect actual stdout/response sizes, not simulated strings. Naive baseline = what Claude Code actually calls. This replaces the constructed worst-case baseline in bench_compare.py.",
+  "results": [
+    {
+      "scenario": "System State Discovery",
+      "naive_tokens": 341,
+      "hollow_tokens": 1578,
+      "savings_pct": -362.8,
+      "meta": {
+        "naive_cmds": 5,
+        "naive_ms": 81,
+        "hollow_ms": 244
+      }
+    },
+    {
+      "scenario": "Code Search",
+      "naive_tokens": 21636,
+      "hollow_tokens": 987,
+      "savings_pct": 95.4,
+      "meta": {
+        "files_matched": 5,
+        "files_read": 3,
+        "naive_ms": 74,
+        "hollow_ms": 93
+      }
+    },
+    {
+      "scenario": "Agent Cold Start (Pickup)",
+      "naive_tokens": 617,
+      "hollow_tokens": 1800,
+      "savings_pct": -191.7,
+      "meta": {
+        "naive_ms": 10,
+        "hollow_ms": 35
+      }
+    },
+    {
+      "scenario": "State Polling (What Changed?)",
+      "naive_tokens": 373,
+      "hollow_tokens": 722,
+      "savings_pct": -93.6,
+      "meta": {
+        "naive_ms": 23,
+        "hollow_ms": 238
+      }
+    },
+    {
+      "scenario": "File Read + Context Discovery",
+      "naive_tokens": 12699,
+      "hollow_tokens": 15580,
+      "savings_pct": -22.7,
+      "meta": {
+        "file": "/mnt/c/Users/jedin/Desktop/New Science/agentOS/api/server.py",
+        "naive_ms": 35,
+        "hollow_ms": 87
+      }
+    }
+  ],
+  "total": {
+    "naive_tokens": 35666,
+    "hollow_tokens": 20667,
+    "savings_pct": 42.1
+  }
+}

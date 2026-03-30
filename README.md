@@ -1,18 +1,19 @@
 ```
- _  _  ___  _    _    _____      __
-| || |/ _ \| |  | |  / _ \ \    / /
+ _  _  ___  _    _    _____  __      __
+| || |/ _ \| |  | |  / _ \ \ \    / /
 | __ | (_) | |__| |_| (_) \ \/\/ /
 |_||_|\___/|____|____\___/ \_/\_/
 ```
 
 <div align="center">
 
-**An open-source agent OS that cuts token usage by 68.5%. Built for agents, not humans.**
+**A structured JSON-native environment for AI agents. 95% fewer tokens on code search. ~42% fewer tokens across mixed workloads. Eliminates agent drift between sessions.**
 
-[![Version](https://img.shields.io/badge/version-0.5.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![Platform](https://img.shields.io/badge/platform-WSL2%20%2F%20Linux-orange?style=flat-square)](#setup)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square)](#docker)
+[![Platform](https://img.shields.io/badge/platform-Docker%20%2F%20WSL2%20%2F%20Linux-orange?style=flat-square)](#setup)
 
 ![hollow token demo](demo.gif)
 
@@ -20,87 +21,66 @@
 
 ---
 
-> Current operating systems were designed for humans. Every time an agent touches one, it pays the price — parsing `df -h` output, grepping through files to re-discover what it already knew, running five commands to answer a question that should take one. **Hollow eliminates all of it.**
+## What it is
 
-Hollow is a structured JSON-native operating environment for AI agents. It exposes the system through a single REST API, routes tasks to the right local model automatically, isolates each agent in its own identity and workspace, and passes full session context between agent invocations so nothing is ever re-discovered from scratch.
+Hollow is a local REST API that runs alongside your agent and gives it a structured JSON interface to the system, file I/O, shell, semantic search, memory, local model inference, inter-agent messaging, and session state.
 
-Benchmarked at **68.5% token reduction** against naive shell-based approaches across five real scenarios.
+**Without Hollow**, an agent cold-starts every session. It runs 9 shell commands to discover system state. It greps files to find context it had last session. It makes fresh decisions about things it already decided before. That inconsistency compounds — each session reconstructs a slightly different understanding of the same codebase. This is **agent drift**, and cheaper tokens won't fix it.
+
+**With Hollow**, an agent registers once, gets a token and an isolated workspace, and calls `GET /agent/pickup` to resume exactly where the last session ended — same decisions, same context, same understanding. No re-discovery. No drift.
+
+The token savings are a measurable side effect. The real win is **agents that stay consistent across sessions**.
 
 ---
 
-## What Hollow provides
+## How it works
 
-### Identity & Isolation
+Hollow is not a kernel replacement or a VM. Think of it the way Android sits on Linux: Android developers never write kernel code — they only interact with the Android layer. Hollow is the same idea for agents. The goal is that agents never need to touch the underlying OS directly at all. Hollow becomes the complete abstraction layer between agents and the system.
 
-Every agent that touches Hollow is a first-class process — registered with its own token, its own capability set, and its own isolated workspace directory. A `readonly` agent cannot shell. A `worker` agent cannot spawn children. Capabilities are enforced at the API layer, not by convention.
+What's shipped today is the foundation of that vision. The core pieces:
 
-```
-POST /agents/register  →  { agent_id, token, workspace_dir, capabilities }
-```
+- **REST API** on port 7777 — every system operation as a typed JSON endpoint
+- **Agent registry** — each agent gets a UUID, capability set, isolated workspace, and budget
+- **Task scheduler** — submit a task with a complexity hint, Hollow routes it to the right local model automatically
+- **Session handoff** — agents write structured context when they finish; the next agent picks it up cold in one call
+- **Semantic search** — natural language search over the workspace using local embeddings (separate `nomic-embed-text` model, not the agent model — stays fast regardless of which agent model is running)
+- **Standards layer** — store project conventions once, auto-inject the relevant ones before each task
+- **Inter-agent messaging** — typed inbox/thread bus for multi-agent coordination
+- **MCP server** — 45 tools wired directly into Claude Code
 
-Agents operate within `/workspace/agents/<id>/` by default. The scheduler decides which model handles a task. Agents don't pick.
-
-### Task Scheduler
-
-Submit a task with a complexity hint. Hollow routes it to the right local Ollama model automatically — no model selection logic in your agent code.
-
-| Complexity | Routes to | Model |
-|---|---|---|
-| 1–2 | `general` | mistral-nemo:12b |
-| 3–4 | `code` | qwen2.5:14b |
-| 5 | `reasoning` | qwen3.5-35b-moe |
-
-```
-POST /tasks/submit  →  { task_id, status, result, ms }
-```
-
-### Inter-Agent Messaging
-
-Agents communicate through a typed message bus with inbox queues, reply threads, TTL, and broadcast support. No shared global state — each agent reads its own inbox.
-
-```
-POST /messages          →  send { to_id, content, msg_type }
-GET  /messages          →  receive inbox (unread, with stats)
-GET  /messages/thread   →  full reply thread for a message
-```
-
-### Structured State
-
-One call replaces nine. `GET /state` returns disk (Windows + WSL), memory, GPU, services, Ollama status, semantic index health, token totals, and recent actions — all structured JSON, no parsing.
-
-`GET /state/diff?since=<iso>` returns only what changed. Polling agents use this and pay 57% fewer tokens per tick.
-
-### Semantic Search
-
-Natural language search over the entire workspace using [nomic-embed-text](https://ollama.com/library/nomic-embed-text) embeddings and cosine similarity. AST-aware Python chunking — one chunk per function, not per file. Finds the right implementation, not just the right filename.
-
-```
-POST /semantic/search  →  top-k chunks with scores and file locations
-POST /fs/read_context  →  file content + semantically related neighbors (1 call)
-```
-
-### Session Continuity
-
-An agent that finishes writes a structured handoff. The next agent calls `GET /agent/pickup` and gets everything — what was in progress, decisions made, relevant files, next steps, and all actions taken since the handoff was written. Cold-start re-discovery costs 83% fewer tokens with a handoff than without.
+Local models via Ollama are **optional**. All core features (state, filesystem, memory, shell, handoffs, standards) work without a GPU or Ollama installed.
 
 ---
 
 ## Benchmarks
 
-Measured against a capable agent using raw shell commands on the same system.
+Measured by running actual shell commands and actual Hollow API calls on the same live system. Both sides use real output — no constructed strings.
 
-| Scenario | Naive | Hollow | Savings |
+| Scenario | Naive (shell) | Hollow (API) | Savings |
 |---|---|---|---|
-| Semantic search vs grep + cat whole file | 3,636 tok | 327 tok | **91%** |
-| Agent pickup vs cold log parsing | 14,130 tok | 2,452 tok | **83%** |
-| State polling vs 4 shell commands | 1,913 tok | 810 tok | **58%** |
-| System state vs 9 discovery commands | 2,377 tok | 1,122 tok | **53%** |
-| File + context vs cat 3 full files | 12,632 tok | 6,202 tok | **51%** |
-| **Total** | **34,688 tok** | **10,913 tok** | **68.5%** |
+| Code search (rg + read matched files) | 21,636 tok | 987 tok | **95%** |
+| File read + semantic context | 12,699 tok | 15,580 tok | –23% |
+| State polling (4 shell commands) | 373 tok | 722 tok | –93% |
+| System state (5 discovery commands) | 341 tok | 1,578 tok | –363% |
+| Agent cold start (pickup) | 617 tok | 1,800 tok | –192% |
+| **Total** | **35,666 tok** | **20,667 tok** | **42%** |
 
-Run the full benchmark: `python3 /agentOS/tools/bench_compare.py`
+**Where Hollow wins:** Code search is the core use case. Instead of grepping files and reading them in full, `POST /semantic/search` returns only the relevant chunks — 95% fewer tokens and a single API call instead of N file reads.
 
-Run integration tests (hits the live API, no mocks): `python3 /agentOS/tools/test_integration.py`
+**Where Hollow costs more:** System state queries (`GET /state`) and state polling (`GET /state/diff`) return comprehensive structured JSON — more data than a targeted `df -h` or `free -m`, but structured and parseable without any regex. Use these when your agent needs rich context, not when it only needs one field.
+
+**Why the old number was wrong:** The previous 68.5% benchmark used a constructed worst-case naive baseline. The numbers above use real live data. 42% is honest.
+
+```bash
+# Real baseline (actual shell output vs actual API responses)
+python3 tools/bench_real_baseline.py
+
+# Break-even analysis (at what session count does Hollow's overhead pay off?)
+python3 tools/bench_breakeven.py
+
+# Integration tests (hits the live API, no mocks)
+python3 tools/test_integration.py
+```
 
 ---
 
@@ -109,26 +89,35 @@ Run integration tests (hits the live API, no mocks): `python3 /agentOS/tools/tes
 ```
 hollow-agentOS/
 ├── api/
-│   ├── server.py          # FastAPI — all endpoints (v0.4.0)
-│   └── agent_routes.py    # Agent OS routes: register, spawn, message, tasks
+│   ├── server.py          # FastAPI — all endpoints (v0.6.0)
+│   └── agent_routes.py    # Agent OS routes: register, spawn, message, tasks, locks, usage
 ├── agents/
-│   ├── registry.py        # Identity, capabilities, workspaces, budgets
+│   ├── registry.py        # Identity, capabilities, workspaces, budgets, locks, model policies
 │   ├── bus.py             # Inter-agent message bus
-│   └── scheduler.py       # Task routing and agent spawning
+│   ├── scheduler.py       # Task routing, model policies, standards injection
+│   └── standards.py       # Project conventions store + semantic matching
 ├── mcp/
-│   └── server.py          # 35 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 45 MCP tools for Claude Code and compatible agents
 ├── memory/
-│   └── manager.py         # Session log, workspace map, token tracking, handoffs
+│   └── manager.py         # Session log, workspace map, token tracking, handoffs, state history, specs, project context
 ├── tools/
-│   ├── semantic.py        # AST-aware chunker + embedding search
-│   ├── token_demo.py      # 30-second live token efficiency demo
-│   ├── bench_compare.py   # Head-to-head token benchmark (3 scenarios)
-│   ├── benchmark.py       # Token efficiency benchmark suite
-│   └── test_integration.py # 58 live API integration tests (0 mocks)
+│   ├── semantic.py              # AST-aware chunker + embedding search
+│   ├── bench_real_baseline.py   # Real baseline benchmark (live shell vs live API)
+│   ├── bench_breakeven.py       # Break-even analysis: when does Hollow's overhead pay off?
+│   ├── experiment_agent_drift.py # Agent drift experiment (Hollow handoff vs cold start)
+│   ├── bench_vs_claudecode.py   # Benchmark vs simulated Claude Code tool call patterns
+│   ├── benchmark.py             # Original benchmark suite (constructed baseline)
+│   └── test_integration.py      # Integration tests (0 mocks)
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── dashboard/
 │   └── index.html         # Live dashboard (nginx :7778)
+├── sdk/
+│   └── hollow.py          # Python SDK client (also on PyPI: pip install hollow-sdk)
+├── Dockerfile             # Single-container build
+├── docker-compose.yml     # Full stack: API + dashboard + optional Ollama
+├── pyproject.toml         # PyPI packaging
+├── requirements.txt       # Pinned dependencies
 └── config.json            # Config (see config.example.json)
 ```
 
@@ -145,7 +134,7 @@ hollow-agentOS/
 | `reasoner` | — | ✓ | — | ✓ | — | ✓ |
 | `readonly` | — | ✓ | — | — | — | ✓ |
 
-Custom capability sets are supported at registration.
+Custom capability sets and per-model policies are supported at registration.
 
 ---
 
@@ -155,13 +144,17 @@ Custom capability sets are supported at registration.
 <summary><strong>Agent OS</strong></summary>
 
 ```
-POST   /agents/register          Register a new agent (returns token, shown once)
+POST   /agents/register          Register agent (returns token, shown once)
 GET    /agents                   List all agents (admin)
-GET    /agents/{id}              Get agent state, usage, and budget
+GET    /agents/{id}              Agent state, usage, locks, and budget
 DELETE /agents/{id}              Terminate agent
 POST   /agents/spawn             Spawn child agent, run task, return result
 POST   /agents/{id}/suspend      Suspend agent
 POST   /agents/{id}/resume       Resume agent
+POST   /agents/{id}/lock/{name}  Acquire a named timed lock
+DELETE /agents/{id}/lock/{name}  Release a lock
+GET    /agents/{id}/usage        Per-agent token breakdown by model and action type
+GET    /usage                    Aggregate token usage across all agents by pipeline stage
 
 POST   /messages                 Send message to agent or broadcast
 GET    /messages                 Receive inbox (unread by default)
@@ -180,8 +173,8 @@ GET    /tasks                    List tasks
 ```
 GET    /state                    Full system snapshot (JSON)
 GET    /state/diff?since=<iso>   Changed fields only since timestamp
+GET    /state/history?since=<iso> State snapshots since timestamp (temporal context)
 GET    /health
-
 POST   /shell                    Run command (scoped to agent workspace)
 ```
 
@@ -214,7 +207,36 @@ POST   /semantic/index           Re-index workspace
 GET    /semantic/stats
 
 POST   /agent/handoff            Write structured session context
-GET    /agent/pickup             Handoff + changes since
+GET    /agent/pickup             Handoff + temporal context + active spec + project (one call)
+```
+
+</details>
+
+<details>
+<summary><strong>Standards, Specs & Project</strong></summary>
+
+```
+POST   /standards                Store a named project convention
+GET    /standards                List all standards
+GET    /standards/relevant?task= Semantic match: which standards apply to this task
+DELETE /standards/{name}         Remove a standard
+
+POST   /specs                    Create a feature spec
+GET    /specs                    List specs
+GET    /specs/{id}               Get a spec
+PATCH  /specs/{id}/activate      Set as the active spec (injected into agent/pickup)
+
+GET    /project                  Get project context (mission, tech-stack, goals)
+POST   /project                  Update project context
+```
+
+</details>
+
+<details>
+<summary><strong>Framework Compatibility</strong></summary>
+
+```
+GET    /tools/openai             All tools as OpenAI function definitions (LangChain, AutoGen, CrewAI)
 ```
 
 </details>
@@ -223,24 +245,36 @@ GET    /agent/pickup             Handoff + changes since
 
 ## Setup
 
-**Requirements:** Python 3.12+, [Ollama](https://ollama.com), WSL2 or Linux
+### Docker (recommended — works on Mac, Linux, Windows)
 
 ```bash
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
 
 cp config.example.json config.json
-# Set: api.token, workspace.root, ollama.host
+# Set: api.token, workspace.root
 
-pip install fastapi uvicorn httpx mcp
+docker-compose up
 ```
 
-**Pull required models:**
+API is at `http://localhost:7777`, dashboard at `http://localhost:7778`.
+
+To include Ollama (requires GPU):
 
 ```bash
-ollama pull nomic-embed-text   # semantic search
-ollama pull mistral-nemo:12b   # general tasks
-ollama pull qwen2.5:14b        # code tasks
+docker-compose --profile ollama up
+```
+
+### Manual (WSL2 / Linux)
+
+**Requirements:** Python 3.12+, WSL2 or Linux. Ollama is optional.
+
+```bash
+git clone https://github.com/ninjahawk/hollow-agentOS
+cd hollow-agentOS
+
+cp config.example.json config.json
+pip install -r requirements.txt
 ```
 
 **Start the API:**
@@ -249,16 +283,24 @@ ollama pull qwen2.5:14b        # code tasks
 cd api && python3 -m uvicorn server:app --host 0.0.0.0 --port 7777
 ```
 
-**Register your first agent:**
+### Python SDK
 
 ```bash
-curl -X POST http://localhost:7777/agents/register \
-  -H "Authorization: Bearer <master-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "role": "worker"}'
+pip install hollow-sdk
 ```
 
-**Wire into Claude Code (MCP):**
+```python
+from hollow import register, Hollow
+
+agent = register("http://localhost:7777", master_token="your-token", name="my-agent", role="worker")
+h = Hollow("http://localhost:7777", agent_token=agent.token)
+
+state = h.state()
+results = h.semantic_search("authentication middleware")
+context = h.pickup()  # full session context: handoff + temporal state + active spec + standards
+```
+
+### Wire into Claude Code (MCP)
 
 Add to `~/.claude/settings.json`:
 ```json
@@ -272,7 +314,16 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-**Build index:**
+### Register your first agent
+
+```bash
+curl -X POST http://localhost:7777/agents/register \
+  -H "Authorization: Bearer <master-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "role": "worker"}'
+```
+
+**Build semantic index:**
 
 ```bash
 PYTHONPATH=/path/to/hollow-agentOS python3 tools/semantic.py index
@@ -280,13 +331,26 @@ PYTHONPATH=/path/to/hollow-agentOS python3 tools/semantic.py index
 
 ---
 
-## Services (systemd)
+## Framework Compatibility
+
+Hollow exposes all its tools as OpenAI function definitions at `GET /tools/openai`. Any agent framework that supports OpenAI tool use works out of the box:
+
+```python
+import openai, requests
+
+tools = requests.get("http://localhost:7777/tools/openai").json()
+# Pass tools directly to OpenAI, LangChain, AutoGen, CrewAI, LlamaIndex, etc.
+```
+
+---
+
+## Services (systemd — manual install only)
 
 | Service | Port | Description |
 |---|---|---|
 | `agentos-api` | 7777 | REST API |
 | `nginx` | 7778 | Dashboard |
-| `ollama` | 11434 | Local inference |
+| `ollama` | 11434 | Local inference (optional) |
 | `agentos-indexer.timer` | — | Re-index every 30s |
 
 ```bash
@@ -299,7 +363,10 @@ sudo systemctl start agentos-api nginx ollama
 
 Developed and benchmarked on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
 
-Models up to 14B parameters fit in VRAM. Models up to 35B run with partial CPU offload. The `nomic-embed-text` embed model uses ~300 MB and stays resident.
+Ollama is optional — all core features run without it. If you have a GPU:
+- Models up to 14B fit in VRAM
+- Models up to 35B run with partial CPU offload
+- `nomic-embed-text` (semantic search embeddings) uses ~300 MB and stays resident, separate from whichever model handles agent tasks
 
 ---
 
