@@ -7,7 +7,7 @@
 
 <div align="center">
 
-**A structured JSON-native environment for AI agents. Cuts token usage by 68.5% and eliminates agent drift between sessions.**
+**A structured JSON-native environment for AI agents. 95% fewer tokens on code search. ~42% fewer tokens across mixed workloads. Eliminates agent drift between sessions.**
 
 [![Version](https://img.shields.io/badge/version-0.6.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
@@ -29,7 +29,7 @@ Hollow is a local REST API that runs alongside your agent and gives it a structu
 
 **With Hollow**, an agent registers once, gets a token and an isolated workspace, and calls `GET /agent/pickup` to resume exactly where the last session ended — same decisions, same context, same understanding. No re-discovery. No drift.
 
-The token savings (68.5% overall, 91% on search) are the measurable side effect. The real win is **agents that stay consistent across sessions**.
+The token savings are a measurable side effect. The real win is **agents that stay consistent across sessions**.
 
 ---
 
@@ -54,22 +54,33 @@ Local models via Ollama are **optional**. All core features (state, filesystem, 
 
 ## Benchmarks
 
-Measured against a capable agent using raw shell commands on the same system.
+Measured by running actual shell commands and actual Hollow API calls on the same live system. Both sides use real output — no constructed strings.
 
-| Scenario | Naive | Hollow | Savings |
+| Scenario | Naive (shell) | Hollow (API) | Savings |
 |---|---|---|---|
-| Semantic search vs grep + cat whole file | 3,636 tok | 327 tok | **91%** |
-| Agent pickup vs cold log parsing | 14,130 tok | 2,452 tok | **83%** |
-| State polling vs 4 shell commands | 1,913 tok | 810 tok | **58%** |
-| System state vs 9 discovery commands | 2,377 tok | 1,122 tok | **53%** |
-| File + context vs cat 3 full files | 12,632 tok | 6,202 tok | **51%** |
-| **Total** | **34,688 tok** | **10,913 tok** | **68.5%** |
+| Code search (rg + read matched files) | 21,636 tok | 987 tok | **95%** |
+| File read + semantic context | 12,699 tok | 15,580 tok | –23% |
+| State polling (4 shell commands) | 373 tok | 722 tok | –93% |
+| System state (5 discovery commands) | 341 tok | 1,578 tok | –363% |
+| Agent cold start (pickup) | 617 tok | 1,800 tok | –192% |
+| **Total** | **35,666 tok** | **20,667 tok** | **42%** |
 
-Run the full benchmark: `python3 tools/bench_compare.py`
+**Where Hollow wins:** Code search is the core use case. Instead of grepping files and reading them in full, `POST /semantic/search` returns only the relevant chunks — 95% fewer tokens and a single API call instead of N file reads.
 
-Run the Claude Code baseline benchmark (real tool call patterns vs Hollow): `python3 tools/bench_vs_claudecode.py`
+**Where Hollow costs more:** System state queries (`GET /state`) and state polling (`GET /state/diff`) return comprehensive structured JSON — more data than a targeted `df -h` or `free -m`, but structured and parseable without any regex. Use these when your agent needs rich context, not when it only needs one field.
 
-Run integration tests (hits the live API, no mocks): `python3 tools/test_integration.py`
+**Why the old number was wrong:** The previous 68.5% benchmark used a constructed worst-case naive baseline. The numbers above use real live data. 42% is honest.
+
+```bash
+# Real baseline (actual shell output vs actual API responses)
+python3 tools/bench_real_baseline.py
+
+# Break-even analysis (at what session count does Hollow's overhead pay off?)
+python3 tools/bench_breakeven.py
+
+# Integration tests (hits the live API, no mocks)
+python3 tools/test_integration.py
+```
 
 ---
 
@@ -90,12 +101,13 @@ hollow-agentOS/
 ├── memory/
 │   └── manager.py         # Session log, workspace map, token tracking, handoffs, state history, specs, project context
 ├── tools/
-│   ├── semantic.py        # AST-aware chunker + embedding search
-│   ├── token_demo.py      # 30-second live token efficiency demo
-│   ├── bench_compare.py   # Head-to-head token benchmark (5 scenarios)
-│   ├── bench_vs_claudecode.py  # Benchmark vs real Claude Code tool call patterns
-│   ├── benchmark.py       # Token efficiency benchmark suite
-│   └── test_integration.py # Integration tests (0 mocks)
+│   ├── semantic.py              # AST-aware chunker + embedding search
+│   ├── bench_real_baseline.py   # Real baseline benchmark (live shell vs live API)
+│   ├── bench_breakeven.py       # Break-even analysis: when does Hollow's overhead pay off?
+│   ├── experiment_agent_drift.py # Agent drift experiment (Hollow handoff vs cold start)
+│   ├── bench_vs_claudecode.py   # Benchmark vs simulated Claude Code tool call patterns
+│   ├── benchmark.py             # Original benchmark suite (constructed baseline)
+│   └── test_integration.py      # Integration tests (0 mocks)
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── dashboard/

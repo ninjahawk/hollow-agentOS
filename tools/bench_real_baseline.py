@@ -32,6 +32,7 @@ import time
 import argparse
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -84,7 +85,8 @@ def _shell(cmd: str) -> tuple[str, float]:
 
 def _fs_read(path: str) -> tuple[str, float]:
     """Read a file via /fs/read and return (content, elapsed_ms)."""
-    result, ms = _api("GET", f"/fs/read?path={path}")
+    encoded = urllib.parse.quote(path, safe="")
+    result, ms = _api("GET", f"/fs/read?path={encoded}")
     if "error" in result:
         return f"ERROR: {result['error']}", ms
     return result.get("content", ""), ms
@@ -149,7 +151,7 @@ def bench_semantic_search(workspace_root: str) -> tuple[int, int, float, dict]:
 
     # Naive: rg to find files, then read each file
     rg_out, rg_ms = _shell(
-        f"rg -l 'auth' --type py {workspace_root}/agentOS 2>/dev/null | head -5"
+        f"rg -l 'auth' --type py '{workspace_root}/agentOS' 2>/dev/null | head -5"
     )
     matched_files = [l.strip() for l in rg_out.splitlines() if l.strip() and not l.startswith("ERROR")]
 
@@ -302,7 +304,7 @@ def bench_read_with_context(workspace_root: str) -> tuple[int, int, float, dict]
     # Hollow: POST /fs/read_context (file + semantic neighbors in one call)
     result, hollow_ms = _api("POST", "/fs/read_context", {
         "path": target_file,
-        "query": "API endpoint routing authentication",
+        "query": "API endpoint routing",
     })
     if "error" in result:
         print(f"  ⚠ Hollow /fs/read_context error: {result.get('error')} — skipping")
