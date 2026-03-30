@@ -199,8 +199,8 @@ def run_with_hollow(run_id: int, model: str, agent_id: str) -> dict:
         messages = []
 
         if session_num > 1:
-            # Get pickup context — this is the Hollow advantage
-            pickup = _api("GET", "/agent/pickup")
+            # Get pickup context scoped to this run's agent_id — no cross-run contamination
+            pickup = _api("GET", f"/agent/pickup?agent_id={agent_id}")
             if "error" not in pickup:
                 handoff = pickup.get("handoff", {})
                 summary = handoff.get("summary", "")
@@ -401,27 +401,28 @@ def main():
         else:
             model = "mistral-nemo:12b"
 
-    # Register a test agent for the Hollow condition
-    agent_resp = _api("POST", "/agents/register", {
-        "name": "drift-experiment-agent",
-        "capabilities": ["code", "write"],
-        "budget_tokens": 1000000,
-    })
-    agent_id = agent_resp.get("agent_id", "drift-test-agent")
-
     print("=" * 70)
     print("  Agent Drift Experiment")
     print("  Task: 3-session REST API with auth (architect → implement → test)")
     print(f"  Model: {model}")
     print(f"  Runs per condition: {args.runs}")
     print("  Hypothesis: Hollow handoffs → more consistent decisions across sessions")
+    print("  Design note: each run gets a fresh agent_id — no cross-run contamination")
     print("=" * 70)
 
     hollow_runs = []
     cold_runs = []
 
     for i in range(args.runs):
-        print(f"\n  [Hollow run {i+1}/{args.runs}]")
+        # Fresh agent per run: ensures pickup only sees THIS run's handoffs
+        agent_resp = _api("POST", "/agents/register", {
+            "name": f"drift-hollow-run-{i+1}",
+            "capabilities": ["code", "write"],
+            "budget_tokens": 1000000,
+        })
+        agent_id = agent_resp.get("agent_id", f"drift-run-{i+1}")
+
+        print(f"\n  [Hollow run {i+1}/{args.runs}] agent_id={agent_id}")
         result = run_with_hollow(i + 1, model, agent_id)
         if "error" in result:
             print(f"    ✗ Error: {result['error']}")

@@ -1,0 +1,755 @@
+{
+  "run_at": "2026-03-30T05:05:10.111246+00:00",
+  "model": "mistral-nemo:12b",
+  "runs_per_condition": 10,
+  "task": "3-session REST API with auth: architect \u2192 implement \u2192 test",
+  "hypothesis": "Hollow handoffs produce more consistent decisions across sessions than cold starts",
+  "hollow": {
+    "runs": [
+      {
+        "run_id": 1,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 44,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 851
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 300,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 3724
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 553,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 6704
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 897
+      },
+      {
+        "run_id": 2,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 44,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 869
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 324,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 4507
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 530,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 5516
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 898
+      },
+      {
+        "run_id": 3,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 5,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 426
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 268,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 3620
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 468,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6616
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 741
+      },
+      {
+        "run_id": 4,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 75,
+            "detected_auth_approach": null,
+            "corrections": 0,
+            "elapsed_ms": 1187
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 385,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 4910
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 617,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6639
+          }
+        ],
+        "s1_approach": null,
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1077
+      },
+      {
+        "run_id": 5,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 48,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 859
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 459,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 5935
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 450,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 5948
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 957
+      },
+      {
+        "run_id": 6,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 38,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 756
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 326,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 4241
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 497,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6750
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 861
+      },
+      {
+        "run_id": 7,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 47,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 815
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 436,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 3955
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 385,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 5202
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 868
+      },
+      {
+        "run_id": 8,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 44,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 855
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 578,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 7795
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 478,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6333
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1100
+      },
+      {
+        "run_id": 9,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 64,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 1003
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 457,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 5715
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 409,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 4190
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 930
+      },
+      {
+        "run_id": 10,
+        "condition": "hollow",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 65,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 1020
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 728,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 9263
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 588,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 8890
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1381
+      }
+    ],
+    "summary": {
+      "n": 10,
+      "avg_consistency_rate": 0.7,
+      "avg_corrections_per_run": 0.0,
+      "avg_tokens_per_run": 971.0,
+      "consistency_rates": [
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "correction_counts": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "cold": {
+    "runs": [
+      {
+        "run_id": 1,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 49,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 866
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 510,
+            "detected_auth_approach": "jwt",
+            "corrections": 1,
+            "elapsed_ms": 4566
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 552,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 7200
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 1,
+        "total_tokens": 1111
+      },
+      {
+        "run_id": 2,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 5,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 455
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 531,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6774
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 645,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 8539
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 1181
+      },
+      {
+        "run_id": 3,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 54,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 886
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 618,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6085
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 504,
+            "detected_auth_approach": null,
+            "corrections": 0,
+            "elapsed_ms": 6600
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 1.0,
+        "total_corrections": 0,
+        "total_tokens": 1176
+      },
+      {
+        "run_id": 4,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 5,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 462
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 588,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 7480
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 660,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 8015
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 0.5,
+        "total_corrections": 0,
+        "total_tokens": 1253
+      },
+      {
+        "run_id": 5,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 97,
+            "detected_auth_approach": null,
+            "corrections": 0,
+            "elapsed_ms": 1417
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 960,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 9925
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 846,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 10579
+          }
+        ],
+        "s1_approach": null,
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1903
+      },
+      {
+        "run_id": 6,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 41,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 771
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 366,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 4728
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 667,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 6664
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.5,
+        "total_corrections": 0,
+        "total_tokens": 1074
+      },
+      {
+        "run_id": 7,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 43,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 849
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 382,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 4722
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 670,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 8438
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1095
+      },
+      {
+        "run_id": 8,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 65,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 999
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 479,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6426
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 725,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 7063
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1269
+      },
+      {
+        "run_id": 9,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 49,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 871
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 545,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 6897
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 784,
+            "detected_auth_approach": null,
+            "corrections": 0,
+            "elapsed_ms": 9951
+          }
+        ],
+        "s1_approach": "session",
+        "consistency_rate": 0.0,
+        "total_corrections": 0,
+        "total_tokens": 1378
+      },
+      {
+        "run_id": 10,
+        "condition": "cold",
+        "sessions": [
+          {
+            "session_num": 1,
+            "goal": "Architecture decision",
+            "response_tokens": 5,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 467
+          },
+          {
+            "session_num": 2,
+            "goal": "Implementation",
+            "response_tokens": 402,
+            "detected_auth_approach": "jwt",
+            "corrections": 0,
+            "elapsed_ms": 5136
+          },
+          {
+            "session_num": 3,
+            "goal": "Testing",
+            "response_tokens": 610,
+            "detected_auth_approach": "session",
+            "corrections": 0,
+            "elapsed_ms": 6460
+          }
+        ],
+        "s1_approach": "jwt",
+        "consistency_rate": 0.5,
+        "total_corrections": 0,
+        "total_tokens": 1017
+      }
+    ],
+    "summary": {
+      "n": 10,
+      "avg_consistency_rate": 0.35,
+      "avg_corrections_per_run": 0.1,
+      "avg_tokens_per_run": 1245.7,
+      "consistency_rates": [
+        0.0,
+        1.0,
+        1.0,
+        0.5,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.5
+      ],
+      "correction_counts": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}
