@@ -1,0 +1,121 @@
+name: Nightly Benchmarks
+
+# Nightly benchmarks run on self-hosted runner with Ollama.
+# Falls back to baseline-only if Ollama unavailable.
+
+on:
+  schedule:
+    # Runs at 02:00 UTC every night
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      drift_runs:
+        description: "Number of drift experiment runs (default: 10 for manual)"
+        required: false
+        default: "10"
+
+jobs:
+
+  nightly-benchmarks:
+    name: Nightly Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest fastapi uvicorn httpx pydantic mcp numpy requests
+
+      - name: Prepare CI config
+        run: |
+          if [ -f config.example.json ]; then
+            cp config.example.json config.json
+          else
+            cat > config.json <<'EOF'
+          {
+            "api": {
+              "host": "0.0.0.0",
+              "port": 7777,
+              "token": "ci-test-token-replace-in-production"
+            },
+            "memory": {
+              "max_session_log_entries": 10000
+            },
+            "workspace": {
+              "root": "/tmp/hollow-workspace"
+            },
+            "ollama": {
+              "host": "http://localhost:11434",
+              "default_model": "mistral-nemo:12b",
+              "embed_model": "nomic-embed-text"
+            }
+          }
+          EOF
+          fi
+
+      - name: Start API server in background
+        run: |
+          cd api
+          PYTHONPATH=.. python3 -m uvicorn server:app \
+            --host 0.0.0.0 --port 7777 --log-level error &
+          echo "API_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for API to become healthy
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:7777/health; do sleep 1; done'
+
+      - name: Run baseline benchmark
+        run: |
+          mkdir -p benchmark-results
+          python3 tools/bench_real_baseline.py \
+            --token ci-test-token-replace-in-production \
+            2>&1 | tee benchmark-results/bench_real_baseline.txt
+
+      - name: Run agent drift experiment
+        # This step requires Ollama. It skips gracefully if Ollama is unavailable
+        # (connection refused / connection error).
+        run: |
+          RUNS="${{ github.event.inputs.drift_runs }}"
+          # For scheduled (nightly) runs use 3; for manual dispatch use the input
+          # (default 10). If the input is empty we are on a schedule.
+          if [ -z "$RUNS" ]; then
+            RUNS=3
+          fi
+          python3 tools/experiment_agent_drift.py \
+            --runs "$RUNS" \
+            --token ci-test-token-replace-in-production \
+            2>&1 | tee benchmark-results/experiment_agent_drift.txt \
+          || {
+            EXIT=$?
+            # Gracefully skip on Ollama connection errors rather than failing the job
+            if grep -qiE "connection (refused|error)|ollama|11434|ConnectError|ConnectionRefused" \
+                benchmark-results/experiment_agent_drift.txt 2>/dev/null; then
+              echo "Ollama unavailable — drift experiment skipped gracefully."
+            else
+              echo "Drift experiment failed for a non-Ollama reason (exit $EXIT)."
+              exit $EXIT
+            fi
+          }
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+          retention-days: 30
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill "$API_PID" 2>/dev/null || true
+          fi

@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: Unit Tests
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest pytest-cov fastapi uvicorn httpx pydantic mcp numpy requests
+
+      - name: Run unit tests with coverage
+        run: |
+          PYTHONPATH=. pytest tests/unit/ -v --tb=short \
+            --cov=agents --cov=memory \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Integration Tests
+  # Ollama is NOT available in GitHub Actions. The API returns 503 for
+  # Ollama-dependent endpoints (semantic search, ollama/chat) and the
+  # integration tests handle 503 gracefully for those endpoints.
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest fastapi uvicorn httpx pydantic mcp numpy requests
+
+      - name: Prepare CI config
+        run: |
+          if [ -f config.example.json ]; then
+            cp config.example.json config.json
+          else
+            cat > config.json <<'EOF'
+          {
+            "api": {
+              "host": "0.0.0.0",
+              "port": 7777,
+              "token": "ci-test-token-replace-in-production"
+            },
+            "memory": {
+              "max_session_log_entries": 10000
+            },
+            "workspace": {
+              "root": "/tmp/hollow-workspace"
+            },
+            "ollama": {
+              "host": "http://localhost:11434",
+              "default_model": "mistral-nemo:12b",
+              "embed_model": "nomic-embed-text"
+            }
+          }
+          EOF
+          fi
+
+      - name: Start API server in background
+        run: |
+          cd api
+          PYTHONPATH=.. python3 -m uvicorn server:app \
+            --host 0.0.0.0 --port 7777 --log-level error &
+          echo "API_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for API to become healthy
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:7777/health; do sleep 1; done'
+
+      - name: Run integration tests
+        run: |
+          PYTHONPATH=. pytest tests/integration/ -v --tb=short -m integration
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill "$API_PID" 2>/dev/null || true
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Lint (never blocks the pipeline — always succeeds)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyflakes
+        run: pip install pyflakes
+
+      - name: Run pyflakes (warnings only, never fails)
+        run: |
+          python3 -m pyflakes agents/ api/ memory/ shell/ mcp/ 2>&1 \
+            | grep -v "__pycache__" || true

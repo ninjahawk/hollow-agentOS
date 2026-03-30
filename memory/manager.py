@@ -43,6 +43,41 @@ def _save(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2))
 
 
+# ── Write buffers — reduce disk I/O on hot paths ─────────────────────────────
+
+_LOG_BUFFER: list = []          # buffered log entries not yet flushed
+_LOG_BUFFER_SIZE = 10           # flush every N entries
+_TOKEN_TOTALS_DIRTY = False     # in-memory totals differ from disk
+_TOKEN_TOTALS_CACHE: dict = {}  # in-memory token counters
+_TOKEN_FLUSH_EVERY = 10         # flush token totals every N updates
+_token_dirty_count = 0
+
+
+def _flush_log_buffer() -> None:
+    """Write buffered log entries to disk."""
+    global _LOG_BUFFER
+    if not _LOG_BUFFER:
+        return
+    log = _load(SESSION_LOG, {"sessions": [], "current_session": None, "actions": []})
+    config = _load(CONFIG_PATH, {})
+    max_entries = config.get("memory", {}).get("max_session_log_entries", 10000)
+    log["actions"].extend(_LOG_BUFFER)
+    _LOG_BUFFER = []
+    if len(log["actions"]) > max_entries:
+        log["actions"] = log["actions"][-max_entries:]
+    _save(SESSION_LOG, log)
+
+
+def _flush_token_totals() -> None:
+    """Write in-memory token totals to disk."""
+    global _TOKEN_TOTALS_DIRTY, _token_dirty_count
+    if not _TOKEN_TOTALS_DIRTY or not _TOKEN_TOTALS_CACHE:
+        return
+    _save(TOKEN_TOTALS, _TOKEN_TOTALS_CACHE)
+    _TOKEN_TOTALS_DIRTY = False
+    _token_dirty_count = 0
+
+
 # ── Workspace Map ────────────────────────────────────────────────────────────
 
 def index_workspace(root: str = None) -> dict:
@@ -123,24 +158,20 @@ def find_files(pattern: str) -> list:
 
 def log_action(action: str, details: dict = None) -> None:
     """Append an action to the session log and update persistent token totals."""
-    log = _load(SESSION_LOG, {"sessions": [], "current_session": None, "actions": []})
-    config = _load(CONFIG_PATH, {})
-    max_entries = config.get("memory", {}).get("max_session_log_entries", 10000)
+    global _LOG_BUFFER
 
     entry = {
         "timestamp": _now(),
         "action": action,
         "details": details or {}
     }
+    _LOG_BUFFER.append(entry)
 
-    log["actions"].append(entry)
+    # Flush to disk every LOG_BUFFER_SIZE entries
+    if len(_LOG_BUFFER) >= _LOG_BUFFER_SIZE:
+        _flush_log_buffer()
 
-    if len(log["actions"]) > max_entries:
-        log["actions"] = log["actions"][-max_entries:]
-
-    _save(SESSION_LOG, log)
-
-    # Update persistent token totals for trackable actions
+    # Update token totals for trackable actions
     d = details or {}
     if action == "shell_command":
         update_token_totals("shell_call")
@@ -159,6 +190,9 @@ def log_action(action: str, details: dict = None) -> None:
 
 def start_session(agent_id: str = "agent") -> str:
     """Mark the start of a new agent session."""
+    # Flush any pending writes before creating a session boundary
+    _flush_log_buffer()
+    _flush_token_totals()
     log = _load(SESSION_LOG, {"sessions": [], "actions": []})
     session_id = f"{agent_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     session = {"id": session_id, "started_at": _now(), "agent": agent_id}
@@ -171,28 +205,34 @@ def start_session(agent_id: str = "agent") -> str:
 
 def get_recent_actions(n: int = 50) -> list:
     log = _load(SESSION_LOG, {"actions": []})
-    return log["actions"][-n:]
+    # Merge flushed actions with any buffered-but-not-yet-flushed entries
+    all_actions = log["actions"] + _LOG_BUFFER
+    return all_actions[-n:]
 
 
 # ── Token Totals (persistent across sessions) ────────────────────────────────
 
 def update_token_totals(action_type: str, model: str = None,
                         tokens_in: int = 0, tokens_out: int = 0) -> None:
-    """Update lifetime token/usage counters. Called automatically from log_action."""
-    totals = _load(TOKEN_TOTALS, {
-        "updated_at": _now(),
-        "lifetime": {
-            "shell_calls": 0,
-            "file_reads": 0,
-            "file_writes": 0,
-            "ollama_calls": 0,
-            "ollama_tokens_in": 0,
-            "ollama_tokens_out": 0
-        },
-        "by_model": {}
-    })
+    """Update lifetime token/usage counters. Batches writes to reduce disk I/O."""
+    global _TOKEN_TOTALS_CACHE, _TOKEN_TOTALS_DIRTY, _token_dirty_count
 
-    lt = totals["lifetime"]
+    # Warm the in-memory cache from disk on first use
+    if not _TOKEN_TOTALS_CACHE:
+        _TOKEN_TOTALS_CACHE = _load(TOKEN_TOTALS, {
+            "updated_at": _now(),
+            "lifetime": {
+                "shell_calls": 0,
+                "file_reads": 0,
+                "file_writes": 0,
+                "ollama_calls": 0,
+                "ollama_tokens_in": 0,
+                "ollama_tokens_out": 0
+            },
+            "by_model": {}
+        })
+
+    lt = _TOKEN_TOTALS_CACHE.setdefault("lifetime", {})
     if action_type == "shell_call":
         lt["shell_calls"] = lt.get("shell_calls", 0) + 1
     elif action_type == "file_read":
@@ -204,18 +244,25 @@ def update_token_totals(action_type: str, model: str = None,
         lt["ollama_tokens_in"] = lt.get("ollama_tokens_in", 0) + (tokens_in or 0)
         lt["ollama_tokens_out"] = lt.get("ollama_tokens_out", 0) + (tokens_out or 0)
         if model:
-            bm = totals.setdefault("by_model", {})
+            bm = _TOKEN_TOTALS_CACHE.setdefault("by_model", {})
             m = bm.setdefault(model, {"calls": 0, "tokens_in": 0, "tokens_out": 0})
             m["calls"] += 1
             m["tokens_in"] += tokens_in or 0
             m["tokens_out"] += tokens_out or 0
 
-    totals["updated_at"] = _now()
-    _save(TOKEN_TOTALS, totals)
+    _TOKEN_TOTALS_CACHE["updated_at"] = _now()
+    _TOKEN_TOTALS_DIRTY = True
+    _token_dirty_count += 1
+
+    # Flush to disk every TOKEN_FLUSH_EVERY updates
+    if _token_dirty_count >= _TOKEN_FLUSH_EVERY:
+        _flush_token_totals()
 
 
 def get_token_totals() -> dict:
-    """Get lifetime token usage counters."""
+    """Get lifetime token usage counters. Returns in-memory cache when available."""
+    if _TOKEN_TOTALS_CACHE:
+        return _TOKEN_TOTALS_CACHE
     return _load(TOKEN_TOTALS, {
         "lifetime": {
             "shell_calls": 0, "file_reads": 0, "file_writes": 0,
@@ -334,6 +381,9 @@ def write_handoff(agent_id: str, summary: str, in_progress: list = None,
     Write a structured handoff for the next agent session.
     Each agent gets its own file — concurrent agents no longer overwrite each other.
     """
+    # Flush buffers before writing handoff — ensures complete picture for next agent
+    _flush_log_buffer()
+    _flush_token_totals()
     handoff = {
         "written_at": _now(),
         "written_by": agent_id,

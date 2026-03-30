@@ -24,6 +24,7 @@ import os
 import sys
 import signal
 import subprocess
+import time as _time
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
@@ -104,8 +105,25 @@ MODEL_ROUTES = {
 }
 DEFAULT_MODEL = "mistral-nemo:12b"
 
-# ── In-memory state cache (used by /state/diff) ──────────────────────────────
-_state_cache: dict = {"data": None, "cached_at": None}
+# ── In-memory state cache (used by /state and /state/diff) ───────────────────
+_STATE_CACHE_TTL = 5.0  # seconds — serve from cache within this window
+_state_cache: dict = {"data": None, "cached_at": None, "cached_at_ts": 0.0}
+
+
+async def _get_state_cached() -> dict:
+    """Return state from in-memory cache if fresh, otherwise rebuild."""
+    now = _time.monotonic()
+    if (_state_cache["data"] is not None and
+            now - _state_cache["cached_at_ts"] < _STATE_CACHE_TTL):
+        return _state_cache["data"]
+    result = await _build_state()
+    _state_cache["data"] = result
+    _state_cache["cached_at"] = result["time"]
+    _state_cache["cached_at_ts"] = now
+    # Record snapshot for temporal history only on fresh build
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, partial(record_state_snapshot, result))
+    return result
 
 
 def _load_config() -> dict:
@@ -230,6 +248,7 @@ class SemanticIndexRequest(BaseModel):
 class ReadContextRequest(BaseModel):
     path: str
     top_k: int = 5
+    related: bool = False  # opt-in: return semantically related chunks from other files
 
 class HandoffRequest(BaseModel):
     agent_id: str = "agent"
@@ -254,7 +273,25 @@ async def health():
 # ── State builder (shared by /state and /state/diff) ─────────────────────────
 
 async def _build_state() -> dict:
-    disk_out = (await _shell("df -B1 / /mnt/c 2>/dev/null || df -B1 /")).get("stdout", "")
+    # Run all shell commands in parallel — no more sequential awaits
+    disk_res, mem_res, load_res, gpu_res, svc_res = await asyncio.gather(
+        _shell("df -B1 / /mnt/c 2>/dev/null || df -B1 /"),
+        _shell("free -m"),
+        _shell("cat /proc/loadavg"),
+        _shell(
+            "/usr/lib/wsl/lib/nvidia-smi "
+            "--query-gpu=name,memory.used,memory.total,utilization.gpu "
+            "--format=csv,noheader,nounits 2>/dev/null || "
+            "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu "
+            "--format=csv,noheader,nounits 2>/dev/null || echo 'no-gpu'"
+        ),
+        _shell(
+            "for s in agentos-api ollama nginx agentos-indexer.timer; do "
+            "echo \"$s:$(systemctl is-active $s 2>/dev/null)\"; done"
+        ),
+    )
+
+    disk_out = disk_res.get("stdout", "")
     disk = {}
     for line in disk_out.splitlines()[1:]:
         parts = line.split()
@@ -274,7 +311,7 @@ async def _build_state() -> dict:
         }
 
     mem = {}
-    for line in (await _shell("free -m")).get("stdout", "").splitlines():
+    for line in mem_res.get("stdout", "").splitlines():
         if line.startswith("Mem:"):
             parts = line.split()
             total = int(parts[1])
@@ -288,20 +325,14 @@ async def _build_state() -> dict:
             }
             break
 
-    lp = (await _shell("cat /proc/loadavg")).get("stdout", "0 0 0").split()
+    lp = load_res.get("stdout", "0 0 0").split()
     load = {
         "1m":  float(lp[0]) if len(lp) > 0 else 0.0,
         "5m":  float(lp[1]) if len(lp) > 1 else 0.0,
         "15m": float(lp[2]) if len(lp) > 2 else 0.0
     }
 
-    gpu_raw = (await _shell(
-        "/usr/lib/wsl/lib/nvidia-smi "
-        "--query-gpu=name,memory.used,memory.total,utilization.gpu "
-        "--format=csv,noheader,nounits 2>/dev/null || "
-        "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu "
-        "--format=csv,noheader,nounits 2>/dev/null || echo 'no-gpu'"
-    )).get("stdout", "no-gpu").strip()
+    gpu_raw = gpu_res.get("stdout", "no-gpu").strip()
     gpu = None
     if gpu_raw and gpu_raw != "no-gpu":
         parts = [p.strip() for p in gpu_raw.split(",")]
@@ -316,12 +347,8 @@ async def _build_state() -> dict:
             except ValueError:
                 gpu = {"raw": gpu_raw}
 
-    svc_raw = (await _shell(
-        "for s in agentos-api ollama nginx agentos-indexer.timer; do "
-        "echo \"$s:$(systemctl is-active $s 2>/dev/null)\"; done"
-    )).get("stdout", "")
     services = {}
-    for line in svc_raw.splitlines():
+    for line in svc_res.get("stdout", "").splitlines():
         if ":" in line:
             name, status = line.split(":", 1)
             services[name.strip()] = status.strip()
@@ -329,8 +356,13 @@ async def _build_state() -> dict:
     ollama = {"available": [], "running": [], "error": None}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            tags = (await client.get(f"{_ollama_host()}/api/tags")).json()
-            ps   = (await client.get(f"{_ollama_host()}/api/ps")).json()
+            # Parallelize the two Ollama API calls
+            tags_r, ps_r = await asyncio.gather(
+                client.get(f"{_ollama_host()}/api/tags"),
+                client.get(f"{_ollama_host()}/api/ps"),
+            )
+            tags = tags_r.json()
+            ps   = ps_r.json()
         ollama["available"] = [
             {"name": m["name"], "size_gb": round(m.get("size", 0) / 1_073_741_824, 1)}
             for m in tags.get("models", [])
@@ -431,13 +463,7 @@ async def get_state(
 ):
     _verify_any_token(authorization)
     try:
-        result = await _build_state()
-        _state_cache["data"] = result
-        _state_cache["cached_at"] = result["time"]
-        # Record snapshot for temporal history (non-blocking, always uses full state)
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, partial(record_state_snapshot, result))
-        # Apply field projection then strip nulls/empties
+        result = await _get_state_cached()
         if fields:
             result = _project_fields(result, fields)
         return _strip_empty(result)
@@ -476,9 +502,7 @@ async def get_state_diff(since: str = None, authorization: Optional[str] = Heade
     """
     _verify_any_token(authorization)
     try:
-        fresh = await _build_state()
-        _state_cache["data"] = fresh
-        _state_cache["cached_at"] = fresh["time"]
+        fresh = await _get_state_cached()
 
         if not since:
             return {"full": True, "state": _strip_empty(fresh), "since": None}
@@ -569,7 +593,7 @@ async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str]
 
 
 @app.get("/fs/read")
-async def fs_read(path: str, authorization: Optional[str] = Header(None)):
+async def fs_read(path: str, meta: bool = False, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
     p = Path(path)
     if not p.exists():
@@ -578,12 +602,11 @@ async def fs_read(path: str, authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=400, detail=f"Not a file: {path}")
     content = p.read_text(errors="replace")
     log_action("file_read", {"path": path, "size": p.stat().st_size})
-    return {
-        "path":       str(p),
-        "content":    content,
-        "lines":      content.count("\n") + 1,
-        "size_bytes": p.stat().st_size
-    }
+    resp = {"path": str(p), "content": content}
+    if meta:
+        resp["lines"] = content.count("\n") + 1
+        resp["size_bytes"] = p.stat().st_size
+    return resp
 
 
 @app.post("/fs/write")
@@ -642,30 +665,25 @@ async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] 
     content = p.read_text(errors="replace")
     log_action("file_read", {"path": req.path, "size": p.stat().st_size})
 
-    # Auto-derive semantic query from filename + first meaningful lines
-    first_lines = "\n".join(
-        l for l in content.splitlines()[:20] if l.strip() and not l.strip().startswith("#!")
-    )
-    query = f"{p.name} {first_lines[:200]}"
+    resp = {"path": str(p), "content": content}
 
-    try:
-        from tools.semantic import search as sem_search
-        loop = asyncio.get_running_loop()
-        related = await loop.run_in_executor(
-            None, partial(sem_search, query, req.top_k + 2)
+    if req.related:
+        # Auto-derive semantic query from filename + first meaningful lines
+        first_lines = "\n".join(
+            l for l in content.splitlines()[:20] if l.strip() and not l.strip().startswith("#!")
         )
-        # Exclude chunks from the same file
-        related = [r for r in related if r.get("file") != str(p)][:req.top_k]
-    except Exception:
-        related = []
+        query = f"{p.name} {first_lines[:200]}"
+        try:
+            from tools.semantic import search as sem_search
+            loop = asyncio.get_running_loop()
+            hits = await loop.run_in_executor(
+                None, partial(sem_search, query, req.top_k + 2)
+            )
+            resp["related"] = [r for r in hits if r.get("file") != str(p)][:req.top_k]
+        except Exception:
+            resp["related"] = []
 
-    return {
-        "path":       str(p),
-        "content":    content,
-        "lines":      content.count("\n") + 1,
-        "size_bytes": p.stat().st_size,
-        "related":    related
-    }
+    return resp
 
 
 # ── Ollama — local model routing ──────────────────────────────────────────────
@@ -1233,10 +1251,13 @@ async def tools_openai_schema(authorization: Optional[str] = Header(None)):
             "type": "function",
             "function": {
                 "name": "hollow_fs_read",
-                "description": "Read a file. Returns content, line count, and size.",
+                "description": "Read a file. Returns path and content. Add ?meta=true to also get line count and size.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"path": {"type": "string"}},
+                    "properties": {
+                        "path": {"type": "string"},
+                        "meta": {"type": "boolean", "default": False, "description": "Include lines and size_bytes in response"}
+                    },
                     "required": ["path"]
                 },
             }
@@ -1286,11 +1307,12 @@ async def tools_openai_schema(authorization: Optional[str] = Header(None)):
             "type": "function",
             "function": {
                 "name": "hollow_fs_read_context",
-                "description": "Read a file AND return semantically related chunks from other files. 51% fewer tokens than cat + grep.",
+                "description": "Read a file. Set related=true to also return semantically related chunks from other files (requires Ollama).",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": {"type": "string"},
+                        "related": {"type": "boolean", "default": False, "description": "Include semantically related chunks from other files"},
                         "top_k": {"type": "integer", "default": 5}
                     },
                     "required": ["path"]
