@@ -51,6 +51,7 @@ from memory.manager import (
     create_spec, get_spec, list_specs, activate_spec, get_active_spec, update_spec,
 )
 from shell.agent_shell import run as shell_run
+from agents.scheduler import log_shell_usage
 from agents.registry import AgentRegistry
 from agents.bus import MessageBus
 from agents.scheduler import TaskScheduler
@@ -530,11 +531,19 @@ async def run_command(req: ShellRequest, authorization: Optional[str] = Header(N
             _registry.update_usage(agent.agent_id, shell_calls=1)
 
     result = await _shell(req.command, cwd, req.timeout)
+    agent_id = "root"
+    if _registry:
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        a = _registry.authenticate(token)
+        if a:
+            agent_id = a.agent_id
     log_action("shell_command", {
         "command":   req.command,
         "exit_code": result.get("exit_code"),
         "success":   result.get("success")
     })
+    # Log pattern for shell-elimination roadmap (non-blocking, never raises)
+    log_shell_usage(req.command, agent_id)
     return result
 
 
@@ -830,14 +839,26 @@ async def agent_handoff(req: HandoffRequest, authorization: Optional[str] = Head
 
 
 @app.get("/agent/pickup")
-async def agent_pickup(authorization: Optional[str] = Header(None)):
+async def agent_pickup(
+    agent_id: Optional[str] = Query(None, description="Return handoff written by this specific agent"),
+    authorization: Optional[str] = Header(None),
+):
     """
     Everything a new agent needs to start working immediately — no re-discovery.
     Returns: last handoff + what changed since + current state summary.
     One call replaces: read memory → explore workspace → check what changed.
+
+    Pass ?agent_id=<id> to get the handoff written by a specific agent (prevents
+    cross-agent contamination in multi-agent setups).
     """
     _verify_any_token(authorization)
-    handoff = read_handoff()
+    # Resolve agent_id from token if not provided explicitly
+    if not agent_id and _registry:
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        a = _registry.authenticate(token)
+        if a and a.agent_id != "root":
+            agent_id = a.agent_id
+    handoff = read_handoff(agent_id)
 
     # Get current lean state (just what matters for startup)
     ctx = get_session_context()

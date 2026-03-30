@@ -56,6 +56,8 @@ ROLE_BUDGETS: dict[str, dict] = {
 }
 
 
+MAX_SPAWN_DEPTH = 5  # prevent recursive agent storms
+
 @dataclass
 class AgentRecord:
     agent_id: str
@@ -69,6 +71,7 @@ class AgentRecord:
     usage: dict              # current usage
     created_at: float
     parent_id: Optional[str] = None
+    spawn_depth: int = 0     # distance from root; capped at MAX_SPAWN_DEPTH
     current_task: Optional[str] = None
     metadata: dict = field(default_factory=dict)
     locks: dict = field(default_factory=dict)          # name → {acquired_at, expires_at}
@@ -107,6 +110,7 @@ class AgentRegistry:
     def __init__(self, master_token: str):
         self._lock = threading.Lock()
         self._agents: dict[str, AgentRecord] = {}
+        self._token_index: dict[str, str] = {}  # token_hash → agent_id (O(1) auth)
         self._master_token = master_token
         self._master_hash = _hash_token(master_token)
         WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -127,8 +131,10 @@ class AgentRegistry:
                 budget=ROLE_BUDGETS["root"].copy(),
                 usage={"shell_calls": 0, "tokens_in": 0, "tokens_out": 0},
                 created_at=time.time(),
+                spawn_depth=0,
             )
             self._agents["root"] = root
+            self._token_index[self._master_hash] = "root"
             Path(root.workspace_dir).mkdir(parents=True, exist_ok=True)
             self._save()
 
@@ -154,21 +160,29 @@ class AgentRegistry:
             caps = list(allowed)
 
         raw_token = _token_for(agent_id, self._master_token)
+        token_hash = _hash_token(raw_token)
         workspace = WORKSPACE_ROOT / agent_id
         workspace.mkdir(parents=True, exist_ok=True)
+
+        # Compute spawn depth from parent
+        parent_record = self._agents.get(parent_id) if parent_id else None
+        depth = (parent_record.spawn_depth + 1) if parent_record else 0
+        if depth > MAX_SPAWN_DEPTH:
+            raise ValueError(f"Spawn depth limit ({MAX_SPAWN_DEPTH}) exceeded — infinite recursion guard")
 
         record = AgentRecord(
             agent_id=agent_id,
             name=name,
             role=role,
             capabilities=caps,
-            token_hash=_hash_token(raw_token),
+            token_hash=token_hash,
             workspace_dir=str(workspace),
             status="active",
             budget=(budget or ROLE_BUDGETS.get(role, ROLE_BUDGETS["custom"])).copy(),
             usage={"shell_calls": 0, "tokens_in": 0, "tokens_out": 0},
             created_at=time.time(),
             parent_id=parent_id,
+            spawn_depth=depth,
             metadata=metadata or {},
             locks={},
             model_policies=model_policies or {},
@@ -176,20 +190,22 @@ class AgentRegistry:
 
         with self._lock:
             self._agents[agent_id] = record
+            self._token_index[token_hash] = agent_id
             self._save()
 
         return record, raw_token
 
     def authenticate(self, token: str) -> Optional[AgentRecord]:
-        """Resolve a raw token to an agent. Returns None if invalid."""
-        # Master token → root agent
+        """Resolve a raw token to an agent. O(1) via token hash index."""
         if token == self._master_token:
             return self._agents.get("root")
-
         token_hash = _hash_token(token)
-        for agent in self._agents.values():
-            if agent.token_hash == token_hash and agent.status == "active":
-                return agent
+        agent_id = self._token_index.get(token_hash)
+        if not agent_id:
+            return None
+        agent = self._agents.get(agent_id)
+        if agent and agent.status == "active":
+            return agent
         return None
 
     def get(self, agent_id: str) -> Optional[AgentRecord]:
@@ -223,6 +239,7 @@ class AgentRegistry:
             a = self._agents.get(agent_id)
             if a:
                 a.status = "terminated"
+                self._token_index.pop(a.token_hash, None)  # evict from auth index
                 self._save()
 
     def suspend(self, agent_id: str):
@@ -311,8 +328,12 @@ class AgentRegistry:
                     # Backwards compat: add new fields if missing
                     d.setdefault("locks", {})
                     d.setdefault("model_policies", {})
+                    d.setdefault("spawn_depth", 0)
                     r = AgentRecord(**d)
                     self._agents[r.agent_id] = r
+                    # Rebuild O(1) token index — only active agents authenticate
+                    if r.status == "active":
+                        self._token_index[r.token_hash] = r.agent_id
             except Exception:
                 pass
 
