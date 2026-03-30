@@ -180,7 +180,7 @@ class TestSpawnDepth:
         from agents.registry import MAX_SPAWN_DEPTH
         # Build a chain exactly at the limit
         current_id = None
-        for i in range(MAX_SPAWN_DEPTH):
+        for i in range(MAX_SPAWN_DEPTH + 1):
             record, _ = registry.register(
                 name=f"deep-{i}", role="worker", parent_id=current_id
             )

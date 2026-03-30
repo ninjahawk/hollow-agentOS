@@ -256,7 +256,9 @@ class TestStateDiff:
 class TestLogAction:
     def test_log_action_creates_session_log(self, tmp_path):
         from memory.manager import log_action
-        log_action("test_event", {"detail": "value"})
+        # Log enough entries to trigger the buffer flush (buffer size is 10)
+        for i in range(10):
+            log_action(f"test_event_{i}", {"detail": f"value_{i}"})
         assert (tmp_path / "session-log.json").exists()
 
     def test_log_action_appends_entry(self, tmp_path):
