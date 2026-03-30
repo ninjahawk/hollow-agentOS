@@ -23,7 +23,7 @@
 
 ## What it is
 
-Hollow is a local REST API that runs alongside your agent and gives it a structured JSON interface to the system — file I/O, shell, semantic search, memory, local model inference, inter-agent messaging, and session state.
+Hollow is a local REST API that runs alongside your agent and gives it a structured JSON interface to the system, file I/O, shell, semantic search, memory, local model inference, inter-agent messaging, and session state.
 
 **Without Hollow**, an agent cold-starts every session. It runs 9 shell commands to discover system state. It greps files to find context it had last session. It makes fresh decisions about things it already decided before. That inconsistency compounds — each session reconstructs a slightly different understanding of the same codebase. This is **agent drift**, and cheaper tokens won't fix it.
 
