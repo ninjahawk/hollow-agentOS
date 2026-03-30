@@ -5,7 +5,7 @@
   "api": {
     "host": "0.0.0.0",
     "port": 7777,
-    "token": "CHANGE-THIS-TO-A-REAL-SECRET"
+    "token": "ci-test-token-replace-in-production"
   },
   "dashboard": {
     "host": "0.0.0.0",
@@ -28,10 +28,11 @@
     "embed_model": "nomic-embed-text",
     "gpu": "rtx5070",
     "gpu_layers": -1,
-    "context_length": 32768
+    "context_length": 32768,
+    "enabled": true
   },
   "workspace": {
-    "root": "/mnt/c/Users/YOUR_USERNAME/Desktop/Your Workspace",
+    "root": "/tmp/hollow-workspace",
     "index_extensions": [".py", ".js", ".ts", ".go", ".rs", ".c", ".cpp", ".h", ".json", ".yaml", ".yml", ".toml", ".md", ".sh", ".html", ".css", ".txt"]
   }
 }
