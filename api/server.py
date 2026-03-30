@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    from fastapi import FastAPI, HTTPException, Header, Body
+    from fastapi import FastAPI, HTTPException, Header, Body, Query
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
     import uvicorn
@@ -47,7 +47,7 @@ from memory.manager import (
     queue_decision, resolve_decision, get_pending_decisions,
     set_project_context, get_project_context, start_session,
     get_token_totals, write_handoff, read_handoff,
-    record_state_snapshot, get_state_history,
+    record_state_snapshot, get_state_history, get_state_diff_since,
     create_spec, get_spec, list_specs, activate_spec, get_active_spec, update_spec,
 )
 from shell.agent_shell import run as shell_run
@@ -387,19 +387,59 @@ async def _build_state() -> dict:
     }
 
 
+# ── State helpers ─────────────────────────────────────────────────────────────
+
+def _strip_empty(obj):
+    """Recursively remove None, {}, and [] from a dict/list. Reduces response size."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            cleaned = _strip_empty(v)
+            if cleaned is not None and cleaned != {} and cleaned != []:
+                out[k] = cleaned
+        return out
+    if isinstance(obj, list):
+        return [_strip_empty(i) for i in obj if i is not None]
+    return obj
+
+
+def _project_fields(state: dict, fields_str: str) -> dict:
+    """Return only requested top-level keys. ?fields=system,ollama"""
+    keys = {f.strip() for f in fields_str.split(",") if f.strip()}
+    return {k: v for k, v in state.items() if k in keys}
+
+
+def _flatten_dict(d: dict, prefix: str = "") -> dict:
+    """Flatten nested dict to dotted paths: {a: {b: 1}} → {"a.b": 1}"""
+    result = {}
+    for k, v in d.items():
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict) and v:
+            result.update(_flatten_dict(v, key))
+        else:
+            result[key] = v
+    return result
+
+
 # ── State ─────────────────────────────────────────────────────────────────────
 
 @app.get("/state")
-async def get_state(authorization: Optional[str] = Header(None)):
+async def get_state(
+    fields: Optional[str] = Query(None, description="Comma-separated top-level fields to return, e.g. system,ollama"),
+    authorization: Optional[str] = Header(None),
+):
     _verify_any_token(authorization)
     try:
         result = await _build_state()
         _state_cache["data"] = result
         _state_cache["cached_at"] = result["time"]
-        # Record snapshot for temporal history (non-blocking)
+        # Record snapshot for temporal history (non-blocking, always uses full state)
         loop = asyncio.get_running_loop()
         loop.run_in_executor(None, partial(record_state_snapshot, result))
-        return result
+        # Apply field projection then strip nulls/empties
+        if fields:
+            result = _project_fields(result, fields)
+        return _strip_empty(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -426,9 +466,12 @@ async def get_state_history_endpoint(since: str = None, authorization: Optional[
 @app.get("/state/diff")
 async def get_state_diff(since: str = None, authorization: Optional[str] = Header(None)):
     """
-    Return only what changed since `since` (ISO timestamp).
-    If no cache exists or cache is older than `since`, returns full state.
-    Eliminates repeated full-state parsing for agents that poll frequently.
+    Return ONLY what changed since `since` (ISO timestamp) as a flat dotted-path dict.
+    If nothing changed, returns {"changed": {}, ...} — near-zero tokens.
+    If no `since` provided, returns full state (stripped).
+
+    Uses the real state snapshot history for comparison — not a fixed field list.
+    Format: {"changed": {"system.load.1m": 0.88, "tokens.session_shell_calls": 3}, ...}
     """
     _verify_any_token(authorization)
     try:
@@ -437,39 +480,23 @@ async def get_state_diff(since: str = None, authorization: Optional[str] = Heade
         _state_cache["cached_at"] = fresh["time"]
 
         if not since:
-            return {"full": True, "state": fresh, "since": None}
+            return {"full": True, "state": _strip_empty(fresh), "since": None}
 
-        # Deep-compare top-level sections against the state as it was at `since`
-        # Since we can't replay history, we return sections whose values differ
-        # from what would have been stable. Practically: return only the mutable
-        # sections that are worth diffing for polling agents.
-        changed = {}
+        # Compare against real snapshot history
+        changed_sections = get_state_diff_since(since)
 
-        # Always include time-sensitive fields
-        changed["time"] = fresh["time"]
-        changed["tokens"] = fresh["tokens"]
-        changed["token_totals"] = fresh["token_totals"]
-        changed["recent_actions"] = fresh["recent_actions"]
-        changed["pending_decisions"] = fresh["pending_decisions"]
+        if not changed_sections:
+            return {"changed": {}, "since": since, "generated_at": fresh["time"]}
 
-        # Include GPU/system if load has changed meaningfully
-        gpu = fresh["system"].get("gpu")
-        if gpu:
-            changed["gpu"] = gpu
-
-        changed["load"] = fresh["system"].get("load")
-
-        # Include Ollama running models (changes when models load/unload)
-        changed["ollama_running"] = fresh["ollama"].get("running", [])
-
-        # Include semantic index stats (changes on re-index)
-        changed["semantic"] = fresh["semantic"]
+        # Flatten to dotted paths and strip nulls/empties
+        flat = _flatten_dict(changed_sections)
+        flat = {k: v for k, v in flat.items()
+                if v is not None and v != {} and v != []}
 
         return {
-            "full": False,
+            "changed": flat,
             "since": since,
             "generated_at": fresh["time"],
-            "changed": changed
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
