@@ -124,14 +124,14 @@ class TestState:
 class TestStateDiff:
     def test_diff_with_past_since_returns_changed_format(self, api_url, auth_headers):
         since = _past_iso(60)
-        r = requests.get(f"{api_url}/state/diff?since={since}", headers=auth_headers)
+        r = requests.get(f"{api_url}/state/diff", params={"since": since}, headers=auth_headers)
         assert r.status_code == 200
         data = r.json()
         assert "changed" in data
 
     def test_diff_changed_keys_are_dotted_paths(self, api_url, auth_headers):
         since = _past_iso(3600)  # 1 hour ago — should have changes
-        r = requests.get(f"{api_url}/state/diff?since={since}", headers=auth_headers)
+        r = requests.get(f"{api_url}/state/diff", params={"since": since}, headers=auth_headers)
         data = r.json()
         changed = data.get("changed", {})
         # If there are any changed keys, they should be dotted path strings
@@ -140,7 +140,7 @@ class TestStateDiff:
 
     def test_diff_with_future_since_returns_empty_changed(self, api_url, auth_headers):
         since = _future_iso(3600)  # 1 hour in the future
-        r = requests.get(f"{api_url}/state/diff?since={since}", headers=auth_headers)
+        r = requests.get(f"{api_url}/state/diff", params={"since": since}, headers=auth_headers)
         assert r.status_code == 200
         data = r.json()
         # Nothing should be newer than a future timestamp
@@ -149,7 +149,7 @@ class TestStateDiff:
 
     def test_diff_has_since_field_in_response(self, api_url, auth_headers):
         since = _past_iso(10)
-        r = requests.get(f"{api_url}/state/diff?since={since}", headers=auth_headers)
+        r = requests.get(f"{api_url}/state/diff", params={"since": since}, headers=auth_headers)
         data = r.json()
         assert "since" in data
         assert data["since"] == since
