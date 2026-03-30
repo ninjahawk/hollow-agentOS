@@ -61,7 +61,7 @@ from agents.standards import (
 )
 import api.agent_routes as agent_routes
 
-CONFIG_PATH = Path("/agentOS/config.json")
+CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 
 # ── Ollama availability ───────────────────────────────────────────────────────
 _ollama_available: bool = False

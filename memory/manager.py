@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-CONFIG_PATH = Path("/agentOS/config.json")
-MEMORY_PATH = Path("/agentOS/memory")
+CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+MEMORY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory"))
 
 WORKSPACE_MAP   = MEMORY_PATH / "workspace-map.json"
 SESSION_LOG     = MEMORY_PATH / "session-log.json"
