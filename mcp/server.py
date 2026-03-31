@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.8.0
+AgentOS MCP Server v0.9.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (50 total):
+Tools (51 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -27,6 +27,7 @@ Tools (50 total):
   Workspace: workspace_diff
   Events:    event_subscribe, event_unsubscribe, event_history  (v0.7.0)
   Signals:   agent_signal, agent_tombstone                      (v0.8.0)
+  VRAM:      model_status                                       (v0.9.0)
 """
 
 import asyncio
@@ -420,8 +421,9 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="task_submit",
             description=(
-                "Submit a task to the scheduler. Complexity routes to the right local model automatically: "
-                "1-2 → mistral-nemo:12b (general), 3-4 → qwen2.5:14b (code), 5 → qwen3.5-35b-moe (reasoning). "
+                "Submit a task to the VRAM-aware scheduler. Complexity routes to the right local model "
+                "with cache affinity (v0.9.0): 1-2 → mistral-nemo:12b, 3-4 → qwen2.5:14b, "
+                "5 → qwen3.5-35b-moe. Priority: 0=URGENT (preempts BACKGROUND), 1=NORMAL, 2=BACKGROUND. "
                 "Returns result synchronously with token usage and latency."
             ),
             inputSchema={
@@ -429,6 +431,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "description":   {"type": "string", "description": "Task description / prompt"},
                     "complexity":    {"type": "integer", "description": "Complexity 1-5 (default: 2)"},
+                    "priority":      {"type": "integer", "description": "0=URGENT, 1=NORMAL (default), 2=BACKGROUND"},
                     "context":       {"type": "object", "description": "Optional extra context dict"},
                     "system_prompt": {"type": "string", "description": "Optional system prompt override"}
                 },
@@ -824,6 +827,20 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id"],
             }
         ),
+        # ── VRAM (v0.9.0) ────────────────────────────────────────────────────
+        Tool(
+            name="model_status",
+            description=(
+                "VRAM-aware model status (v0.9.0). Returns: loaded models, VRAM used/available/total (MB), "
+                "VRAM pressure flag (>90% used), and task queue depth by priority "
+                "(0=URGENT, 1=NORMAL, 2=BACKGROUND). Use before submitting large tasks to check headroom."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
     ]
 
 
@@ -986,6 +1003,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return _out(await _post("/tasks/submit", {
                 "description":   arguments["description"],
                 "complexity":    arguments.get("complexity", 2),
+                "priority":      arguments.get("priority", 1),
                 "context":       arguments.get("context"),
                 "system_prompt": arguments.get("system_prompt"),
             }))
@@ -1208,6 +1226,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if agent_id == "all":
                 return _out(await _get("/tombstones"))
             return _out(await _get(f"/tombstones/{agent_id}"))
+
+        # ── VRAM (v0.9.0) ────────────────────────────────────────────────────
+        elif name == "model_status":
+            return _out(await _get("/model_status"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

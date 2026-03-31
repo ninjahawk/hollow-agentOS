@@ -24,15 +24,17 @@ _registry: AgentRegistry = None
 _bus: MessageBus = None
 _scheduler: TaskScheduler = None
 _events = None
+_model_manager = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
-         events=None):
-    global _registry, _bus, _scheduler, _events
+         events=None, model_manager=None):
+    global _registry, _bus, _scheduler, _events, _model_manager
     _registry = registry
     _bus = bus
     _scheduler = scheduler
     _events = events
+    _model_manager = model_manager
 
 
 # ── Auth helpers ────────────────────────────────────────────────────────────
@@ -95,6 +97,7 @@ class SubmitTaskRequest(BaseModel):
     complexity: int = 2
     context: Optional[dict] = None
     system_prompt: Optional[str] = None
+    priority: int = 1  # 0=URGENT, 1=NORMAL, 2=BACKGROUND
 
 
 class SpawnRequest(BaseModel):
@@ -282,6 +285,7 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         complexity=req.complexity,
         context=req.context,
         system_prompt=req.system_prompt,
+        priority=req.priority,
     )
     _registry.update_usage(caller.agent_id, tokens_in=0, tokens_out=0)  # updated by scheduler
     return {
@@ -545,3 +549,19 @@ def get_tombstone(agent_id: str, authorization: Optional[str] = Header(None)):
     if not p.exists():
         raise HTTPException(status_code=404, detail="Tombstone file not found on disk")
     return json.loads(p.read_text())
+
+
+# ── v0.9.0: VRAM / Model Status ──────────────────────────────────────────────
+
+@router.get("/model_status")
+def model_status(authorization: Optional[str] = Header(None)):
+    """
+    Return current VRAM state: loaded models, VRAM usage, queue depth by priority.
+    Available to any authenticated agent.
+    """
+    _resolve_agent(authorization)
+    if not _model_manager:
+        return {"error": "ModelManager not initialized", "loaded_models": [], "vram_total_mb": 0}
+    status = _model_manager.status()
+    status["queue"] = _scheduler.queue_status() if _scheduler else {}
+    return status

@@ -11,8 +11,14 @@ Complexity scale:
     3 — moderate (multi-step reasoning, code review)
     4 — complex (architecture, long code generation)
     5 — deep reasoning (math, multi-hop, planning)
+
+Task priority (v0.9.0):
+    0 — URGENT    (preempts BACKGROUND workers)
+    1 — NORMAL    (default)
+    2 — BACKGROUND (evicted first under VRAM pressure)
 """
 
+import heapq
 import json
 import os
 import sys
@@ -23,7 +29,6 @@ import urllib.request
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor
 
 TASKS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "tasks.json"
 SHELL_LOG_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "shell-usage-log.json"
@@ -31,16 +36,25 @@ API_BASE = "http://localhost:7777"
 
 # Keep at most this many tasks in memory/disk to prevent unbounded growth
 MAX_TASKS = 500
-# Thread pool for async task execution (prevents blocking the API event loop)
-_task_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hollow-task")
 
-# Complexity → Ollama role → model (from config routing table)
+# Priority constants
+PRIORITY_URGENT     = 0
+PRIORITY_NORMAL     = 1
+PRIORITY_BACKGROUND = 2
+
+# Complexity → Ollama role → model (fallback when ModelManager unavailable)
 COMPLEXITY_ROUTING = {
     1: "general",          # mistral-nemo:12b — fast, cheap
     2: "general",
     3: "code",             # qwen2.5:14b — better reasoning
     4: "code",
     5: "reasoning",        # qwen3.5-35b-moe — deep reasoning
+}
+
+ROLE_MODEL = {
+    "general":   "mistral-nemo:12b",
+    "code":      "qwen2.5:14b",
+    "reasoning": "qwen3.5-35b-moe:latest",
 }
 
 # Estimated tokens per complexity level (for budget pre-check)
@@ -52,6 +66,8 @@ COMPLEXITY_TOKEN_ESTIMATE = {
     5: 20_000,
 }
 
+_NUM_WORKERS = 4
+
 
 @dataclass
 class Task:
@@ -60,14 +76,106 @@ class Task:
     complexity: int          # 1-5
     submitted_by: str        # agent_id
     assigned_to: Optional[str]   # agent_id or model name
-    status: str              # queued | running | done | failed
+    status: str              # queued | running | done | failed | checkpointed
     result: Optional[dict]
     created_at: float
+    priority: int = PRIORITY_NORMAL   # 0=URGENT, 1=NORMAL, 2=BACKGROUND
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     error: Optional[str] = None
     context: dict = field(default_factory=dict)  # extra data passed to model
 
+
+# ---------------------------------------------------------------------------
+# Priority Task Queue
+# ---------------------------------------------------------------------------
+
+class PriorityTaskQueue:
+    """
+    Min-heap priority queue. Lower priority value = higher urgency.
+    Supports URGENT preemption: when an URGENT task arrives and all workers
+    are busy with BACKGROUND tasks, the oldest BACKGROUND task is checkpointed
+    and its worker is freed.
+    """
+
+    def __init__(self):
+        self._heap: list[tuple] = []   # (priority, seq, task_id)
+        self._seq = 0
+        self._cond = threading.Condition(threading.Lock())
+        self._pending: dict[str, Task] = {}     # task_id → Task (queued)
+        self._running: dict[str, Task] = {}     # task_id → Task (running)
+        self._closed = False
+
+    def put(self, task: Task) -> None:
+        with self._cond:
+            self._pending[task.task_id] = task
+            heapq.heappush(self._heap, (task.priority, self._seq, task.task_id))
+            self._seq += 1
+            self._cond.notify()
+
+    def get(self, timeout: float = 1.0) -> Optional[Task]:
+        """Block until a task is available or timeout elapses."""
+        deadline = time.monotonic() + timeout
+        with self._cond:
+            while not self._heap and not self._closed:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._cond.wait(remaining)
+            if not self._heap:
+                return None
+            _, _, task_id = heapq.heappop(self._heap)
+            task = self._pending.pop(task_id, None)
+            if task:
+                self._running[task_id] = task
+            return task
+
+    def mark_done(self, task_id: str) -> None:
+        with self._cond:
+            self._running.pop(task_id, None)
+
+    def checkpoint_oldest_background(self) -> Optional[Task]:
+        """
+        Find the oldest running BACKGROUND task and checkpoint it (re-queue it).
+        Returns the checkpointed task so the caller can free its worker.
+        """
+        with self._cond:
+            bg_tasks = [
+                t for t in self._running.values()
+                if t.priority == PRIORITY_BACKGROUND and t.status == "running"
+            ]
+            if not bg_tasks:
+                return None
+            oldest = min(bg_tasks, key=lambda t: t.started_at or t.created_at)
+            oldest.status = "checkpointed"
+            self._running.pop(oldest.task_id, None)
+            # Re-queue for later
+            self._pending[oldest.task_id] = oldest
+            heapq.heappush(self._heap, (oldest.priority, self._seq, oldest.task_id))
+            self._seq += 1
+            self._cond.notify()
+            return oldest
+
+    def running_count(self) -> int:
+        with self._cond:
+            return len(self._running)
+
+    def queue_depth_by_priority(self) -> dict:
+        with self._cond:
+            depth = {0: 0, 1: 0, 2: 0}
+            for p, _, _ in self._heap:
+                depth[p] = depth.get(p, 0) + 1
+            return depth
+
+    def close(self):
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
+
+
+# ---------------------------------------------------------------------------
+# TaskScheduler
+# ---------------------------------------------------------------------------
 
 class TaskScheduler:
     def __init__(self, registry, bus, master_token: str):
@@ -77,11 +185,44 @@ class TaskScheduler:
         self._event_bus = None
         self._lock = threading.Lock()
         self._tasks: dict[str, Task] = {}
+        self._queue = PriorityTaskQueue()
+        self._workers: list[threading.Thread] = []
+        self._model_manager = None  # injected after startup
         self._load()
+        self._start_workers()
 
     def set_event_bus(self, event_bus) -> None:
         """Inject EventBus after both are created. Called at server startup."""
         self._event_bus = event_bus
+        if self._model_manager:
+            self._model_manager.set_event_bus(event_bus)
+
+    def set_model_manager(self, model_manager) -> None:
+        """Inject ModelManager. Called at server startup."""
+        self._model_manager = model_manager
+        if self._event_bus:
+            self._model_manager.set_event_bus(self._event_bus)
+
+    def _start_workers(self) -> None:
+        for i in range(_NUM_WORKERS):
+            t = threading.Thread(
+                target=self._worker_loop,
+                name=f"hollow-task-{i}",
+                daemon=True,
+            )
+            t.start()
+            self._workers.append(t)
+
+    def _worker_loop(self) -> None:
+        while True:
+            task = self._queue.get(timeout=1.0)
+            if task is None:
+                continue
+            if task.status == "checkpointed":
+                # Re-queued after preemption — reset so it runs properly
+                task.status = "queued"
+            self._run_task(task)
+            self._queue.mark_done(task.task_id)
 
     def submit(
         self,
@@ -91,15 +232,17 @@ class TaskScheduler:
         context: Optional[dict] = None,
         system_prompt: Optional[str] = None,
         wait: bool = True,
+        priority: int = PRIORITY_NORMAL,
     ) -> Task:
         """
         Submit a task. Scheduler routes it to the right model and runs it.
 
+        priority: 0=URGENT (may preempt BACKGROUND), 1=NORMAL, 2=BACKGROUND
         wait=True (default): blocks until the task completes, returns final Task.
         wait=False: submits and returns immediately with status='queued'.
-        The task runs in a thread pool so it never blocks the FastAPI event loop.
         """
         complexity = max(1, min(5, complexity))
+        priority = max(0, min(2, priority))
         task = Task(
             task_id=str(uuid.uuid4())[:12],
             description=description,
@@ -109,6 +252,7 @@ class TaskScheduler:
             status="queued",
             result=None,
             created_at=time.time(),
+            priority=priority,
             context=context or {},
         )
 
@@ -120,25 +264,42 @@ class TaskScheduler:
             self._event_bus.emit("task.queued", task.submitted_by, {
                 "task_id":      task.task_id,
                 "complexity":   task.complexity,
+                "priority":     task.priority,
                 "submitted_by": task.submitted_by,
             })
 
-        future = _task_executor.submit(self._run_task, task, system_prompt)
+        # URGENT preemption: if all workers busy with BACKGROUND tasks, free one
+        if priority == PRIORITY_URGENT:
+            running = self._queue.running_count()
+            if running >= _NUM_WORKERS:
+                checkpointed = self._queue.checkpoint_oldest_background()
+                if checkpointed and self._event_bus:
+                    self._event_bus.emit("task.checkpointed", checkpointed.submitted_by, {
+                        "task_id":    checkpointed.task_id,
+                        "reason":     "urgent_preemption",
+                    })
+
+        self._queue.put(task)
+
         if wait:
-            future.result()  # blocks caller thread, not the event loop
+            # Poll until the task leaves queued/running state
+            while task.status in ("queued", "running", "checkpointed"):
+                time.sleep(0.05)
+
         return task
 
     def _run_task(self, task: Task, system_prompt: Optional[str] = None,
                   standards_context: Optional[str] = None):
         role = COMPLEXITY_ROUTING.get(task.complexity, "general")
 
+        # v0.9.0: VRAM-aware model selection
+        if self._model_manager:
+            model_for_role = self._model_manager.recommend(task.complexity)
+        else:
+            model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+
         # Model policy check — does the submitting agent allow this role?
         agent = self._registry.get(task.submitted_by)
-        model_for_role = {
-            "general": "mistral-nemo:12b",
-            "code": "qwen2.5:14b",
-            "reasoning": "qwen3.5-35b-moe:latest",
-        }.get(role, "mistral-nemo:12b")
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"
             task.error = f"Agent model policy blocks use of '{model_for_role}' for role '{role}'"
@@ -147,7 +308,7 @@ class TaskScheduler:
                 self._save()
             return
 
-        task.assigned_to = role
+        task.assigned_to = model_for_role
         task.status = "running"
         task.started_at = time.time()
 
@@ -156,6 +317,7 @@ class TaskScheduler:
                 "task_id":    task.task_id,
                 "model_role": role,
                 "model":      model_for_role,
+                "priority":   task.priority,
             })
 
         # Notify submitter
@@ -191,7 +353,7 @@ class TaskScheduler:
             messages.append({"role": "user", "content": task.description})
 
             body = json.dumps({
-                "role": role,
+                "model": model_for_role,
                 "messages": messages,
             }).encode()
 
@@ -215,12 +377,16 @@ class TaskScheduler:
 
             task.result = {
                 "response":  resp.get("response", ""),
-                "model":     resp.get("model"),
+                "model":     resp.get("model", model_for_role),
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "ms":        ms,
             }
             task.status = "done"
+
+            # Update LRU timestamp in model manager
+            if self._model_manager:
+                self._model_manager.mark_used(model_for_role)
 
             # Update submitter's usage — this drives budget.warning / budget.exhausted
             self._registry.update_usage(
@@ -279,6 +445,7 @@ class TaskScheduler:
         task_description: str,
         complexity: int = 2,
         capabilities: Optional[list[str]] = None,
+        priority: int = PRIORITY_NORMAL,
     ) -> dict:
         """
         Spawn a child agent, assign it a task, run it, return result.
@@ -312,6 +479,7 @@ class TaskScheduler:
             description=task_description,
             submitted_by=child.agent_id,
             complexity=complexity,
+            priority=priority,
         )
 
         # Terminate child after task
@@ -335,11 +503,20 @@ class TaskScheduler:
         tasks.sort(key=lambda t: t.created_at, reverse=True)
         return [asdict(t) for t in tasks[:limit]]
 
+    def queue_status(self) -> dict:
+        """Return priority queue depth and running task count."""
+        return {
+            "running":        self._queue.running_count(),
+            "workers":        _NUM_WORKERS,
+            "queue_by_priority": self._queue.queue_depth_by_priority(),
+        }
+
     def _load(self):
         if TASKS_PATH.exists():
             try:
                 data = json.loads(TASKS_PATH.read_text())
                 for d in data.values():
+                    d.setdefault("priority", PRIORITY_NORMAL)
                     t = Task(**d)
                     self._tasks[t.task_id] = t
             except Exception:
