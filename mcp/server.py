@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.2.0
+AgentOS MCP Server v1.3.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (64 total):
+Tools (68 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -32,6 +32,8 @@ Tools (64 total):
              memory_compress, heap_stats                        (v1.0.0)
   Audit:     audit_query, audit_stats, anomaly_history          (v1.1.0)
   Txn:       txn_begin, txn_commit, txn_rollback, txn_status    (v1.2.0)
+  Lineage:   agent_lineage, agent_subtree, agent_blast_radius,
+             task_critical_path                                 (v1.3.0)
 """
 
 import asyncio
@@ -1032,6 +1034,68 @@ async def list_tools() -> list[Tool]:
                 "required": ["txn_id"]
             }
         ),
+        # ── Lineage (v1.3.0) ─────────────────────────────────────────────────
+        Tool(
+            name="agent_lineage",
+            description=(
+                "Get the full ancestor chain for an agent — from the agent up through its "
+                "parent, grandparent, and so on to root. Returns spawn_depth, parent_task_id, "
+                "and role at each level. Use for post-mortems and workflow debugging."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to trace ancestry for"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_subtree",
+            description=(
+                "Get the full descendant call graph rooted at an agent. Returns a nested tree "
+                "of all children, grandchildren, etc., with edge types and metadata. "
+                "Requires admin capability."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Root agent ID for the subtree"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_blast_radius",
+            description=(
+                "Compute the forward-reachability impact if an agent fails right now. "
+                "Returns: affected descendant agents, locked resources it holds, "
+                "open transactions it has staged, and running tasks it submitted. "
+                "Requires admin capability."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to analyze blast radius for"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="task_critical_path",
+            description=(
+                "Return the longest dependency chain (critical path) starting at a task. "
+                "Uses Task.depends_on relationships. The critical path is the minimum possible "
+                "wall time for a workflow — tasks not on the path can run in parallel."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task ID to start the critical path from"},
+                },
+                "required": ["task_id"]
+            }
+        ),
     ]
 
 
@@ -1487,6 +1551,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "txn_status":
             return _out(await _get(f"/txn/{arguments['txn_id']}"))
+
+        # ── Lineage (v1.3.0) ─────────────────────────────────────────────────
+        elif name == "agent_lineage":
+            return _out(await _get(f"/agents/{arguments['agent_id']}/lineage"))
+
+        elif name == "agent_subtree":
+            return _out(await _get(f"/agents/{arguments['agent_id']}/subtree"))
+
+        elif name == "agent_blast_radius":
+            return _out(await _get(f"/agents/{arguments['agent_id']}/blast-radius"))
+
+        elif name == "task_critical_path":
+            return _out(await _get(f"/tasks/{arguments['task_id']}/critical-path"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})
