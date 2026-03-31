@@ -27,11 +27,14 @@ _events = None
 _model_manager = None
 _heap_registry = None
 _audit_log = None
+_txn_coordinator = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
-         events=None, model_manager=None, heap_registry=None, audit_log=None):
-    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry, _audit_log
+         events=None, model_manager=None, heap_registry=None, audit_log=None,
+         txn_coordinator=None):
+    global _registry, _bus, _scheduler, _events, _model_manager
+    global _heap_registry, _audit_log, _txn_coordinator
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -39,6 +42,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _model_manager = model_manager
     _heap_registry = heap_registry
     _audit_log = audit_log
+    _txn_coordinator = txn_coordinator
 
 
 def _audit(agent, operation: str, params: dict,
@@ -117,6 +121,7 @@ class SendMessageRequest(BaseModel):
     msg_type: str = "data"
     reply_to: Optional[str] = None
     ttl_seconds: Optional[float] = None
+    txn_id: Optional[str] = None   # v1.2.0: stage instead of send if set
 
 
 class SubmitTaskRequest(BaseModel):
@@ -262,6 +267,16 @@ def send_message(req: SendMessageRequest, authorization: Optional[str] = Header(
     # Verify target exists (unless broadcast)
     if req.to_id != "broadcast" and not _registry.get(req.to_id):
         raise HTTPException(status_code=404, detail=f"Target agent '{req.to_id}' not found")
+
+    # v1.2.0: stage in transaction if txn_id provided
+    if req.txn_id and _txn_coordinator:
+        result = _txn_coordinator.stage(
+            req.txn_id, "message_send",
+            {"to_id": req.to_id, "content": req.content, "msg_type": req.msg_type}
+        )
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return {"staged": True, "txn_id": req.txn_id, **result}
 
     msg_id = _bus.send(
         from_id=caller.agent_id,
@@ -808,3 +823,90 @@ def anomaly_history(limit: int = 50, authorization: Optional[str] = Header(None)
     except Exception:
         history = []
     return {"anomalies": history, "count": len(history)}
+
+
+# ── v1.2.0: Multi-Agent Transactions ─────────────────────────────────────────
+
+class TxnStageRequest(BaseModel):
+    op_type: str      # fs_write | memory_set | message_send
+    params: dict
+
+
+def _require_txn() -> None:
+    if not _txn_coordinator:
+        raise HTTPException(status_code=503, detail="TransactionCoordinator not initialized")
+
+
+@router.post("/txn/begin")
+def txn_begin(authorization: Optional[str] = Header(None)):
+    """
+    Begin a transaction. Returns txn_id. Transaction auto-rolls-back after 60s.
+    Use fs_write?txn_id=X or POST /messages?txn_id=X to stage ops without applying.
+    """
+    caller = _resolve_agent(authorization)
+    _require_txn()
+    txn_id = _txn_coordinator.begin(caller.agent_id)
+    _audit(caller, "txn_begin", {"txn_id": txn_id})
+    return {"txn_id": txn_id, "timeout_seconds": 60}
+
+
+@router.post("/txn/{txn_id}/stage")
+def txn_stage(txn_id: str, req: TxnStageRequest,
+              authorization: Optional[str] = Header(None)):
+    """
+    Stage an operation in a transaction (does not apply yet).
+    op_type: fs_write | memory_set | message_send
+    """
+    caller = _resolve_agent(authorization)
+    _require_txn()
+    result = _txn_coordinator.stage(txn_id, req.op_type, req.params)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/txn/{txn_id}/commit")
+def txn_commit(txn_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Commit a transaction. All staged ops are applied atomically.
+    Returns {ok: true, ops_count} or {ok: false, conflicts: [...]} on conflict.
+    """
+    caller = _resolve_agent(authorization)
+    _require_txn()
+    result = _txn_coordinator.commit(txn_id)
+    code = "ok" if result.get("ok") else "conflict"
+    _audit(caller, "txn_commit", {"txn_id": txn_id,
+                                   "conflicts": result.get("conflicts", [])},
+           result_code=code)
+    if result.get("ok") is False and "error" not in result:
+        # Conflict — return 409
+        raise HTTPException(status_code=409, detail=result)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/txn/{txn_id}/rollback")
+def txn_rollback(txn_id: str, authorization: Optional[str] = Header(None)):
+    """Explicitly roll back a transaction. All staged ops are discarded."""
+    caller = _resolve_agent(authorization)
+    _require_txn()
+    result = _txn_coordinator.rollback(txn_id, reason="explicit")
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    _audit(caller, "txn_rollback", {"txn_id": txn_id})
+    return result
+
+
+@router.get("/txn/{txn_id}")
+def txn_status(txn_id: str, authorization: Optional[str] = Header(None)):
+    """Get the current status of a transaction."""
+    caller = _resolve_agent(authorization)
+    _require_txn()
+    status = _txn_coordinator.status(txn_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Transaction '{txn_id}' not found")
+    # Non-admin agents can only see their own transactions
+    if status["agent_id"] != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot view other agents' transactions")
+    return status

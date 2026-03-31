@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.1.0
+AgentOS MCP Server v1.2.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (60 total):
+Tools (64 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -31,6 +31,7 @@ Tools (60 total):
   Heap:      memory_alloc, memory_read, memory_free, memory_list,
              memory_compress, heap_stats                        (v1.0.0)
   Audit:     audit_query, audit_stats, anomaly_history          (v1.1.0)
+  Txn:       txn_begin, txn_commit, txn_rollback, txn_status    (v1.2.0)
 """
 
 import asyncio
@@ -977,6 +978,60 @@ async def list_tools() -> list[Tool]:
                 "required": []
             }
         ),
+        # ── Transactions (v1.2.0) ─────────────────────────────────────────────
+        Tool(
+            name="txn_begin",
+            description=(
+                "Begin a multi-agent transaction (v1.2.0). Returns txn_id. "
+                "Pass txn_id to fs_write, message_send to stage ops without applying. "
+                "Auto-rolls-back after 60s if not committed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="txn_commit",
+            description=(
+                "Commit a transaction. All staged ops applied atomically. "
+                "Returns {ok: true, ops_count} or {ok: false, conflicts: [...]} on write-write conflict. "
+                "On conflict, no staged ops are applied."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "txn_id": {"type": "string", "description": "Transaction ID from txn_begin"},
+                },
+                "required": ["txn_id"]
+            }
+        ),
+        Tool(
+            name="txn_rollback",
+            description="Explicitly roll back a transaction. All staged ops discarded. Emits txn.rolled_back.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "txn_id": {"type": "string", "description": "Transaction ID to roll back"},
+                },
+                "required": ["txn_id"]
+            }
+        ),
+        Tool(
+            name="txn_status",
+            description=(
+                "Get the current status of a transaction: status (open/committed/rolled_back), "
+                "ops_count, expires_in_seconds, conflict_resources."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "txn_id": {"type": "string", "description": "Transaction ID to query"},
+                },
+                "required": ["txn_id"]
+            }
+        ),
     ]
 
 
@@ -1419,6 +1474,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "limit" in arguments:
                 params["limit"] = arguments["limit"]
             return _out(await _get("/audit/anomalies", params))
+
+        # ── Transactions (v1.2.0) ─────────────────────────────────────────────
+        elif name == "txn_begin":
+            return _out(await _post("/txn/begin", {}))
+
+        elif name == "txn_commit":
+            return _out(await _post(f"/txn/{arguments['txn_id']}/commit", {}))
+
+        elif name == "txn_rollback":
+            return _out(await _post(f"/txn/{arguments['txn_id']}/rollback", {}))
+
+        elif name == "txn_status":
+            return _out(await _get(f"/txn/{arguments['txn_id']}"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})
