@@ -515,9 +515,16 @@ class TaskScheduler:
         if TASKS_PATH.exists():
             try:
                 data = json.loads(TASKS_PATH.read_text())
+                now = time.time()
                 for d in data.values():
                     d.setdefault("priority", PRIORITY_NORMAL)
                     t = Task(**d)
+                    # Running/queued tasks from before restart can never complete —
+                    # their worker threads are gone. Mark them failed on reload.
+                    if t.status in ("running", "queued", "checkpointed"):
+                        t.status = "failed"
+                        t.error = "server_restart"
+                        t.finished_at = now
                     self._tasks[t.task_id] = t
             except Exception:
                 pass

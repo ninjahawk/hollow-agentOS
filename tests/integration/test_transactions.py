@@ -331,7 +331,7 @@ class TestIsolation:
 
         # Begin transaction and stage a new write
         txn_id = _begin(auth_headers)
-        new_content = "transactional update — should not be visible yet"
+        new_content = "transactional update - should not be visible yet"
         _stage(auth_headers, txn_id, "fs_write", {"path": path, "content": new_content})
 
         # Read while transaction is open — should see original content

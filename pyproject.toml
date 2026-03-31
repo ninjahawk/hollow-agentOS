@@ -32,3 +32,9 @@ packages = ["sdk"]
 
 [tool.hatch.build.targets.wheel.sources]
 "sdk" = "hollow"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests requiring a live server",
+    "slow: marks tests as slow (e.g. timeout tests taking 65s+)",
+]
