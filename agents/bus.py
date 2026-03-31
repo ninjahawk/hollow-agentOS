@@ -7,6 +7,7 @@ Supports direct messages, broadcasts, and request/reply patterns.
 """
 
 import json
+import os
 import time
 import uuid
 import threading
@@ -14,7 +15,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional
 
-BUS_PATH = Path("/agentOS/memory/message-bus.json")
+BUS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "message-bus.json"
 
 MSG_TYPES = {
     "task",     # assign a task to another agent

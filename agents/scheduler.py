@@ -14,6 +14,7 @@ Complexity scale:
 """
 
 import json
+import os
 import sys
 import time
 import uuid
@@ -24,8 +25,8 @@ from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-TASKS_PATH = Path("/agentOS/memory/tasks.json")
-SHELL_LOG_PATH = Path("/agentOS/memory/shell-usage-log.json")
+TASKS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "tasks.json"
+SHELL_LOG_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "shell-usage-log.json"
 API_BASE = "http://localhost:7777"
 
 # Keep at most this many tasks in memory/disk to prevent unbounded growth

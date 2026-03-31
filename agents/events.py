@@ -20,6 +20,7 @@ Initialization order at server startup:
 
 import fnmatch
 import json
+import os
 import threading
 import time
 import uuid
@@ -27,7 +28,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
-EVENT_LOG_PATH = Path("/agentOS/memory/event-log.json")
+EVENT_LOG_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "event-log.json"
 
 # Canonical event type registry.
 # Future releases add their own prefixes (model.*, txn.*, memory.*).
