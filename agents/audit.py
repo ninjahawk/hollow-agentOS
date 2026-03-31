@@ -44,6 +44,7 @@ _ANOMALY_METRICS = [
 BASELINE_MIN_OPS = 50
 ANOMALY_CHECK_EVERY = 10
 ANOMALY_Z_THRESHOLD = 3.0
+CIRCUIT_BREAK_Z_THRESHOLD = 5.0  # above this: trigger circuit breaker, not just alert
 
 
 @dataclass
@@ -83,6 +84,7 @@ class AuditLog:
     def __init__(self, event_bus=None):
         self._lock = threading.Lock()
         self._event_bus = event_bus
+        self._circuit_break_cb = None   # called when z_score > CIRCUIT_BREAK_Z_THRESHOLD
         # In-memory index for fast queries (rebuilt from disk on startup)
         self._entries: list[AuditEntry] = []
         # Per-agent entry count for anomaly trigger
@@ -95,6 +97,13 @@ class AuditLog:
 
     def set_event_bus(self, event_bus) -> None:
         self._event_bus = event_bus
+
+    def set_circuit_break_callback(self, cb) -> None:
+        """
+        Register a callable(agent_id, reason) called when anomaly z_score exceeds
+        CIRCUIT_BREAK_Z_THRESHOLD. Wired in at startup to RateLimiter.circuit_break.
+        """
+        self._circuit_break_cb = cb
 
     # ── Core operations ──────────────────────────────────────────────────────
 
@@ -119,14 +128,23 @@ class AuditLog:
         # Anomaly check every 10 entries per agent
         if count % ANOMALY_CHECK_EVERY == 0:
             report = self.check_anomaly(entry.agent_id)
-            if report and self._event_bus:
-                self._event_bus.emit("security.anomaly", "root", {
-                    "agent_id":  report.agent_id,
-                    "metric":    report.metric,
-                    "observed":  report.observed,
-                    "baseline":  report.baseline,
-                    "z_score":   report.z_score,
-                })
+            if report:
+                if report.z_score >= CIRCUIT_BREAK_Z_THRESHOLD and self._circuit_break_cb:
+                    try:
+                        self._circuit_break_cb(
+                            report.agent_id,
+                            f"anomaly: {report.metric} z={report.z_score:.1f}",
+                        )
+                    except Exception:
+                        pass
+                if self._event_bus:
+                    self._event_bus.emit("security.anomaly", "root", {
+                        "agent_id":  report.agent_id,
+                        "metric":    report.metric,
+                        "observed":  report.observed,
+                        "baseline":  report.baseline,
+                        "z_score":   report.z_score,
+                    })
 
     def query(
         self,
@@ -258,6 +276,11 @@ class AuditLog:
                 "_samples": {"shell_calls": [], "tokens": [], "unique_ops": []},
                 "_count":   0,
             })
+            # Ensure _count and _samples exist even if loaded from disk without them
+            if "_count" not in bl:
+                bl["_count"] = BASELINE_MIN_OPS + 1
+            if "_samples" not in bl:
+                bl["_samples"] = {"shell_calls": [], "tokens": [], "unique_ops": []}
             bl["_count"] += 1
 
             # Only accumulate for first 50 ops per role (baseline period)
@@ -299,6 +322,17 @@ class AuditLog:
             return
         try:
             data = json.loads(BASELINES_PATH.read_text(encoding="utf-8"))
+            # Restore internal tracking fields that were excluded from the saved file.
+            # A role that has computed stats is already past its baseline period.
+            for role_key, bl in data.items():
+                if "_count" not in bl:
+                    # If stats exist, baseline is established — start count above threshold
+                    has_stats = any(k in bl for k in ("shell_calls_per_minute",
+                                                       "tokens_per_minute",
+                                                       "unique_op_types"))
+                    bl["_count"] = BASELINE_MIN_OPS + 1 if has_stats else 0
+                if "_samples" not in bl:
+                    bl["_samples"] = {"shell_calls": [], "tokens": [], "unique_ops": []}
             self._baselines = data
         except Exception:
             pass

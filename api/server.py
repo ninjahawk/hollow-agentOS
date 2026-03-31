@@ -62,6 +62,7 @@ from memory.heap import HeapRegistry
 from agents.audit import AuditLog, make_entry
 from agents.transaction import TransactionCoordinator
 from agents.lineage import LineageGraph
+from agents.ratelimit import RateLimiter
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -211,12 +212,13 @@ _heap_registry: HeapRegistry = None
 _audit_log: AuditLog = None
 _txn_coordinator: TransactionCoordinator = None
 _lineage: LineageGraph = None
+_rate_limiter: RateLimiter = None
 
 
 @app.on_event("startup")
 async def _startup():
     global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
-    global _audit_log, _txn_coordinator, _lineage
+    global _audit_log, _txn_coordinator, _lineage, _rate_limiter
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -228,6 +230,7 @@ async def _startup():
     _audit_log = AuditLog()
     _txn_coordinator = TransactionCoordinator()
     _lineage = LineageGraph()
+    _rate_limiter = RateLimiter()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -244,9 +247,14 @@ async def _startup():
     _lineage.set_subsystems(
         registry=_registry, scheduler=_scheduler, txn_coordinator=_txn_coordinator
     )
+    _rate_limiter.set_subsystems(
+        registry=_registry, events=_events, bus=_bus
+    )
+    _audit_log.set_circuit_break_callback(_rate_limiter.circuit_break)
     _mem_manager.set_event_bus(_events)
     agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
-                      _heap_registry, _audit_log, _txn_coordinator, lineage=_lineage)
+                      _heap_registry, _audit_log, _txn_coordinator, lineage=_lineage,
+                      rate_limiter=_rate_limiter)
     await _check_ollama_available()
 
 
@@ -599,6 +607,20 @@ async def run_command(req: ShellRequest, authorization: Optional[str] = Header(N
             # Check budget
             if over := agent.over_budget():
                 raise HTTPException(status_code=429, detail=f"Shell budget exceeded: {over}")
+            # Check rate limit
+            if _rate_limiter:
+                import math as _math
+                rl = _rate_limiter.check(agent.agent_id, "shell_calls", agent.role)
+                if not rl.allowed:
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "error": "rate_limit_exceeded",
+                            "resource": "shell_calls",
+                            "retry_after_ms": rl.wait_ms,
+                        },
+                        headers={"Retry-After": str(_math.ceil(rl.wait_ms / 1000))},
+                    )
             # Restrict cwd unless agent has shell_root
             if not agent.has_cap("shell_root"):
                 workspace = agent.workspace_dir
@@ -776,6 +798,22 @@ async def fs_read_context(req: ReadContextRequest, authorization: Optional[str] 
 async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
     _require_ollama()
+    # Rate limit check (non-root agents only)
+    if _rate_limiter and _registry:
+        import math as _math
+        agent = _agent_from_token(authorization)
+        if agent and agent.role != "root":
+            rl = _rate_limiter.check(agent.agent_id, "api_calls", agent.role)
+            if not rl.allowed:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error": "rate_limit_exceeded",
+                        "resource": "api_calls",
+                        "retry_after_ms": rl.wait_ms,
+                    },
+                    headers={"Retry-After": str(_math.ceil(rl.wait_ms / 1000))},
+                )
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "messages": req.messages, "stream": False}
     if req.temperature is not None or req.max_tokens is not None:
