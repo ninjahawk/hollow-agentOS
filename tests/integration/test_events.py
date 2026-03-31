@@ -142,20 +142,32 @@ class TestTaskCompletedEvent:
             headers=auth_headers,
         )
         assert r.status_code == 200, f"Task submit failed: {r.text}"
-        t_returned = time.time()
+        submitted_task_id = r.json()["task_id"]
 
         # By the time submit returns (wait=True), the task is done and the event
-        # must already be in the inbox (emit happens before send() result message)
-        event = _poll_inbox_for_event(auth_headers, "task.completed", timeout=5.0)
-
-        assert "task_id" in event["payload"], f"No task_id in payload: {event}"
+        # must already be in the inbox. Poll for the specific task's completion event.
+        deadline = time.time() + 10.0
+        event = None
+        while time.time() < deadline:
+            msgs = _inbox(auth_headers, unread_only=True, limit=50)
+            for msg in msgs:
+                if msg.get("msg_type") == "event":
+                    content = msg.get("content", {})
+                    if (content.get("event_type") == "task.completed" and
+                            content.get("payload", {}).get("task_id") == submitted_task_id):
+                        event = content
+                        break
+            if event:
+                break
+            time.sleep(0.2)
+        assert event is not None, f"task.completed for {submitted_task_id} not received within 10s"
         assert event["payload"].get("model") is not None, "No model in payload"
 
         # Event must be in history log as well
         log = _event_history(auth_headers, since=t_submit - 1,
                              event_types="task.completed")
         task_ids = [e["payload"].get("task_id") for e in log]
-        assert event["payload"]["task_id"] in task_ids, (
+        assert submitted_task_id in task_ids, (
             f"task.completed not found in event log. Log: {log[:3]}"
         )
 

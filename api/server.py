@@ -660,9 +660,11 @@ async def fs_read(path: str, meta: bool = False, authorization: Optional[str] = 
 @app.post("/fs/write")
 async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
-    # Audit-protected paths — no agent may overwrite via API
+    # Audit-protected paths — no agent may overwrite via API.
+    # Match on filename only so the check is robust across different memory path configs.
     from agents.audit import AUDIT_PROTECTED_PATHS
-    if str(Path(req.path).resolve()) in {str(Path(p).resolve()) for p in AUDIT_PROTECTED_PATHS}:
+    _protected_names = {Path(p).name for p in AUDIT_PROTECTED_PATHS}
+    if Path(req.path).name in _protected_names:
         raise HTTPException(status_code=403,
                             detail="Path is audit-protected and cannot be overwritten via API")
 
