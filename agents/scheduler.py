@@ -200,7 +200,8 @@ class TaskScheduler:
         self._tasks: dict[str, Task] = {}
         self._queue = PriorityTaskQueue()
         self._workers: list[threading.Thread] = []
-        self._model_manager = None  # injected after startup
+        self._model_manager = None   # injected after startup
+        self._checkpoint_manager = None  # injected after startup (v1.3.3)
         self._load()
         self._start_workers()
 
@@ -215,6 +216,30 @@ class TaskScheduler:
         self._model_manager = model_manager
         if self._event_bus:
             self._model_manager.set_event_bus(self._event_bus)
+
+    def set_checkpoint_manager(self, checkpoint_manager) -> None:
+        """Inject CheckpointManager. Called at server startup (v1.3.3)."""
+        self._checkpoint_manager = checkpoint_manager
+
+    def _maybe_auto_checkpoint(self, task: "Task") -> None:
+        """
+        Auto-checkpoint the submitting agent if the task ran for > 30 seconds.
+        Called after task completion (both streaming and non-streaming).
+        """
+        if not self._checkpoint_manager:
+            return
+        if not task.started_at or not task.finished_at:
+            return
+        duration = task.finished_at - task.started_at
+        if duration < 30.0:
+            return
+        try:
+            self._checkpoint_manager.save(
+                task.submitted_by,
+                label=f"auto:task:{task.task_id}",
+            )
+        except Exception:
+            pass
 
     def _start_workers(self) -> None:
         for i in range(_NUM_WORKERS):
@@ -425,6 +450,9 @@ class TaskScheduler:
 
         task.finished_at = time.time()
 
+        # Auto-checkpoint if task took > AUTO_CHECKPOINT_TASK_SECONDS (v1.3.3)
+        self._maybe_auto_checkpoint(task)
+
         with self._lock:
             self._save()
 
@@ -601,6 +629,10 @@ class TaskScheduler:
             task.result = None
 
         task.finished_at = time.time()
+
+        # Auto-checkpoint if task took > AUTO_CHECKPOINT_TASK_SECONDS (v1.3.3)
+        self._maybe_auto_checkpoint(task)
+
         with self._lock:
             self._save()
 

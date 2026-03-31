@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.2
+AgentOS MCP Server v1.3.3
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (69 total):
+Tools (75 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -36,6 +36,8 @@ Tools (69 total):
              task_critical_path                                 (v1.3.0)
   Streaming: task_stream                                        (v1.3.1)
   Rate:      rate_limit_status, rate_limit_configure            (v1.3.2)
+  Checkpts:  agent_checkpoint, agent_restore,
+             checkpoint_diff, checkpoint_replay                 (v1.3.3)
 """
 
 import asyncio
@@ -1114,6 +1116,72 @@ async def list_tools() -> list[Tool]:
                 "required": ["task_id"]
             }
         ),
+        # ── Checkpoints (v1.3.3) ─────────────────────────────────────────────
+        Tool(
+            name="agent_checkpoint",
+            description=(
+                "Save a checkpoint for an agent: captures memory heap, unread inbox, "
+                "current task snapshot, and agent state. Returns checkpoint_id. "
+                "Use before risky operations or before long tasks to enable rollback."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to checkpoint"},
+                    "label":    {"type": "string", "description": "Optional human-readable label for this checkpoint"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="agent_restore",
+            description=(
+                "Restore an agent to a previously saved checkpoint. "
+                "Overwrites the agent's memory heap and metadata with the saved state. "
+                "Does not change agent status — a running agent stays running."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":      {"type": "string", "description": "Agent ID to restore"},
+                    "checkpoint_id": {"type": "string", "description": "Checkpoint ID to restore from"},
+                },
+                "required": ["agent_id", "checkpoint_id"]
+            }
+        ),
+        Tool(
+            name="checkpoint_diff",
+            description=(
+                "Diff two checkpoints: shows new/removed/changed memory keys, "
+                "new inbox messages, and agent state changes between checkpoint A and B."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "checkpoint_a": {"type": "string", "description": "First checkpoint ID"},
+                    "checkpoint_b": {"type": "string", "description": "Second checkpoint ID"},
+                },
+                "required": ["checkpoint_a", "checkpoint_b"]
+            }
+        ),
+        Tool(
+            name="checkpoint_replay",
+            description=(
+                "Restore agent to a checkpoint, run task_description N times, "
+                "and measure response consistency. Returns consistency_score (0.0–1.0) "
+                "and divergence_points where responses differed from run 0. "
+                "Useful for measuring model determinism on factual questions."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "checkpoint_id":    {"type": "string", "description": "Checkpoint to restore before each run"},
+                    "task_description": {"type": "string", "description": "Task to run N times"},
+                    "n_runs":           {"type": "integer", "description": "Number of runs (default: 3)"},
+                },
+                "required": ["checkpoint_id", "task_description"]
+            }
+        ),
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         Tool(
             name="rate_limit_status",
@@ -1620,6 +1688,32 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # ── Streaming (v1.3.1) ───────────────────────────────────────────────
         elif name == "task_stream":
             return _out(await _get(f"/tasks/{arguments['task_id']}/partial"))
+
+        # ── Checkpoints (v1.3.3) ─────────────────────────────────────────────
+        elif name == "agent_checkpoint":
+            body = {"label": arguments.get("label")}
+            return _out(await _post(
+                f"/agents/{arguments['agent_id']}/checkpoint", body
+            ))
+
+        elif name == "agent_restore":
+            return _out(await _post(
+                f"/agents/{arguments['agent_id']}/restore/{arguments['checkpoint_id']}", {}
+            ))
+
+        elif name == "checkpoint_diff":
+            return _out(await _get(
+                f"/checkpoints/{arguments['checkpoint_a']}/diff/{arguments['checkpoint_b']}"
+            ))
+
+        elif name == "checkpoint_replay":
+            body = {
+                "task_description": arguments["task_description"],
+                "n_runs":           arguments.get("n_runs", 3),
+            }
+            return _out(await _post(
+                f"/checkpoints/{arguments['checkpoint_id']}/replay", body
+            ))
 
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         elif name == "rate_limit_status":

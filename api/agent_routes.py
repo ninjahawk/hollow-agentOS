@@ -33,13 +33,16 @@ _audit_log = None
 _txn_coordinator = None
 _lineage = None
 _rate_limiter = None
+_checkpoint_manager = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
-         txn_coordinator=None, lineage=None, rate_limiter=None):
+         txn_coordinator=None, lineage=None, rate_limiter=None,
+         checkpoint_manager=None):
     global _registry, _bus, _scheduler, _events, _model_manager
     global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
+    global _checkpoint_manager
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -50,6 +53,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _txn_coordinator = txn_coordinator
     _lineage = lineage
     _rate_limiter = rate_limiter
+    _checkpoint_manager = checkpoint_manager
 
 
 def _audit(agent, operation: str, params: dict,
@@ -675,6 +679,7 @@ def send_signal(
         signal=req.signal,
         sent_by=caller.agent_id,
         grace_seconds=req.grace_seconds,
+        checkpoint_manager=_checkpoint_manager,
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -1159,3 +1164,118 @@ def configure_rate_limits(
     _rate_limiter.configure(target, req.limits)
     _audit(caller, "rate_limit_configure", {"target": target, "limits": req.limits})
     return {"ok": True, "target": target, "limits": req.limits}
+
+
+# ── v1.3.3: Checkpoints and Replay ───────────────────────────────────────────
+
+class CheckpointSaveRequest(BaseModel):
+    label: Optional[str] = None
+
+
+class ReplayRequest(BaseModel):
+    task_description: str
+    n_runs: int = 3
+
+
+def _require_checkpoint_manager() -> None:
+    if not _checkpoint_manager:
+        raise HTTPException(status_code=503, detail="Checkpoint manager not initialized")
+
+
+@router.post("/agents/{agent_id}/checkpoint")
+def save_checkpoint(
+    agent_id: str,
+    req: CheckpointSaveRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Save a checkpoint for the agent. Captures memory heap, inbox, current task,
+    and agent state. Returns checkpoint_id.
+    """
+    caller = _resolve_agent(authorization)
+    _require_checkpoint_manager()
+    # Allow agent to checkpoint itself, or admin to checkpoint any agent
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot checkpoint another agent without admin capability")
+    target = _registry.get(agent_id)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    checkpoint_id = _checkpoint_manager.save(agent_id, label=req.label)
+    _audit(caller, "agent_checkpoint", {"agent_id": agent_id, "label": req.label})
+    return {"ok": True, "agent_id": agent_id, "checkpoint_id": checkpoint_id}
+
+
+@router.post("/agents/{agent_id}/restore/{checkpoint_id}")
+def restore_checkpoint(
+    agent_id: str,
+    checkpoint_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Restore an agent from a previously saved checkpoint.
+    Overwrites memory heap state and agent metadata.
+    """
+    caller = _resolve_agent(authorization)
+    _require_checkpoint_manager()
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot restore another agent without admin capability")
+    ok = _checkpoint_manager.restore(agent_id, checkpoint_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Checkpoint '{checkpoint_id}' not found for agent '{agent_id}'")
+    _audit(caller, "agent_restore", {"agent_id": agent_id, "checkpoint_id": checkpoint_id})
+    return {"ok": True, "agent_id": agent_id, "checkpoint_id": checkpoint_id}
+
+
+@router.get("/agents/{agent_id}/checkpoints")
+def list_checkpoints(
+    agent_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """List saved checkpoints for an agent (newest first)."""
+    caller = _resolve_agent(authorization)
+    _require_checkpoint_manager()
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot list checkpoints for another agent without admin capability")
+    checkpoints = _checkpoint_manager.list_checkpoints(agent_id)
+    return {"agent_id": agent_id, "checkpoints": checkpoints}
+
+
+@router.get("/checkpoints/{checkpoint_id}/diff/{other_checkpoint_id}")
+def diff_checkpoints(
+    checkpoint_id: str,
+    other_checkpoint_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Diff two checkpoints: memory changes, inbox changes, agent state changes."""
+    _resolve_agent(authorization)
+    _require_checkpoint_manager()
+    result = _checkpoint_manager.diff(checkpoint_id, other_checkpoint_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.post("/checkpoints/{checkpoint_id}/replay")
+def replay_checkpoint(
+    checkpoint_id: str,
+    req: ReplayRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Restore agent to checkpoint and run task_description N times.
+    Returns responses and consistency_score (Jaccard similarity across runs).
+    """
+    caller = _resolve_agent(authorization)
+    _require_checkpoint_manager()
+    from dataclasses import asdict
+    result = _checkpoint_manager.replay(
+        checkpoint_id=checkpoint_id,
+        task_description=req.task_description,
+        n_runs=req.n_runs,
+    )
+    _audit(caller, "checkpoint_replay", {
+        "checkpoint_id": checkpoint_id,
+        "n_runs": req.n_runs,
+        "consistency_score": result.consistency_score,
+    })
+    return asdict(result)

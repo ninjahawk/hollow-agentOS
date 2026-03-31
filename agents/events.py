@@ -71,6 +71,10 @@ EVENT_TYPES = frozenset({
     # v1.3.2 — rate limiting
     "security.circuit_break",
     "rate_limit.denied",
+    # v1.3.3 — checkpoints and replay
+    "agent.checkpointed",
+    "agent.restored",
+    "checkpoint.replay_complete",
     # v1.2.0 — multi-agent transactions
     "txn.committed",
     "txn.rolled_back",

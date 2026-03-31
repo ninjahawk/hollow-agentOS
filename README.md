@@ -7,11 +7,11 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.3.2-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.3-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-71-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-82%20passing-brightgreen?style=flat-square)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-75-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-88%20passing-brightgreen?style=flat-square)](#testing)
 
 </div>
 
@@ -21,7 +21,7 @@ The missing layer between a language model and a real computing environment.
 
 Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
 
-This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 82 integration tests run against the live API with no mocks.
+This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 88 integration tests run against the live API with no mocks.
 
 ---
 
@@ -101,6 +101,19 @@ Per-resource limits: `tokens_in`, `shell_calls`, `api_calls`, `task_submissions`
 
 **Circuit breaker**: when an agent's anomaly z-score exceeds 5σ (double the alert threshold), the circuit break fires automatically: the agent is suspended, its rate limits are reduced to 10% for 5 minutes, a `security.circuit_break` event fires, and root receives a `circuit_break_review` decision in its inbox with options `["restore", "terminate"]`. This uses the audit kernel (anomaly detection), registry (suspend), event bus (notification), and message bus (inbox delivery) in combination — it required all four Phase 1 primitives.
 
+### Agent Checkpoints and Replay (v1.3.3)
+
+SIGPAUSE suspends an agent. But suspension is not the same as checkpointing — suspension preserves the agent's current task reference, not its full state. If the worker process restarts, the task context is gone. Checkpoints serialize everything: memory heap contents, unread inbox messages, current task snapshot, and agent metadata. Restore overwrites the current state with the saved snapshot. The agent resumes as if the interruption never happened.
+
+Three auto-checkpoint triggers:
+- **Before transaction commit**: every participant in a transaction is checkpointed before ops are applied. If the commit fails mid-way and rollback is needed, each agent can be restored to its pre-commit state independently.
+- **On SIGPAUSE**: the checkpoint fires before the status flip to `suspended`. The checkpoint ID is stored in agent metadata and included in the SIGPAUSE inbox message, so the receiver knows exactly which snapshot to restore from.
+- **After tasks >30 seconds**: long-running tasks produce the most state worth preserving. After any task that takes more than 30s, the submitting agent is auto-checkpointed.
+
+**Replay** runs a task N times from the same checkpoint and measures response consistency (Jaccard similarity across runs). A factual question like "What is the capital of France?" should score >0.95 across 5 runs. An ambiguous preference question will score lower and produce a `divergence_points` list identifying where runs first diverged. This is the first step toward measuring agent determinism — a prerequisite for building reliable multi-agent systems.
+
+Requires: memory heap (v1.0.0) for heap snapshot/restore, and transactions (v1.2.0) for pre-commit auto-checkpoint.
+
 ---
 
 ## Benchmarks
@@ -148,13 +161,14 @@ hollow-agentOS/
 │   ├── transaction.py     # Atomic multi-op transactions, conflict detection, isolation
 │   ├── lineage.py         # Agent call graph, blast radius, critical path
 │   ├── ratelimit.py       # Token bucket rate limiting, circuit breaker
+│   ├── checkpoint.py      # Save/restore/diff/replay agent state snapshots
 │   ├── model_manager.py   # VRAM tracker, LRU eviction, model affinity
 │   └── standards.py       # Project conventions store + semantic matching
 ├── memory/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 71 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 75 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   ├── bench_real_baseline.py   # Real baseline benchmark
@@ -170,7 +184,8 @@ hollow-agentOS/
 │       ├── test_transactions.py
 │       ├── test_lineage.py
 │       ├── test_streaming.py
-│       └── test_ratelimit.py
+│       ├── test_ratelimit.py
+│       └── test_checkpoint.py
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── sdk/
@@ -233,6 +248,25 @@ POST   /agents/{id}/rate-limits      Configure limits for agent or role (admin o
 `POST` body: `{"limits": {"shell_calls": 30}, "target": "worker"}` — target can be an agent ID or role name.
 
 429 responses include `Retry-After` (seconds until next token available).
+
+</details>
+
+<details>
+<summary><strong>Checkpoints and Replay (v1.3.3)</strong></summary>
+
+```
+POST   /agents/{id}/checkpoint               Save checkpoint — returns checkpoint_id
+POST   /agents/{id}/restore/{checkpoint_id}  Restore agent from checkpoint
+GET    /agents/{id}/checkpoints              List saved checkpoints (newest first)
+GET    /checkpoints/{a}/diff/{b}             Diff two checkpoints
+POST   /checkpoints/{id}/replay              Run task N times from checkpoint, measure consistency
+```
+
+`checkpoint` body: `{"label": "pre-deploy"}` — optional.
+
+`replay` body: `{"task_description": "...", "n_runs": 5}` — returns `consistency_score` (0.0–1.0) and `divergence_points`.
+
+Auto-checkpoint fires before transaction commit, on SIGPAUSE, and after tasks >30 seconds.
 
 </details>
 
@@ -488,7 +522,7 @@ curl -X POST http://localhost:7777/agents/register \
 
 ## Testing
 
-82 integration tests against the live API. No mocks. No seeded state.
+88 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
 # All integration tests
@@ -501,6 +535,7 @@ PYTHONPATH=. pytest tests/integration/test_transactions.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_lineage.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_streaming.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
+PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
 ```
 
 Ollama-dependent tests skip automatically if Ollama is unavailable.
@@ -511,7 +546,7 @@ Ollama-dependent tests skip automatically if Ollama is unavailable.
 
 Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
 
-Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting — work without a GPU.
+Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints — work without a GPU.
 
 With a GPU: models up to 14B fit in VRAM; up to 35B run with partial CPU offload. `nomic-embed-text` (semantic search) uses ~300 MB and stays resident. The VRAM scheduler tracks utilization and routes tasks to already-loaded models first.
 
@@ -534,7 +569,7 @@ Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 | v1.3.0 | Agent Lineage and Call Graphs | ✓ |
 | v1.3.1 | Streaming Task Outputs | ✓ |
 | v1.3.2 | Rate Limiting and Admission Control | ✓ |
-| v1.3.3 | Agent Checkpoints and Replay | — |
+| v1.3.3 | Agent Checkpoints and Replay | ✓ |
 | v1.3.4 | Multi-Agent Consensus | — |
 | v1.3.5 | Adaptive Model Routing | — |
 | v1.3.6 | Real Benchmark Suite | — |
