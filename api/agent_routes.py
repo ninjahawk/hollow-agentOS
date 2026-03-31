@@ -8,6 +8,7 @@ The registry, bus, and scheduler are passed in at startup (singletons).
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional
+import json
 import sys
 from pathlib import Path
 
@@ -22,15 +23,16 @@ router = APIRouter()
 _registry: AgentRegistry = None
 _bus: MessageBus = None
 _scheduler: TaskScheduler = None
+_events = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None):
-    global _registry, _bus, _scheduler
+    global _registry, _bus, _scheduler, _events
     _registry = registry
     _bus = bus
     _scheduler = scheduler
-    # events not used in agent_routes directly — registry/scheduler emit their own
+    _events = events
 
 
 # ── Auth helpers ────────────────────────────────────────────────────────────
@@ -72,6 +74,12 @@ class RegisterRequest(BaseModel):
     budget: Optional[dict] = None
     metadata: Optional[dict] = None
     model_policies: Optional[dict] = None  # e.g. {"qwen2.5:14b": ["fs_read"], "*": ["fs_read", "fs_write"]}
+    group_id: Optional[str] = None         # v0.8.0: process group membership
+
+
+class SignalRequest(BaseModel):
+    signal: str                             # SIGTERM | SIGPAUSE | SIGINFO
+    grace_seconds: float = 30.0            # SIGTERM only: watchdog fires after this many seconds
 
 
 class SendMessageRequest(BaseModel):
@@ -117,6 +125,7 @@ def register_agent(req: RegisterRequest, authorization: Optional[str] = Header(N
         parent_id=caller.agent_id,
         metadata=req.metadata,
         model_policies=req.model_policies,
+        group_id=req.group_id,
     )
 
     return {
@@ -162,7 +171,7 @@ def terminate_agent(agent_id: str, authorization: Optional[str] = Header(None)):
     if caller.agent_id != agent_id and not caller.has_cap("admin"):
         raise HTTPException(status_code=403, detail="Cannot terminate other agents without admin")
     try:
-        _registry.terminate(agent_id)
+        _registry.terminate(agent_id, reason="explicit", terminated_by=caller.agent_id)
         return {"ok": True, "agent_id": agent_id, "status": "terminated"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -426,3 +435,113 @@ def get_aggregate_usage(authorization: Optional[str] = Header(None)):
         "by_agent": per_agent,
         "agent_count": len(agents),
     }
+
+
+# ── v0.8.0: Process signals ──────────────────────────────────────────────────
+
+@router.post("/agents/{agent_id}/signal")
+def send_signal(
+    agent_id: str,
+    req: SignalRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Send a process signal to an agent.
+
+    SIGTERM  — graceful shutdown: agent gets grace_seconds to write handoff,
+               then watchdog force-terminates.
+    SIGPAUSE — immediately suspend the agent, preserving current_task.
+    SIGINFO  — deliver status snapshot (task, usage, uptime) to caller's inbox.
+
+    Requires: admin capability, or agent signaling itself.
+    """
+    caller = _resolve_agent(authorization)
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="admin capability required to signal other agents")
+
+    from agents.signals import signal_dispatch
+    result = signal_dispatch(
+        registry=_registry,
+        bus=_bus,
+        events=_events,
+        agent_id=agent_id,
+        signal=req.signal,
+        sent_by=caller.agent_id,
+        grace_seconds=req.grace_seconds,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/agents/group/{group_id}/terminate")
+def terminate_group(
+    group_id: str,
+    grace_seconds: float = 30.0,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    SIGTERM all active agents in a process group simultaneously.
+    Requires: admin capability.
+    """
+    caller = _resolve_agent(authorization)
+    _require_cap(caller, "admin")
+
+    from agents.signals import signal_dispatch
+
+    def _dispatch(aid, sig, sent_by, grace_seconds):
+        signal_dispatch(_registry, _bus, _events, aid, sig,
+                        sent_by=sent_by, grace_seconds=grace_seconds)
+
+    result = _registry.terminate_group(
+        group_id=group_id,
+        sent_by=caller.agent_id,
+        signal_fn=_dispatch,
+        grace_seconds=grace_seconds,
+    )
+    return result
+
+
+# ── v0.8.0: Tombstones ───────────────────────────────────────────────────────
+
+@router.get("/tombstones")
+def list_tombstones(authorization: Optional[str] = Header(None)):
+    """
+    List all agent tombstones. Each tombstone records the final state of a
+    terminated agent: reason, usage, children, current task at termination.
+    Requires: admin capability.
+    """
+    caller = _resolve_agent(authorization)
+    _require_cap(caller, "admin")
+
+    tombstones = []
+    for a in _registry.list_agents():
+        if a.tombstone_path:
+            p = Path(a.tombstone_path)
+            if p.exists():
+                try:
+                    tombstones.append(json.loads(p.read_text()))
+                except Exception:
+                    pass
+    return {"tombstones": tombstones, "count": len(tombstones)}
+
+
+@router.get("/tombstones/{agent_id}")
+def get_tombstone(agent_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Get the tombstone for a specific agent.
+    Agents can view their own tombstone; admin can view any.
+    """
+    caller = _resolve_agent(authorization)
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Can only view own tombstone")
+
+    a = _registry.get(agent_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if not a.tombstone_path:
+        raise HTTPException(status_code=404, detail=f"No tombstone for agent '{agent_id}'")
+    p = Path(a.tombstone_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Tombstone file not found on disk")
+    return json.loads(p.read_text())

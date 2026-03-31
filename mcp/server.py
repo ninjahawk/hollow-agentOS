@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.7.0
+AgentOS MCP Server v0.8.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (48 total):
+Tools (50 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -26,6 +26,7 @@ Tools (48 total):
   Decisions: decision_queue
   Workspace: workspace_diff
   Events:    event_subscribe, event_unsubscribe, event_history  (v0.7.0)
+  Signals:   agent_signal, agent_tombstone                      (v0.8.0)
 """
 
 import asyncio
@@ -783,6 +784,46 @@ async def list_tools() -> list[Tool]:
                 }
             }
         ),
+
+        # ── Signals (v0.8.0) ────────────────────────────────────────────────
+        Tool(
+            name="agent_signal",
+            description=(
+                "Send a process signal to an agent. "
+                "SIGTERM: graceful shutdown — agent gets grace_seconds to write handoff, "
+                "then watchdog force-terminates. "
+                "SIGPAUSE: immediately suspend, preserving current_task. "
+                "SIGINFO: agent delivers status snapshot (task, usage, uptime) to caller's inbox."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":      {"type": "string", "description": "Target agent ID"},
+                    "signal":        {"type": "string", "enum": ["SIGTERM", "SIGPAUSE", "SIGINFO"],
+                                     "description": "Signal to send"},
+                    "grace_seconds": {"type": "number",
+                                     "description": "SIGTERM only: seconds before force-kill (default 30)"},
+                },
+                "required": ["agent_id", "signal"],
+            }
+        ),
+        Tool(
+            name="agent_tombstone",
+            description=(
+                "Get the tombstone for a terminated agent. "
+                "Tombstone records: reason, final_usage, current_task_at_termination, "
+                "children, parent_id, terminated_at. "
+                "Pass agent_id='all' to list tombstones for every terminated agent."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string",
+                                "description": "Agent ID to get tombstone for, or 'all' to list all"},
+                },
+                "required": ["agent_id"],
+            }
+        ),
     ]
 
 
@@ -1153,6 +1194,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "limit" in arguments:
                 params["limit"] = arguments["limit"]
             return _out(await _get("/events/history", params))
+
+        # ── Signals (v0.8.0) ────────────────────────────────────────────────
+        elif name == "agent_signal":
+            agent_id = arguments["agent_id"]
+            body = {"signal": arguments["signal"]}
+            if "grace_seconds" in arguments:
+                body["grace_seconds"] = arguments["grace_seconds"]
+            return _out(await _post(f"/agents/{agent_id}/signal", body))
+
+        elif name == "agent_tombstone":
+            agent_id = arguments["agent_id"]
+            if agent_id == "all":
+                return _out(await _get("/tombstones"))
+            return _out(await _get(f"/tombstones/{agent_id}"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

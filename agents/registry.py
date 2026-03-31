@@ -13,6 +13,7 @@ import time
 import uuid
 import os
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import threading
@@ -77,6 +78,8 @@ class AgentRecord:
     metadata: dict = field(default_factory=dict)
     locks: dict = field(default_factory=dict)          # name → {acquired_at, expires_at}
     model_policies: dict = field(default_factory=dict) # model_name → [allowed_caps]
+    group_id: Optional[str] = None      # v0.8.0: process group (spawner's agent_id)
+    tombstone_path: Optional[str] = None  # v0.8.0: path to tombstone.json after termination
 
     def has_cap(self, cap: str) -> bool:
         return cap in self.capabilities
@@ -156,6 +159,7 @@ class AgentRegistry:
         parent_id: Optional[str] = None,
         metadata: Optional[dict] = None,
         model_policies: Optional[dict] = None,
+        group_id: Optional[str] = None,
     ) -> tuple[AgentRecord, str]:
         """Register a new agent. Returns (record, raw_token)."""
         role = role if role in ROLE_DEFAULTS else "custom"
@@ -195,6 +199,7 @@ class AgentRegistry:
             metadata=metadata or {},
             locks={},
             model_policies=model_policies or {},
+            group_id=group_id,
         )
 
         with self._lock:
@@ -209,6 +214,7 @@ class AgentRegistry:
                 "role":       role,
                 "parent_id":  parent_id,
                 "spawn_depth": depth,
+                "group_id":   group_id,
             })
 
         return record, raw_token
@@ -278,25 +284,108 @@ class AgentRegistry:
                 a.current_task = task
                 self._save()
 
-    def terminate(self, agent_id: str):
+    def write_tombstone(self, agent_id: str, reason: str = "explicit",
+                        terminated_by: str = "system") -> str:
+        """
+        Write tombstone.json to the agent's workspace dir.
+        Records final state at time of termination. Returns tombstone path.
+        Safe to call before status is changed — captures live state.
+        """
+        a = self._agents.get(agent_id)
+        if not a:
+            return ""
+
+        children = [aid for aid, rec in self._agents.items()
+                    if rec.parent_id == agent_id]
+
+        tombstone = {
+            "agent_id":                  agent_id,
+            "name":                      a.name,
+            "role":                      a.role,
+            "terminated_at":             datetime.now(timezone.utc).isoformat(),
+            "terminated_by":             terminated_by,
+            "reason":                    reason,
+            "final_usage":               dict(a.usage),
+            "current_task_at_termination": a.current_task,
+            "children":                  children,
+            "parent_id":                 a.parent_id,
+            "group_id":                  a.group_id,
+        }
+
+        workspace = Path(a.workspace_dir)
+        workspace.mkdir(parents=True, exist_ok=True)
+        tombstone_path = workspace / "tombstone.json"
+        tombstone_path.write_text(json.dumps(tombstone, indent=2))
+
+        with self._lock:
+            b = self._agents.get(agent_id)
+            if b:
+                b.tombstone_path = str(tombstone_path)
+                self._save()
+
+        return str(tombstone_path)
+
+    def terminate(self, agent_id: str, reason: str = "explicit",
+                  terminated_by: str = "system"):
         if agent_id == "root":
             raise ValueError("Cannot terminate root agent")
+
+        # Write tombstone before changing status (captures live state)
+        self.write_tombstone(agent_id, reason=reason, terminated_by=terminated_by)
+
         payload = None
         with self._lock:
             a = self._agents.get(agent_id)
             if a:
+                # Orphan adoption: reassign children to root so they keep running
+                for rec in self._agents.values():
+                    if rec.parent_id == agent_id and rec.status != "terminated":
+                        rec.parent_id = "root"
                 payload = {
-                    "agent_id":    agent_id,
-                    "name":        a.name,
-                    "role":        a.role,
-                    "parent_id":   a.parent_id,
-                    "final_usage": dict(a.usage),
+                    "agent_id":      agent_id,
+                    "name":          a.name,
+                    "role":          a.role,
+                    "parent_id":     a.parent_id,
+                    "final_usage":   dict(a.usage),
+                    "reason":        reason,
+                    "terminated_by": terminated_by,
                 }
                 a.status = "terminated"
-                self._token_index.pop(a.token_hash, None)  # evict from auth index
+                self._token_index.pop(a.token_hash, None)
                 self._save()
         if payload and self._event_bus:
             self._event_bus.emit("agent.terminated", agent_id, payload)
+
+    def force_terminate(self, agent_id: str, reason: str = "force",
+                        terminated_by: str = "system"):
+        """
+        Force-terminate without grace period. Called by SIGTERM watchdog after
+        grace period expires. Writes tombstone, adopts orphans, emits event.
+        """
+        if agent_id == "root":
+            return
+        self.terminate(agent_id, reason=reason, terminated_by=terminated_by)
+
+    def terminate_group(self, group_id: str, sent_by: str = "system",
+                        signal_fn=None, grace_seconds: float = 30) -> dict:
+        """
+        SIGTERM all active agents belonging to group_id simultaneously.
+        signal_fn is signal_dispatch (injected to avoid circular import).
+        Falls back to direct force_terminate if no signal_fn provided.
+        """
+        members = [
+            a.agent_id for a in self._agents.values()
+            if a.group_id == group_id and a.status not in ("terminated",)
+        ]
+        if signal_fn:
+            for mid in members:
+                signal_fn(mid, "SIGTERM", sent_by=sent_by,
+                          grace_seconds=grace_seconds)
+        else:
+            for mid in members:
+                self.force_terminate(mid, reason="group_terminate",
+                                     terminated_by=sent_by)
+        return {"group_id": group_id, "signaled": members, "count": len(members)}
 
     def suspend(self, agent_id: str):
         did_suspend = False
@@ -384,70 +473,6 @@ class AgentRegistry:
             return True  # no policy at all — allow
         return required_cap in policy
 
-    def acquire_lock(self, agent_id: str, lock_name: str, ttl_seconds: float = 300) -> bool:
-        """
-        Acquire a named lock for an agent. Returns True if acquired, False if already held
-        by another agent. Locks expire automatically after ttl_seconds.
-        """
-        with self._lock:
-            now = time.time()
-            # Expire stale locks across all agents
-            for a in self._agents.values():
-                stale = [n for n, l in a.locks.items() if l.get("expires_at", 0) < now]
-                for n in stale:
-                    del a.locks[n]
-
-            # Check if any other agent holds this lock
-            for a in self._agents.values():
-                if a.agent_id != agent_id and lock_name in a.locks:
-                    return False
-
-            a = self._agents.get(agent_id)
-            if not a:
-                return False
-            a.locks[lock_name] = {
-                "acquired_at": now,
-                "expires_at": now + ttl_seconds,
-            }
-            self._save()
-            return True
-
-    def release_lock(self, agent_id: str, lock_name: str) -> bool:
-        with self._lock:
-            a = self._agents.get(agent_id)
-            if not a or lock_name not in a.locks:
-                return False
-            del a.locks[lock_name]
-            self._save()
-            return True
-
-    def get_locks(self, agent_id: str) -> dict:
-        a = self._agents.get(agent_id)
-        if not a:
-            return {}
-        now = time.time()
-        return {
-            name: {**lock, "ttl_remaining": max(0, lock["expires_at"] - now)}
-            for name, lock in a.locks.items()
-            if lock.get("expires_at", 0) > now
-        }
-
-    def check_model_policy(self, agent_id: str, model: str, required_cap: str) -> bool:
-        """
-        Check if an agent's model_policies allow `required_cap` for `model`.
-        Returns True if no policy is set (open) or policy includes the cap.
-        """
-        a = self._agents.get(agent_id)
-        if not a or not a.model_policies:
-            return True
-        policy = a.model_policies.get(model)
-        if policy is None:
-            # No explicit policy for this model — check wildcard
-            policy = a.model_policies.get("*")
-        if policy is None:
-            return True  # no policy at all — allow
-        return required_cap in policy
-
     def _load(self):
         if REGISTRY_PATH.exists():
             try:
@@ -457,6 +482,8 @@ class AgentRegistry:
                     d.setdefault("locks", {})
                     d.setdefault("model_policies", {})
                     d.setdefault("spawn_depth", 0)
+                    d.setdefault("group_id", None)       # v0.8.0
+                    d.setdefault("tombstone_path", None)  # v0.8.0
                     r = AgentRecord(**d)
                     self._agents[r.agent_id] = r
                     # Rebuild O(1) token index — only active agents authenticate
