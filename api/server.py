@@ -60,6 +60,7 @@ from agents.events import EventBus
 from agents.model_manager import ModelManager
 from memory.heap import HeapRegistry
 from agents.audit import AuditLog, make_entry
+from agents.transaction import TransactionCoordinator
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -207,11 +208,13 @@ _events: EventBus = None
 _model_manager: ModelManager = None
 _heap_registry: HeapRegistry = None
 _audit_log: AuditLog = None
+_txn_coordinator: TransactionCoordinator = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry, _audit_log
+    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
+    global _audit_log, _txn_coordinator
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -221,6 +224,7 @@ async def _startup():
     _model_manager = ModelManager()
     _heap_registry = HeapRegistry(master_token=master_token)
     _audit_log = AuditLog()
+    _txn_coordinator = TransactionCoordinator()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -230,9 +234,13 @@ async def _startup():
     _model_manager.set_event_bus(_events)
     _heap_registry.set_event_bus(_events)
     _audit_log.set_event_bus(_events)
+    _txn_coordinator.set_event_bus(_events)
+    _txn_coordinator.set_subsystems(
+        registry=_registry, bus=_bus, heap_registry=_heap_registry
+    )
     _mem_manager.set_event_bus(_events)
     agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
-                      _heap_registry, _audit_log)
+                      _heap_registry, _audit_log, _txn_coordinator)
     await _check_ollama_available()
 
 
@@ -249,6 +257,7 @@ class ShellRequest(BaseModel):
 class WriteRequest(BaseModel):
     path: str
     content: str
+    txn_id: Optional[str] = None   # v1.2.0: stage instead of apply if set
 
 class BatchReadRequest(BaseModel):
     paths: list[str]
@@ -656,10 +665,25 @@ async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None
     if str(Path(req.path).resolve()) in {str(Path(p).resolve()) for p in AUDIT_PROTECTED_PATHS}:
         raise HTTPException(status_code=403,
                             detail="Path is audit-protected and cannot be overwritten via API")
+
+    # v1.2.0: if txn_id provided, stage instead of writing immediately
+    if req.txn_id and _txn_coordinator:
+        result = _txn_coordinator.stage(
+            req.txn_id, "fs_write", {"path": req.path, "content": req.content}
+        )
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return {"staged": True, "txn_id": req.txn_id, **result}
+
     p = Path(req.path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(req.content)
     log_action("file_write", {"path": req.path, "size": len(req.content)})
+    if _txn_coordinator:
+        agent = _agent_from_token(authorization)
+        _txn_coordinator.record_external_write(
+            f"fs:{req.path}", agent.agent_id if agent else "unknown"
+        )
     if _events:
         agent = _agent_from_token(authorization)
         agent_id = agent.agent_id if agent else "unknown"
