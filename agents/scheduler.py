@@ -289,12 +289,13 @@ class TaskScheduler:
         if not parent or not parent.has_cap("spawn"):
             return {"error": "parent agent lacks spawn capability"}
 
-        # Register child
+        # Register child — inherits parent's process group (v0.8.0)
         child, child_token = self._registry.register(
             name=name,
             role=role,
             capabilities=capabilities,
             parent_id=parent_id,
+            group_id=parent_id,
         )
 
         # Notify parent
