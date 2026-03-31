@@ -30,6 +30,7 @@ def signal_dispatch(
     signal: str,
     sent_by: str = "system",
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
+    checkpoint_manager=None,
 ) -> dict:
     """
     Dispatch a signal to an agent. Returns immediately.
@@ -96,6 +97,14 @@ def signal_dispatch(
         ).start()
 
     elif signal == "SIGPAUSE":
+        # Auto-checkpoint before suspending so state can be restored later
+        checkpoint_id = None
+        if checkpoint_manager:
+            try:
+                checkpoint_id = checkpoint_manager.save(agent_id, label="sigpause")
+            except Exception:
+                pass
+
         paused = False
         with registry._lock:
             a = registry._agents.get(agent_id)
@@ -103,21 +112,28 @@ def signal_dispatch(
                 a.status = "suspended"
                 a.metadata["paused_at"] = time.time()
                 a.metadata["paused_by"] = sent_by
+                if checkpoint_id:
+                    a.metadata["paused_checkpoint_id"] = checkpoint_id
                 registry._save()
                 paused = True
 
         bus.send(
             from_id=sent_by,
             to_id=agent_id,
-            content={"signal": "SIGPAUSE", "description": SIGNALS["SIGPAUSE"]},
+            content={
+                "signal":        "SIGPAUSE",
+                "description":   SIGNALS["SIGPAUSE"],
+                "checkpoint_id": checkpoint_id,
+            },
             msg_type="signal",
         )
 
         if paused and events:
             events.emit("agent.suspended", agent_id, {
-                "agent_id": agent_id,
-                "reason":   "SIGPAUSE",
-                "sent_by":  sent_by,
+                "agent_id":      agent_id,
+                "reason":        "SIGPAUSE",
+                "sent_by":       sent_by,
+                "checkpoint_id": checkpoint_id,
             })
 
     elif signal == "SIGINFO":

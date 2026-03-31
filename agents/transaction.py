@@ -71,6 +71,7 @@ class TransactionCoordinator:
         self._registry = registry   # AgentRegistry — for memory_set ops
         self._bus = bus             # MessageBus — for message_send ops
         self._heap_registry = heap_registry
+        self._checkpoint_manager = None   # injected at startup (v1.3.3)
         # Track last-write timestamps per resource for conflict detection
         # resource_path → (agent_id, timestamp)
         self._resource_writes: dict[str, tuple] = {}
@@ -80,10 +81,12 @@ class TransactionCoordinator:
     def set_event_bus(self, event_bus) -> None:
         self._event_bus = event_bus
 
-    def set_subsystems(self, registry=None, bus=None, heap_registry=None) -> None:
+    def set_subsystems(self, registry=None, bus=None, heap_registry=None,
+                       checkpoint_manager=None) -> None:
         self._registry = registry
         self._bus = bus
         self._heap_registry = heap_registry
+        self._checkpoint_manager = checkpoint_manager
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -183,7 +186,17 @@ class TransactionCoordinator:
                 })
             return {"ok": False, "conflicts": conflicts}
 
-        # 2. Apply ops — all-or-nothing
+        # 2. Auto-checkpoint before applying ops (v1.3.3)
+        if self._checkpoint_manager:
+            try:
+                self._checkpoint_manager.save(
+                    txn.agent_id,
+                    label=f"pre-commit:{txn_id}",
+                )
+            except Exception:
+                pass
+
+        # 3. Apply ops — all-or-nothing
         applied = []
         rollback_reason = None
         with self._lock:
