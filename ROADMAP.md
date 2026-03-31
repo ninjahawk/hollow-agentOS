@@ -424,7 +424,7 @@ The primitives phase is complete. The system has an identity layer, interrupt sy
 
 ---
 
-# Phase 2 — Agent Services (v1.3.0 – v2.0.0)
+# Phase 2 — Agent Services (v1.3.0 – v1.3.7)
 
 **The shift:** Phase 1 built the kernel. Phase 2 builds the OS services that applications — real agent workloads — actually consume. Each release takes two or more Phase 1 primitives and composes them into something agents couldn't do before.
 
@@ -495,7 +495,7 @@ class LineageGraph:
 
 ---
 
-## v1.4.0 — Streaming Task Outputs
+## v1.3.1 — Streaming Task Outputs
 
 **Principle:** The scheduler's `submit(wait=True)` blocks the calling agent until the task finishes. For tasks that take 30–120 seconds, this means the calling agent is frozen. A real OS gives processes non-blocking I/O with completion notifications. This release makes task execution truly async: submit returns immediately, results stream back as they arrive.
 
@@ -542,7 +542,7 @@ class LineageGraph:
 
 ---
 
-## v1.5.0 — Rate Limiting and Admission Control
+## v1.3.2 — Rate Limiting and Admission Control
 
 **Principle:** The budget system prevents *cumulative* overuse. But it doesn't prevent *bursty* overuse — an agent can exhaust its entire token budget in one second. A real OS has rate limiting: CPU schedulers use time slices, network stacks have token buckets. This release adds per-agent and per-role rate limits with backpressure so the system degrades gracefully under load.
 
@@ -616,7 +616,7 @@ When an agent triggers the anomaly detector (z-score > 5.0), automatically:
 
 ---
 
-## v1.6.0 — Agent Checkpoints and Replay
+## v1.3.3 — Agent Checkpoints and Replay
 
 **Principle:** Agents fail mid-task. SIGPAUSE suspends an agent but doesn't capture its full state for later restoration on a different worker. A real OS has checkpointing — save everything, restore everything, resume exactly where you left off. This release also enables replay: re-run a task with identical inputs and compare outputs, which is the first step toward measuring agent determinism.
 
@@ -687,7 +687,7 @@ class CheckpointManager:
 
 ---
 
-## v1.7.0 — Multi-Agent Consensus
+## v1.3.4 — Multi-Agent Consensus
 
 **Principle:** Some decisions are too important for a single agent. Human organizations use voting, code review requires approval, safety-critical systems require quorum. Agents need the same. This release adds a first-class consensus primitive: N agents vote, M must agree before an action executes. Built on transactions (v1.2.0) and events (v0.7.0).
 
@@ -761,7 +761,7 @@ Configurable in `config.json` under `consensus_required`:
 
 ---
 
-## v1.8.0 — Adaptive Model Routing
+## v1.3.5 — Adaptive Model Routing
 
 **Principle:** The VRAM-aware scheduler (v0.9.0) picks models based on complexity and what is loaded. But it has no memory. It doesn't know that qwen2.5:14b consistently answers code questions in 800ms but times out on open-ended reasoning. It doesn't know that mistral-nemo:12b is faster for short tasks but produces worse results on structured output. A real OS scheduler learns. This release adds a feedback loop from task outcomes to routing decisions.
 
@@ -830,7 +830,7 @@ class RoutingLearner:
 
 ---
 
-## v1.9.0 — Real Benchmark Suite
+## v1.3.6 — Real Benchmark Suite
 
 **Principle:** The project has a credibility gap: the 68.5% token efficiency claim uses a constructed baseline, not real tool call patterns. This release fixes it. Every number in the benchmark must be reproducible: run the same commands on the same hardware, get the same results ±5%. The benchmark is a first-class deliverable, not an afterthought.
 
@@ -881,7 +881,7 @@ class BenchmarkRunner:
 
 ### Agent drift experiment
 
-Built on checkpoint replay (v1.6.0):
+Built on checkpoint replay (v1.3.3):
 
 1. Define a 4-step decision task (architectural choices that build on each other)
 2. Run 10 sessions with Hollow handoffs: each session restores previous checkpoint, runs next step
@@ -901,13 +901,13 @@ Built on checkpoint replay (v1.6.0):
 
 5. **Benchmark report generation**: `bench_real.py --report` outputs a machine-readable JSON report: `{run_id, timestamp, hardware, benchmark_a: [...], benchmark_b: [...], summary: {...}}`. Assert: report validates against schema. Assert: summary includes honest caveats about what the benchmark does and does not measure.
 
-6. **Regression guard**: Save current benchmark results as `tests/fixtures/bench_baseline.json`. Run benchmark again after any v1.9.0+ commit. Assert: no metric regresses by >10% vs saved baseline. This is the production regression test.
+6. **Regression guard**: Save current benchmark results as `tests/fixtures/bench_baseline.json`. Run benchmark again after any v1.3.6+ commit. Assert: no metric regresses by >10% vs saved baseline. This is the production regression test.
 
 ---
 
-## v2.0.0 — Self-Extending System
+## v1.3.7 — Self-Extending System
 
-**Principle:** Every previous release was designed by a human and implemented by a human. v2.0.0 is the milestone where agents can extend the OS itself: register new MCP tools, propose new API endpoints, and modify the standards layer — all subject to human review and consensus before activation. The OS gains a closed improvement loop.
+**Principle:** Every previous release was designed by a human and implemented by a human. v1.3.7 is the milestone where agents can extend the OS itself: register new MCP tools, propose new API endpoints, and modify the standards layer — all subject to human review and consensus before activation. The OS gains a closed improvement loop.
 
 ### What "self-extending" means precisely
 
@@ -978,26 +978,26 @@ class ProposalEngine:
 
 4. **Rejection flow**: Submit proposal with failing test cases. Stage it. Assert: staging test run produces failures. Assert: proposal status → `rejected` with failure details. Assert: change not applied to main system. Assert: rejecting agent and reason logged in proposal record.
 
-5. **Consensus required**: Configure proposals requiring `consensus_quorum=2`. Submit proposal. Cast 1 approval. Assert: still in `in_review`. Cast 2nd approval. Assert: moves to `staging`. Assert `consensus.approved` event fired (consensus v1.7.0 primitive exercised).
+5. **Consensus required**: Configure proposals requiring `consensus_quorum=2`. Submit proposal. Cast 1 approval. Assert: still in `in_review`. Cast 2nd approval. Assert: moves to `staging`. Assert `consensus.approved` event fired (consensus v1.3.4 primitive exercised).
 
 6. **Improvement attribution**: Over 5 proposals, track which agents proposed accepted tools. Assert: `agent_lineage.contributions` field updated on proposing agents. Assert: contribution count visible in `agent_get` response. This is the closed loop: agents that improve the system are tracked.
 
 ---
 
-## What the system is after v2.0.0
+## What the system is after v1.3.7
 
 | Capability | Delivered in |
 |---|---|
 | All Phase 1 OS primitives | v0.7.0 – v1.2.0 ✓ |
 | Distributed tracing / call graphs | v1.3.0 |
-| Non-blocking streaming task execution | v1.4.0 |
-| Rate limiting and circuit breakers | v1.5.0 |
-| Agent checkpoints and replay | v1.6.0 |
-| Multi-agent consensus | v1.7.0 |
-| Adaptive model routing | v1.8.0 |
-| Reproducible real benchmark + drift study | v1.9.0 |
-| Self-extending system (closed loop) | v2.0.0 |
+| Non-blocking streaming task execution | v1.3.1 |
+| Rate limiting and circuit breakers | v1.3.2 |
+| Agent checkpoints and replay | v1.3.3 |
+| Multi-agent consensus | v1.3.4 |
+| Adaptive model routing | v1.3.5 |
+| Reproducible real benchmark + drift study | v1.3.6 |
+| Self-extending system (closed loop) | v1.3.7 |
 
 The design principle that runs through all of Phase 2: **every release is made possible by two or more Phase 1 primitives working together.** Lineage needs audit + registry. Checkpoints need memory heap + transactions. Consensus needs events + transactions. Adaptive routing needs the scheduler + audit observations. Self-extension needs consensus + the full primitive stack.
 
-An agent system without Phase 1 can't build Phase 2. An agent system with Phase 1 but without Phase 2 is a kernel with no userland. v2.0.0 is userland.
+An agent system without Phase 1 can't build Phase 2. An agent system with Phase 1 but without Phase 2 is a kernel with no userland. v1.3.7 is userland.
