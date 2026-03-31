@@ -26,17 +26,42 @@ _scheduler: TaskScheduler = None
 _events = None
 _model_manager = None
 _heap_registry = None
+_audit_log = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
-         events=None, model_manager=None, heap_registry=None):
-    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
+         events=None, model_manager=None, heap_registry=None, audit_log=None):
+    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry, _audit_log
     _registry = registry
     _bus = bus
     _scheduler = scheduler
     _events = events
     _model_manager = model_manager
     _heap_registry = heap_registry
+    _audit_log = audit_log
+
+
+def _audit(agent, operation: str, params: dict,
+           result_code: str = "ok", tokens: int = 0, ms: float = 0.0) -> None:
+    """
+    Fire-and-forget audit log entry. Never raises — audit must never break callers.
+    """
+    if not _audit_log or not agent:
+        return
+    try:
+        from agents.audit import make_entry
+        entry = make_entry(
+            agent_id=agent.agent_id,
+            operation=operation,
+            params=params,
+            result_code=result_code,
+            tokens_charged=tokens,
+            duration_ms=ms,
+            role=agent.role,
+        )
+        _audit_log.log(entry)
+    except Exception:
+        pass
 
 
 # ── Auth helpers ────────────────────────────────────────────────────────────
@@ -132,6 +157,7 @@ def register_agent(req: RegisterRequest, authorization: Optional[str] = Header(N
         model_policies=req.model_policies,
         group_id=req.group_id,
     )
+    _audit(caller, "agent_register", {"new_agent_id": record.agent_id, "role": req.role})
 
     return {
         "agent_id": record.agent_id,
@@ -177,6 +203,7 @@ def terminate_agent(agent_id: str, authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="Cannot terminate other agents without admin")
     try:
         _registry.terminate(agent_id, reason="explicit", terminated_by=caller.agent_id)
+        _audit(caller, "agent_terminate", {"target_agent_id": agent_id})
         return {"ok": True, "agent_id": agent_id, "status": "terminated"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -219,6 +246,8 @@ def spawn_agent(req: SpawnRequest, authorization: Optional[str] = Header(None)):
         complexity=req.complexity,
         capabilities=req.capabilities,
     )
+    _audit(caller, "agent_spawn", {"name": req.name, "role": req.role, "complexity": req.complexity,
+                                    "child_agent_id": result.get("child_agent_id")})
     return result
 
 
@@ -242,6 +271,7 @@ def send_message(req: SendMessageRequest, authorization: Optional[str] = Header(
         reply_to=req.reply_to,
         ttl_seconds=req.ttl_seconds,
     )
+    _audit(caller, "message_send", {"to_id": req.to_id, "msg_type": req.msg_type})
     return {"ok": True, "msg_id": msg_id}
 
 
@@ -290,13 +320,24 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         priority=req.priority,
     )
     _registry.update_usage(caller.agent_id, tokens_in=0, tokens_out=0)  # updated by scheduler
+    tokens_used = 0
+    ms_used = 0.0
+    if task.result:
+        tokens_used = (task.result.get("tokens_in", 0) or 0) + (task.result.get("tokens_out", 0) or 0)
+    if task.finished_at and task.started_at:
+        ms_used = round((task.finished_at - task.started_at) * 1000)
+    _audit(caller, "task_submit", {
+        "task_id": task.task_id, "complexity": req.complexity,
+        "priority": req.priority, "status": task.status,
+    }, result_code="ok" if task.status == "done" else task.status,
+       tokens=tokens_used, ms=ms_used)
     return {
         "task_id": task.task_id,
         "status": task.status,
         "assigned_to": task.assigned_to,
         "result": task.result,
         "error": task.error,
-        "ms": round((task.finished_at - task.started_at) * 1000) if task.finished_at and task.started_at else None,
+        "ms": ms_used or None,
     }
 
 
@@ -347,7 +388,10 @@ def acquire_lock(
 
     acquired = _registry.acquire_lock(agent_id, lock_name, ttl_seconds)
     if not acquired:
+        _audit(caller, "lock_acquire", {"lock_name": lock_name, "ttl_seconds": ttl_seconds},
+               result_code="denied")
         raise HTTPException(status_code=409, detail=f"Lock '{lock_name}' already held by another agent")
+    _audit(caller, "lock_acquire", {"lock_name": lock_name, "ttl_seconds": ttl_seconds})
     return {"ok": True, "agent_id": agent_id, "lock": lock_name, "ttl_seconds": ttl_seconds}
 
 
@@ -606,6 +650,8 @@ def memory_alloc(req: MemoryAllocRequest, authorization: Optional[str] = Header(
         ttl=ttl,
         compression_eligible=req.compression_eligible,
     )
+    _audit(caller, "memory_alloc", {"key": req.key, "token_count": obj.token_count,
+                                     "priority": req.priority})
     return {
         "key":         obj.key,
         "token_count": obj.token_count,
@@ -692,3 +738,73 @@ def heap_stats(authorization: Optional[str] = Header(None)):
     _require_heap()
     heap = _heap_registry.get(caller.agent_id)
     return heap.heap_stats()
+
+
+# ── v1.1.0: Audit Kernel ──────────────────────────────────────────────────────
+
+def _require_audit() -> None:
+    if not _audit_log:
+        raise HTTPException(status_code=503, detail="AuditLog not initialized")
+
+
+@router.get("/audit")
+def audit_query(
+    agent_id: Optional[str] = None,
+    operation: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Query the audit log. Filter by agent, operation, and time range.
+    Agents can only query their own entries unless admin.
+    """
+    caller = _resolve_agent(authorization)
+    _require_audit()
+    # Non-admin agents can only see their own audit entries
+    if agent_id and agent_id != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot query other agents' audit entries")
+    effective_agent = agent_id if agent_id else (
+        None if caller.has_cap("admin") else caller.agent_id
+    )
+    entries = _audit_log.query(
+        agent_id=effective_agent,
+        operation=operation,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.get("/audit/stats/{agent_id}")
+def audit_stats(agent_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Return audit statistics for an agent: op_counts, total_tokens, anomaly_score.
+    Agents can view own stats; admin can view any.
+    """
+    caller = _resolve_agent(authorization)
+    _require_audit()
+    if agent_id != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot view other agents' audit stats")
+    return _audit_log.stats(agent_id)
+
+
+@router.get("/audit/anomalies")
+def anomaly_history(limit: int = 50, authorization: Optional[str] = Header(None)):
+    """
+    Return recent security.anomaly events. Admin only.
+    Delegates to event history filtered by type.
+    """
+    caller = _resolve_agent(authorization)
+    _require_cap(caller, "admin")
+    _require_audit()
+    if not _events:
+        return {"anomalies": [], "count": 0}
+    # Pull from event bus history filtered by security.anomaly
+    try:
+        history = _events.get_history(event_types=["security.anomaly"], limit=limit)
+    except Exception:
+        history = []
+    return {"anomalies": history, "count": len(history)}

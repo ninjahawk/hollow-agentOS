@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.0.0
+AgentOS MCP Server v1.1.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (57 total):
+Tools (60 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -30,6 +30,7 @@ Tools (57 total):
   VRAM:      model_status                                       (v0.9.0)
   Heap:      memory_alloc, memory_read, memory_free, memory_list,
              memory_compress, heap_stats                        (v1.0.0)
+  Audit:     audit_query, audit_stats, anomaly_history          (v1.1.0)
 """
 
 import asyncio
@@ -926,6 +927,56 @@ async def list_tools() -> list[Tool]:
                 "required": []
             }
         ),
+        # ── Audit (v1.1.0) ────────────────────────────────────────────────────
+        Tool(
+            name="audit_query",
+            description=(
+                "Query the audit log (v1.1.0). Filter by agent_id, operation, and time window. "
+                "Returns entries with: agent_id, operation, params, result_code, tokens_charged, "
+                "duration_ms, timestamp. Non-admin agents can only query their own entries."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":  {"type": "string", "description": "Filter by agent ID (omit for self)"},
+                    "operation": {"type": "string", "description": "Filter by operation name (e.g. shell_exec)"},
+                    "since":     {"type": "number",  "description": "Unix timestamp — entries after this time"},
+                    "until":     {"type": "number",  "description": "Unix timestamp — entries before this time"},
+                    "limit":     {"type": "integer", "description": "Max entries to return (default: 100)"},
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="audit_stats",
+            description=(
+                "Return audit statistics for an agent: op_counts (per operation type), "
+                "total_tokens, entry_count, anomaly_score (z-score vs role baseline). "
+                "Agents can view own stats; admin can view any agent."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Agent ID to get stats for"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
+        Tool(
+            name="anomaly_history",
+            description=(
+                "Return recent security.anomaly events detected by the audit kernel (v1.1.0). "
+                "Each anomaly includes: agent_id, metric, observed, baseline, z_score. "
+                "Requires admin capability."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max anomalies to return (default: 50)"},
+                },
+                "required": []
+            }
+        ),
     ]
 
 
@@ -1350,6 +1401,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "heap_stats":
             return _out(await _get("/memory/stats"))
+
+        # ── Audit (v1.1.0) ────────────────────────────────────────────────────
+        elif name == "audit_query":
+            params = {}
+            for k in ("agent_id", "operation", "since", "until", "limit"):
+                if k in arguments:
+                    params[k] = arguments[k]
+            return _out(await _get("/audit", params))
+
+        elif name == "audit_stats":
+            agent_id = arguments["agent_id"]
+            return _out(await _get(f"/audit/stats/{agent_id}"))
+
+        elif name == "anomaly_history":
+            params = {}
+            if "limit" in arguments:
+                params["limit"] = arguments["limit"]
+            return _out(await _get("/audit/anomalies", params))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})
