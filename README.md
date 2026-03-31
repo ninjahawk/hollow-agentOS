@@ -7,144 +7,105 @@
 
 <div align="center">
 
-**A genuine operating system for AI agents. Not a wrapper. Not a framework. An OS.**
-
-[![Version](https://img.shields.io/badge/version-1.3.1-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.2-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-69-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-76%20passing-brightgreen?style=flat-square)](#testing)
-
-![hollow token demo](demo.gif)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-71-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-82%20passing-brightgreen?style=flat-square)](#testing)
 
 </div>
 
 ---
 
-## What it is
+The missing layer between a language model and a real computing environment.
 
-Hollow is a local REST API that gives AI agents a complete operating system interface: identity, isolation, signals, memory, scheduling, events, transactions, audit, streaming I/O, lineage tracing, and inter-agent coordination.
+Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
 
-It started as a token-efficiency layer. It became something else. The benchmarks are still real — 95% fewer tokens on code search, 42% overall — but that's not the point anymore. The point is that agents running on Hollow have the same primitives a real process has:
+This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 82 integration tests run against the live API with no mocks.
 
-- A **process identity** with capabilities, budgets, and an isolated workspace
-- An **event kernel** so agents get notified instead of polling
-- **Process signals** (SIGTERM / SIGPAUSE / SIGINFO) with grace periods and tombstones
-- A **working memory heap** with TTL, compression, and priority eviction
-- A **VRAM-aware scheduler** that routes tasks to the right model automatically
-- An **audit kernel** with append-only logging and z-score anomaly detection
-- **Multi-agent transactions** — atomic commits across files, messages, and memory
-- **Agent lineage** — who spawned who, blast radius analysis, critical path
-- **Streaming task I/O** — non-blocking execution with SSE token streams
+---
 
-Everything runs locally. Ollama is optional. All 76 integration tests run against the live API with no mocks.
+## What's inside
+
+**Phase 1 (v0.7.0 – v1.2.0): OS kernel primitives.** Eight core mechanisms that every higher-order capability depends on.
+
+**Phase 2 (v1.3.x): Agent services.** Higher-order capabilities that are only possible because Phase 1 exists. You cannot build the lineage graph without the audit kernel. You cannot build multi-agent consensus without transactions. The architecture is not incidental — Phase 1 had to come first.
 
 ---
 
 ## OS Primitives
 
-These are not features. They are the structural things that make Hollow an OS instead of a control plane.
+### Event Kernel (v0.7.0)
 
-### v0.7.0 — Event Kernel
-The interrupt layer. Agents subscribe to typed event patterns instead of polling. Every subsystem emits events; every event routes to subscriber inboxes.
+Polling is how you build a prototype. Interrupts are how you build a system.
 
-- `event_subscribe(pattern, ttl_seconds)` — glob patterns: `task.*`, `agent.terminated`, `*`
-- `event_unsubscribe(subscription_id)`
-- `event_history(since, event_types, limit)` — append-only event log, survives restart
-- Events emitted by: registry, scheduler, bus, memory, audit, transactions, filesystem
+Agents subscribe to typed event patterns and receive notifications in their inbox when matching events fire. Every subsystem emits events. Subscriptions support glob patterns (`task.*`, `agent.terminated`, `security.*`) and TTLs. The event log is append-only and persists across restarts.
 
-| Event | Emitted by |
-|---|---|
-| `agent.registered`, `agent.terminated`, `agent.suspended`, `agent.resumed` | Registry |
-| `budget.warning` (80%), `budget.exhausted` (100%) | Registry |
-| `task.queued`, `task.started`, `task.completed`, `task.failed` | Scheduler |
-| `task.token_chunk`, `task.partial_available`, `task.cancelled` | Streaming scheduler |
-| `message.received` | Message bus |
-| `decision.resolved`, `spec.activated` | Memory manager |
-| `file.written` | Filesystem |
-| `txn.committed`, `txn.rolled_back` | Transaction coordinator |
-| `security.anomaly` | Audit kernel |
+Events emitted system-wide: `agent.registered`, `agent.terminated`, `agent.suspended`, `agent.resumed`, `budget.warning`, `budget.exhausted`, `task.queued`, `task.started`, `task.completed`, `task.failed`, `task.token_chunk`, `task.partial_available`, `task.cancelled`, `message.received`, `decision.resolved`, `spec.activated`, `file.written`, `txn.committed`, `txn.rolled_back`, `txn.conflict`, `security.anomaly`, `security.circuit_break`, `audit.archived`, `vram.pressure`, `memory.pressure`, `model.loaded`, `model.evicted`.
 
-### v0.8.0 — Process Signals and Tombstones
-Agents are real processes. `terminate()` is now `SIGTERM` — give the agent time to checkpoint, force-kill if it ignores the signal.
+### Process Signals and Tombstones (v0.8.0)
 
-- `SIGTERM` — graceful shutdown with configurable grace period (default 30s), watchdog auto-terminates if agent doesn't respond
-- `SIGPAUSE` — checkpoint current work, enter suspended state
-- `SIGINFO` — agent reports current status to sender
-- **Tombstones** — terminated agents write a final state record: last task, token usage, reason, children list
-- **Process groups** — terminate an entire spawned subtree with one call (`terminate_group`)
-- **Orphan adoption** — children of a terminated agent are automatically re-parented to root
+`kill()` and `terminate()` are not the same thing. SIGTERM means "shut down cleanly within this grace period." SIGPAUSE means "checkpoint and wait." SIGINFO means "report your current state."
 
-### v0.9.0 — VRAM-Aware Scheduler
-The scheduler knows what's in VRAM. It avoids cold-loading models that are already loaded and evicts least-recently-used models under memory pressure.
+Hollow implements all three. An agent that ignores SIGTERM is force-killed by a watchdog after the grace period. Every terminated agent writes a tombstone: last task, token usage, cause of death, list of children. Process groups let you SIGTERM an entire spawned subtree atomically. Children of a terminated agent are re-parented to root.
 
-- **Model affinity** — routes tasks to models already loaded in VRAM first
-- **Priority preemption** — `URGENT` tasks preempt `BACKGROUND` workers via checkpointing
-- **Three priority tiers**: `URGENT` (0), `NORMAL` (1), `BACKGROUND` (2)
-- **Complexity routing**: 1-2 → `mistral-nemo:12b` (fast), 3-4 → `qwen2.5:14b` (reasoning), 5 → `qwen3.5-35b-moe` (deep)
-- **VRAM pressure** evicts LRU models to free space before routing
+### VRAM-Aware Scheduler (v0.9.0)
 
-### v1.0.0 — Working Memory Kernel
-Agents have a structured heap for intermediate work — not session logs, not files. A real working memory with allocation, TTL, priority eviction, and on-heap compression.
+Loading a 14B model takes ~3 seconds. If it's already in VRAM from the previous task, that cost is zero. The scheduler tracks what's loaded, routes tasks to already-loaded models where possible, and evicts LRU models under memory pressure.
 
-- `memory_alloc(key, content, priority, ttl_seconds)` — allocate a named heap entry
-- `memory_read(key)`, `memory_free(key)`, `memory_list()`
-- `memory_compress(key)` — compress a heap entry to free space without evicting
-- `heap_stats()` — current allocation, utilization, eviction counts
-- Priority-based eviction when heap reaches capacity
-- Heap state persists across server restarts
+Three priority tiers: URGENT (0) preempts BACKGROUND (2) workers via checkpointing. Complexity routing: 1–2 → `mistral-nemo:12b`, 3–4 → `qwen2.5:14b`, 5 → `qwen3.5-35b-moe`. Affinity routing: if a suitable model is already in VRAM, use it regardless of the complexity tier.
 
-### v1.1.0 — Audit Kernel
-Every operation goes through a single audited boundary. The audit log is append-only. It can never be overwritten via the filesystem API — it is protected at the path level.
+### Working Memory Kernel (v1.0.0)
 
-- Append-only NDJSON log (`audit.log`) — every shell, fs, ollama, agent, task, message, memory, lock, transaction operation
-- **Z-score anomaly detection** — baseline per agent role, alert at 3σ deviations
-- `security.anomaly` event fires on detection — real-time alerting
-- `audit_query(agent_id, operation, since, until)` — precise filtering
-- `audit_stats(agent_id)` — per-agent operation breakdown
-- Baseline established from first 50 operations per role
-- Causal fields on every entry: `caused_by_task_id`, `parent_txn_id`, `call_depth` (v1.3.0)
+Language models have no persistent working state between calls. A working memory heap gives agents a place to store intermediate results with actual memory management: TTL expiration, priority-based eviction under pressure, on-heap compression when a slot needs to shrink without being freed.
 
-### v1.2.0 — Multi-Agent Transactions
-File writes, message sends, and memory allocs can be staged atomically. Either everything commits or nothing does. Two agents staging writes to the same file are detected as a conflict before commit.
+This is not a key-value store. It is a heap with an eviction policy — the same concept as any OS page frame manager, applied to agent context.
 
-- `txn_begin()` → `txn_id`
-- `txn/stage(op_type, params)` — buffer `fs_write` or `message_send` operations
-- `txn/commit()` — apply all staged ops atomically; detect conflicts, roll back on any failure
-- `txn/rollback()` — discard all staged ops
-- **Isolation** — uncommitted writes are invisible to readers until commit
-- **Conflict detection** — file modified between `txn_begin` and `txn_commit` → 409 conflict
-- **Timeout watchdog** — transactions that don't commit within 60s are auto-rolled back
-- Transaction log persists across restarts; expired transactions evicted automatically
+### Audit Kernel (v1.1.0)
 
-### v1.3.0 — Agent Lineage and Call Graphs
-The audit log records what happened. Lineage records *why* — who spawned who, which task caused which agent to exist, which agents are at risk if a given agent fails.
+Every operation through a single audited boundary. The log is append-only. The audit log and baseline files are blocklisted at the path level — no agent can overwrite them via the filesystem API.
 
-- `agent_lineage(agent_id)` — full ancestor chain up to root with spawn_depth at each level
-- `agent_subtree(agent_id)` — recursive descendant call tree with edge types and metadata
-- `agent_blast_radius(agent_id)` — forward-reachability: all affected descendants, held locks, open transactions, running tasks
-- `task_critical_path(task_id)` — longest `depends_on` chain through the task graph
-- **Causal audit entries** — every audit entry tagged with `caused_by_task_id` and `call_depth`
-- **`depends_on`** on tasks — explicit dependency declarations for workflow ordering
-- Lineage graph persists to `lineage.json`, survives restart
+Z-score anomaly detection runs per-agent against a per-role baseline established from the first 50 operations. Anomalies fire at 3σ. Circuit breaks fire at 5σ — see Rate Limiting below. Causal fields on every entry: `caused_by_task_id`, `parent_txn_id`, `call_depth`.
 
-### v1.3.1 — Streaming Task Outputs
-`submit(wait=True)` freezes the calling agent for 30–120 seconds. A real OS gives processes non-blocking I/O. Streaming makes task execution fully async: submit returns immediately, results stream back as chunks arrive.
+### Multi-Agent Transactions (v1.2.0)
 
-- `submit(stream=True)` — returns immediately with `task_id`, `stream_url`, `partial_url`
-- `GET /tasks/{id}/stream` — SSE endpoint, cursor-based token chunk delivery
-- `GET /tasks/{id}/partial` — instant snapshot of accumulated partial output, non-blocking
-- `DELETE /tasks/{id}` — cancel queued or running tasks
-- `task.token_chunk` events every 10 tokens: `{task_id, chunk, tokens_so_far, model}`
-- `task.partial_available` events every 500ms while running
-- `task.cancelled` event on cancellation; worker freed immediately
-- `wait=True` blocking mode unchanged — full backward compatibility
+Two agents writing to the same file is a race condition. Transactions make it a conflict instead — detectable, handleable, not silently corrupting.
+
+`txn_begin()` opens a transaction. `txn/stage(fs_write | message_send | memory_set)` buffers operations without applying them. `txn/commit()` applies everything atomically, detecting conflicts (file modified between begin and commit) and rolling back if any op fails. Uncommitted writes are invisible to readers. Transactions that don't commit within 60 seconds auto-roll back.
+
+### Agent Lineage and Call Graphs (v1.3.0)
+
+The audit log tells you what happened. Lineage tells you why — which agent spawned which agent, which task created which agent, which agents are affected if a given agent fails right now.
+
+`agent_lineage(id)` returns the full ancestor chain. `agent_subtree(id)` returns the recursive descendant tree with edge types (spawned, delegated, signaled, transacted). `agent_blast_radius(id)` computes forward-reachability: affected descendants, held locks, open transactions, running tasks. `task_critical_path(id)` finds the longest `depends_on` chain through the task graph — the wall time you cannot parallelize away.
+
+### Streaming Task Outputs (v1.3.1)
+
+Blocking on a 30-second task is only acceptable if you have nothing else to do. `submit(stream=True)` returns immediately with a `task_id`, `stream_url`, and `partial_url`. Token chunks arrive as SSE events. `GET /tasks/{id}/partial` returns a snapshot of accumulated output without connecting to the stream. `DELETE /tasks/{id}` cancels and frees the worker.
+
+Full backward compatibility: `submit(wait=True)` still works exactly as before.
+
+### Rate Limiting and Admission Control (v1.3.2)
+
+The budget system prevents cumulative overuse. Token buckets prevent burst overuse — an agent can't exhaust its budget in a single second.
+
+Per-resource limits: `tokens_in`, `shell_calls`, `api_calls`, `task_submissions`. Per-role defaults with per-agent overrides. 429 responses include a `Retry-After` header. Role defaults:
+
+| Role | tokens/min | shell/min | task submits/min |
+|---|---|---|---|
+| root | unlimited | unlimited | unlimited |
+| orchestrator | 100k | 300 | 60 |
+| worker | 20k | 60 | 10 |
+| coder | 50k | 120 | 20 |
+| reasoner | 50k | 10 | 5 |
+
+**Circuit breaker**: when an agent's anomaly z-score exceeds 5σ (double the alert threshold), the circuit break fires automatically: the agent is suspended, its rate limits are reduced to 10% for 5 minutes, a `security.circuit_break` event fires, and root receives a `circuit_break_review` decision in its inbox with options `["restore", "terminate"]`. This uses the audit kernel (anomaly detection), registry (suspend), event bus (notification), and message bus (inbox delivery) in combination — it required all four Phase 1 primitives.
 
 ---
 
 ## Benchmarks
 
-Measured on live system output. No constructed baselines.
+Measured on live system output, same codebase, no constructed baselines.
 
 | Scenario | Naive (shell) | Hollow (API) | Savings |
 |---|---|---|---|
@@ -155,9 +116,7 @@ Measured on live system output. No constructed baselines.
 | Agent cold start (pickup) | 617 tok | 1,800 tok | –192% |
 | **Total** | **35,666 tok** | **20,667 tok** | **42%** |
 
-**Where Hollow wins:** Code search. `POST /semantic/search` returns only relevant chunks — 95% fewer tokens and one call instead of N file reads.
-
-**Where Hollow costs more:** System state queries return comprehensive structured JSON — more than a targeted `df -h`, but structured and parseable without regex.
+Code search is where the savings are real: one semantic search call instead of N file reads, returning only relevant chunks. System state queries return comprehensive structured JSON — more tokens than `df -h` but machine-readable without regex. The 42% total is not the point; the 95% on code search is.
 
 ### Agent Drift Experiment
 
@@ -178,31 +137,31 @@ Same model both conditions (`mistral-nemo:12b`), 10 runs each, 3-session task.
 hollow-agentOS/
 ├── api/
 │   ├── server.py          # FastAPI — all endpoints
-│   └── agent_routes.py    # Agent OS routes: all lifecycle, tasks, locks, txn, lineage, streaming
+│   └── agent_routes.py    # Agent OS routes: lifecycle, tasks, locks, txn, lineage, streaming, rate limits
 ├── agents/
 │   ├── registry.py        # Identity, capabilities, workspaces, budgets, locks, model policies
 │   ├── bus.py             # Inter-agent message bus with pub/sub
 │   ├── scheduler.py       # VRAM-aware routing, priority preemption, streaming, cancellation
 │   ├── events.py          # EventBus — pub/sub, glob patterns, TTL, persistent event log
 │   ├── signals.py         # SIGTERM / SIGPAUSE / SIGINFO with grace period watchdog
-│   ├── audit.py           # Append-only audit log, z-score anomaly detection
+│   ├── audit.py           # Append-only audit log, z-score anomaly detection, circuit break callback
 │   ├── transaction.py     # Atomic multi-op transactions, conflict detection, isolation
 │   ├── lineage.py         # Agent call graph, blast radius, critical path
+│   ├── ratelimit.py       # Token bucket rate limiting, circuit breaker
 │   ├── model_manager.py   # VRAM tracker, LRU eviction, model affinity
 │   └── standards.py       # Project conventions store + semantic matching
 ├── memory/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 69 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 71 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   ├── bench_real_baseline.py   # Real baseline benchmark
 │   ├── bench_breakeven.py       # Break-even analysis
-│   ├── experiment_agent_drift.py # Agent drift experiment
-│   └── test_integration.py      # Legacy integration suite
+│   └── experiment_agent_drift.py # Agent drift experiment
 ├── tests/
-│   └── integration/       # 76 integration tests — no mocks, live API
+│   └── integration/       # 82 integration tests — no mocks, live API
 │       ├── test_api.py
 │       ├── test_events.py
 │       ├── test_signals.py
@@ -210,17 +169,15 @@ hollow-agentOS/
 │       ├── test_audit.py
 │       ├── test_transactions.py
 │       ├── test_lineage.py
-│       └── test_streaming.py
+│       ├── test_streaming.py
+│       └── test_ratelimit.py
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
-├── dashboard/
-│   └── index.html         # Live dashboard (nginx :7778)
 ├── sdk/
 │   └── hollow.py          # Python SDK client
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
-├── requirements.txt
 └── config.json
 ```
 
@@ -228,16 +185,16 @@ hollow-agentOS/
 
 ## Agent Roles
 
-| Role | Shell | FS | Ollama | Spawn | Message | Admin | Lock |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `root` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `orchestrator` | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| `worker` | ✓ | ✓ | ✓ | — | ✓ | — | ✓ |
-| `coder` | ✓ | ✓ | ✓ | — | ✓ | — | ✓ |
-| `reasoner` | — | read | ✓ | — | ✓ | — | — |
-| `readonly` | — | read | — | — | ✓ | — | — |
+| Role | Shell | FS | Ollama | Spawn | Message | Admin |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `root` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `orchestrator` | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `worker` | ✓ | ✓ | ✓ | — | ✓ | — |
+| `coder` | ✓ | ✓ | ✓ | — | ✓ | — |
+| `reasoner` | — | read | ✓ | — | ✓ | — |
+| `readonly` | — | read | — | — | ✓ | — |
 
-Custom capability sets and per-model policies are supported at registration.
+Custom capability sets and per-model policies supported at registration.
 
 ---
 
@@ -254,7 +211,7 @@ DELETE /agents/{id}                  Terminate agent
 POST   /agents/spawn                 Spawn child agent, run task, auto-terminate
 POST   /agents/{id}/suspend          Suspend agent (token rejected until resumed)
 POST   /agents/{id}/resume           Resume suspended agent
-POST   /agents/{id}/signal           Send SIGTERM / SIGPAUSE / SIGINFO
+POST   /agents/{id}/signal           SIGTERM / SIGPAUSE / SIGINFO
 POST   /agents/{id}/lock/{name}      Acquire named timed lock (default 300s TTL)
 DELETE /agents/{id}/lock/{name}      Release lock
 GET    /agents/{id}/usage            Per-agent token breakdown by model and action
@@ -262,6 +219,20 @@ GET    /usage                        Aggregate token usage across all agents
 GET    /tombstones                   All terminated agent records
 GET    /tombstones/{id}              Specific tombstone
 ```
+
+</details>
+
+<details>
+<summary><strong>Rate Limiting (v1.3.2)</strong></summary>
+
+```
+GET    /agents/{id}/rate-limits      Bucket depth, capacity, refill rate, circuit_broken flag
+POST   /agents/{id}/rate-limits      Configure limits for agent or role (admin only)
+```
+
+`POST` body: `{"limits": {"shell_calls": 30}, "target": "worker"}` — target can be an agent ID or role name.
+
+429 responses include `Retry-After` (seconds until next token available).
 
 </details>
 
@@ -282,7 +253,7 @@ GET    /tasks/{id}/critical-path     Longest dependency chain through task graph
 
 ```
 POST   /tasks/submit                 Submit task — sync (wait=true) or async (stream=true)
-GET    /tasks/{id}                   Get task state and result
+GET    /tasks/{id}                   Task state and result
 GET    /tasks                        List tasks
 GET    /tasks/{id}/stream            SSE stream — token chunks as they arrive
 GET    /tasks/{id}/partial           Current partial output snapshot (non-blocking)
@@ -290,9 +261,9 @@ DELETE /tasks/{id}                   Cancel queued or running task
 ```
 
 **Submit flags:**
-- `stream=true` — non-blocking, returns `stream_url` and `partial_url` immediately
-- `wait=false` — non-blocking without streaming, check status manually
-- `depends_on=[task_id, ...]` — declare task dependencies for critical path analysis
+- `stream=true` — returns immediately with `stream_url` and `partial_url`
+- `wait=false` — non-blocking, poll status manually
+- `depends_on=[task_id, ...]` — dependency declarations for critical path
 - `parent_task_id` — causal context for lineage tracing
 
 </details>
@@ -306,8 +277,6 @@ DELETE /events/subscribe/{id}        Unsubscribe
 GET    /events/history               Query persistent event log by type and time range
 ```
 
-Events deliver to subscriber inboxes via the message bus. TTL subscriptions expire automatically.
-
 </details>
 
 <details>
@@ -315,11 +284,9 @@ Events deliver to subscriber inboxes via the message bus. TTL subscriptions expi
 
 ```
 POST   /messages                     Send message to agent or broadcast
-GET    /messages                     Receive inbox (unread by default, limit, thread support)
+GET    /messages                     Receive inbox (unread by default)
 GET    /messages/thread/{id}         Full reply thread
 ```
-
-Message types: `data`, `log`, `result`, `signal`, `event`
 
 </details>
 
@@ -329,7 +296,7 @@ Message types: `data`, `log`, `result`, `signal`, `event`
 ```
 POST   /txn/begin                    Open a transaction, returns txn_id
 POST   /txn/{id}/stage               Stage an operation (fs_write or message_send)
-POST   /txn/{id}/commit              Atomic commit — all ops or none
+POST   /txn/{id}/commit              Atomic commit — all ops or none; 409 on conflict
 POST   /txn/{id}/rollback            Discard all staged ops
 GET    /txn/{id}                     Transaction status, ops_count, expires_in_seconds
 ```
@@ -342,10 +309,10 @@ GET    /txn/{id}                     Transaction status, ops_count, expires_in_s
 ```
 POST   /memory/alloc                 Allocate heap entry (key, content, priority, ttl_seconds)
 GET    /memory/read/{key}            Read heap entry
-DELETE /memory/free/{key}           Free heap entry
-GET    /memory/list                  List all entries with metadata
-POST   /memory/compress/{key}        Compress entry in-place
-GET    /memory/heap/stats            Utilization, eviction counts, free space
+DELETE /memory/{key}                 Free heap entry
+GET    /memory                       List all entries with metadata
+POST   /memory/compress              Compress entry in-place
+GET    /memory/stats                 Utilization, eviction counts, free space
 ```
 
 </details>
@@ -355,7 +322,7 @@ GET    /memory/heap/stats            Utilization, eviction counts, free space
 
 ```
 GET    /audit                        Query audit log (filter by agent, operation, time range)
-GET    /audit/stats/{agent_id}       Per-agent operation breakdown and baseline
+GET    /audit/stats/{id}             Per-agent operation breakdown and baseline
 GET    /audit/anomalies              Recent anomaly reports (z-score detections)
 ```
 
@@ -367,7 +334,7 @@ GET    /audit/anomalies              Recent anomaly reports (z-score detections)
 ```
 GET    /state                        Full system snapshot (JSON)
 GET    /state/diff?since=<iso>       Changed fields only since timestamp
-GET    /state/history?since=<iso>    State snapshots since timestamp
+GET    /state/history                State snapshots over time
 GET    /health
 POST   /shell                        Run command (scoped to agent workspace)
 
@@ -385,14 +352,13 @@ POST   /fs/read_context              File + semantically related neighbors
 <summary><strong>Ollama, Semantic Search, and VRAM</strong></summary>
 
 ```
-POST   /ollama/chat                  Role-based model routing (complexity 1-5)
+POST   /ollama/chat                  Role-based model routing (complexity 1–5)
 POST   /ollama/generate              Raw generate
 GET    /ollama/models                Available + running + routing table
 GET    /model_status                 VRAM utilization, loaded models, eviction state
 
 POST   /semantic/search              Cosine similarity search over workspace
 POST   /semantic/index               Re-index workspace
-GET    /semantic/stats
 
 POST   /agent/handoff                Write structured session context
 GET    /agent/pickup                 Handoff + temporal context + active spec + standards
@@ -401,7 +367,7 @@ GET    /agent/pickup                 Handoff + temporal context + active spec + 
 </details>
 
 <details>
-<summary><strong>Standards, Specs, Project, and Framework Compat</strong></summary>
+<summary><strong>Standards, Specs, and Framework Compatibility</strong></summary>
 
 ```
 POST   /standards                    Store a named project convention
@@ -410,15 +376,14 @@ GET    /standards/relevant?task=     Semantic match: which standards apply
 DELETE /standards/{name}
 
 POST   /specs                        Create feature spec
-GET    /specs                        List specs
+GET    /specs
 GET    /specs/{id}
 PATCH  /specs/{id}/activate          Set as active spec (injected into agent/pickup)
 
 GET    /project                      Get project context
 POST   /project                      Update project context
 
-GET    /tools/openai                 All tools as OpenAI function definitions
-                                     (LangChain, AutoGen, CrewAI, LlamaIndex)
+GET    /tools/openai                 All tools as OpenAI function definitions (LangChain, AutoGen, CrewAI)
 ```
 
 </details>
@@ -427,7 +392,7 @@ GET    /tools/openai                 All tools as OpenAI function definitions
 
 ## MCP Tools
 
-69 tools wired directly into Claude Code and any MCP-compatible agent.
+71 tools wired directly into Claude Code and any MCP-compatible agent.
 
 | Category | Tools |
 |---|---|
@@ -453,12 +418,13 @@ GET    /tools/openai                 All tools as OpenAI function definitions
 | Transactions | `txn_begin`, `txn_commit`, `txn_rollback`, `txn_status` |
 | Lineage | `agent_lineage`, `agent_subtree`, `agent_blast_radius`, `task_critical_path` |
 | Streaming | `task_stream` |
+| Rate Limiting | `rate_limit_status`, `rate_limit_configure` |
 
 ---
 
 ## Setup
 
-### Docker (recommended)
+### Docker
 
 ```bash
 git clone https://github.com/ninjahawk/hollow-agentOS
@@ -470,7 +436,7 @@ cp config.example.json config.json
 docker-compose up
 ```
 
-API at `http://localhost:7777`, dashboard at `http://localhost:7778`.
+API at `http://localhost:7777`.
 
 With Ollama (GPU required):
 
@@ -484,7 +450,6 @@ docker-compose --profile ollama up
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
 
-cp config.example.json config.json
 pip install -r requirements.txt
 
 AGENTOS_CONFIG=/path/to/config.json \
@@ -492,6 +457,8 @@ AGENTOS_MEMORY_PATH=/path/to/memory \
 AGENTOS_WORKSPACE_ROOT=/path/to/workspace \
 python3 -m uvicorn api.server:app --host "::" --port 7777
 ```
+
+`--host "::"` is required for dual-stack IPv4+IPv6 on WSL2.
 
 ### Wire into Claude Code (MCP)
 
@@ -508,79 +475,53 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### Register your first agent
+### Register an agent
 
 ```bash
 curl -X POST http://localhost:7777/agents/register \
   -H "Authorization: Bearer <master-token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "role": "worker"}'
-```
-
-### Python SDK
-
-```bash
-pip install hollow-sdk
-```
-
-```python
-from hollow import register, Hollow
-
-agent = register("http://localhost:7777", master_token="your-token",
-                 name="my-agent", role="worker")
-h = Hollow("http://localhost:7777", agent_token=agent.token)
-
-state = h.state()
-results = h.semantic_search("authentication middleware")
-context = h.pickup()  # handoff + temporal state + active spec + standards
+  -d '{"name": "worker-1", "role": "worker"}'
 ```
 
 ---
 
 ## Testing
 
-All 76 integration tests run against the live API. No mocks. No seeded data.
+82 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
-# All integration tests (excludes 65s timeout test)
+# All integration tests
 PYTHONPATH=. pytest tests/integration/ -v -m "integration and not slow"
 
-# Specific primitive suites
+# Individual primitive suites
 PYTHONPATH=. pytest tests/integration/test_events.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_signals.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_audit.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_transactions.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_lineage.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_streaming.py -v -m integration
-
-# Legacy benchmarks
-python3 tools/bench_real_baseline.py
-python3 tools/experiment_agent_drift.py --runs 10
+PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
 ```
 
-Ollama-dependent tests auto-skip if Ollama is unavailable. All structural and protocol tests run without a GPU.
+Ollama-dependent tests skip automatically if Ollama is unavailable.
 
 ---
 
 ## Hardware
 
-Developed and benchmarked on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
+Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
 
-Ollama is optional — all OS primitives (events, signals, memory, audit, transactions, lineage) work without a GPU.
+Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting — work without a GPU.
 
-With a GPU:
-- Models up to 14B fit in VRAM
-- Models up to 35B run with partial CPU offload
-- `nomic-embed-text` (semantic search) uses ~300 MB and stays resident, separate from agent task models
-- VRAM-aware scheduler tracks utilization in real time and routes tasks to loaded models first
+With a GPU: models up to 14B fit in VRAM; up to 35B run with partial CPU offload. `nomic-embed-text` (semantic search) uses ~300 MB and stays resident. The VRAM scheduler tracks utilization and routes tasks to already-loaded models first.
 
 ---
 
 ## Roadmap
 
-Phase 1 (v0.7.0–v1.2.0) is complete. All OS primitives are implemented and integration-tested.
+Phase 1 (v0.7.0 – v1.2.0): OS kernel primitives. Complete.
 
-Phase 2 (v1.3.0–v1.3.7) builds higher-order services on top of those primitives.
+Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 
 | Release | Feature | Status |
 |---|---|---|
@@ -592,15 +533,13 @@ Phase 2 (v1.3.0–v1.3.7) builds higher-order services on top of those primitive
 | v1.2.0 | Multi-Agent Transactions | ✓ |
 | v1.3.0 | Agent Lineage and Call Graphs | ✓ |
 | v1.3.1 | Streaming Task Outputs | ✓ |
-| v1.3.2 | Rate Limiting and Admission Control | planned |
-| v1.3.3 | Agent Checkpoints and Replay | planned |
-| v1.3.4 | Multi-Agent Consensus | planned |
-| v1.3.5 | Adaptive Model Routing | planned |
-| v1.3.6 | Real Benchmark Suite | planned |
-| v1.3.7 | Self-Extending System | planned |
+| v1.3.2 | Rate Limiting and Admission Control | ✓ |
+| v1.3.3 | Agent Checkpoints and Replay | — |
+| v1.3.4 | Multi-Agent Consensus | — |
+| v1.3.5 | Adaptive Model Routing | — |
+| v1.3.6 | Real Benchmark Suite | — |
+| v1.3.7 | Self-Extending System | — |
 
----
+The design principle that runs through Phase 2: each release requires two or more Phase 1 primitives working together. Checkpoints need the memory heap and transactions. Consensus needs events and transactions. Adaptive routing needs the scheduler and audit observations. Self-extension needs consensus and the full stack.
 
-## License
-
-MIT
+Phase 1 is the kernel. Phase 2 is userland. v1.3.7 closes the loop.
