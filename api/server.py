@@ -59,6 +59,7 @@ from agents.scheduler import TaskScheduler
 from agents.events import EventBus
 from agents.model_manager import ModelManager
 from memory.heap import HeapRegistry
+from agents.audit import AuditLog, make_entry
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -205,11 +206,12 @@ _scheduler: TaskScheduler = None
 _events: EventBus = None
 _model_manager: ModelManager = None
 _heap_registry: HeapRegistry = None
+_audit_log: AuditLog = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
+    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry, _audit_log
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -218,6 +220,7 @@ async def _startup():
     _scheduler = TaskScheduler(_registry, _bus, master_token)
     _model_manager = ModelManager()
     _heap_registry = HeapRegistry(master_token=master_token)
+    _audit_log = AuditLog()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -226,8 +229,10 @@ async def _startup():
     _scheduler.set_model_manager(_model_manager)
     _model_manager.set_event_bus(_events)
     _heap_registry.set_event_bus(_events)
+    _audit_log.set_event_bus(_events)
     _mem_manager.set_event_bus(_events)
-    agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager, _heap_registry)
+    agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
+                      _heap_registry, _audit_log)
     await _check_ollama_available()
 
 
@@ -646,6 +651,11 @@ async def fs_read(path: str, meta: bool = False, authorization: Optional[str] = 
 @app.post("/fs/write")
 async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    # Audit-protected paths — no agent may overwrite via API
+    from agents.audit import AUDIT_PROTECTED_PATHS
+    if str(Path(req.path).resolve()) in {str(Path(p).resolve()) for p in AUDIT_PROTECTED_PATHS}:
+        raise HTTPException(status_code=403,
+                            detail="Path is audit-protected and cannot be overwritten via API")
     p = Path(req.path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(req.content)
