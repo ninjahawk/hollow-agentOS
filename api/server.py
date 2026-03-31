@@ -58,6 +58,7 @@ from agents.bus import MessageBus
 from agents.scheduler import TaskScheduler
 from agents.events import EventBus
 from agents.model_manager import ModelManager
+from memory.heap import HeapRegistry
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -203,11 +204,12 @@ _bus: MessageBus = None
 _scheduler: TaskScheduler = None
 _events: EventBus = None
 _model_manager: ModelManager = None
+_heap_registry: HeapRegistry = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _registry, _bus, _scheduler, _events, _model_manager
+    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -215,6 +217,7 @@ async def _startup():
     _bus = MessageBus()
     _scheduler = TaskScheduler(_registry, _bus, master_token)
     _model_manager = ModelManager()
+    _heap_registry = HeapRegistry(master_token=master_token)
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -222,8 +225,9 @@ async def _startup():
     _scheduler.set_event_bus(_events)
     _scheduler.set_model_manager(_model_manager)
     _model_manager.set_event_bus(_events)
+    _heap_registry.set_event_bus(_events)
     _mem_manager.set_event_bus(_events)
-    agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager)
+    agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager, _heap_registry)
     await _check_ollama_available()
 
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.9.0
+AgentOS MCP Server v1.0.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (51 total):
+Tools (57 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -28,6 +28,8 @@ Tools (51 total):
   Events:    event_subscribe, event_unsubscribe, event_history  (v0.7.0)
   Signals:   agent_signal, agent_tombstone                      (v0.8.0)
   VRAM:      model_status                                       (v0.9.0)
+  Heap:      memory_alloc, memory_read, memory_free, memory_list,
+             memory_compress, heap_stats                        (v1.0.0)
 """
 
 import asyncio
@@ -841,6 +843,89 @@ async def list_tools() -> list[Tool]:
                 "required": []
             }
         ),
+        # ── Working Memory (v1.0.0) ───────────────────────────────────────────
+        Tool(
+            name="memory_alloc",
+            description=(
+                "Allocate a named memory object on your working memory heap (v1.0.0). "
+                "Content is measured in tokens, protected by priority (0-10), and optionally "
+                "expires after ttl_seconds. Higher priority = protected from auto-compression. "
+                "Use for facts, reasoning chains, or context you want to persist across turns."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key":                  {"type": "string", "description": "Unique name for this memory slot"},
+                    "content":              {"type": "string", "description": "Content to store"},
+                    "priority":             {"type": "integer", "description": "0-10 (default: 5). ≥8 = never auto-compressed"},
+                    "ttl_seconds":          {"type": "number",  "description": "Seconds until expiry (default: forever)"},
+                    "compression_eligible": {"type": "boolean", "description": "Allow auto-compression (default: true)"},
+                },
+                "required": ["key", "content"]
+            }
+        ),
+        Tool(
+            name="memory_read",
+            description="Read a memory object by key. Auto-swaps-in from disk if needed. Raises 404 if expired or freed.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Memory key to read"},
+                },
+                "required": ["key"]
+            }
+        ),
+        Tool(
+            name="memory_free",
+            description="Free a memory object and release its tokens from the heap.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Memory key to free"},
+                },
+                "required": ["key"]
+            }
+        ),
+        Tool(
+            name="memory_list",
+            description=(
+                "List all memory objects on your heap with metadata (no content). "
+                "Includes heap_stats: total_tokens, object_count, compressible_tokens, "
+                "swapped_count, fragmentation_score."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="memory_compress",
+            description=(
+                "Compress a memory object via Ollama summarization (mistral-nemo:12b). "
+                "Original content saved to disk; compressed summary replaces it in heap. "
+                "Returns original_tokens, compressed_tokens, ratio. Requires ollama capability."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Memory key to compress"},
+                },
+                "required": ["key"]
+            }
+        ),
+        Tool(
+            name="heap_stats",
+            description=(
+                "Return heap statistics for your working memory: total_tokens, object_count, "
+                "compressible_tokens, swapped_count, fragmentation_score."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
     ]
 
 
@@ -1230,6 +1315,41 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # ── VRAM (v0.9.0) ────────────────────────────────────────────────────
         elif name == "model_status":
             return _out(await _get("/model_status"))
+
+        # ── Working Memory (v1.0.0) ───────────────────────────────────────────
+        elif name == "memory_alloc":
+            body = {
+                "key":     arguments["key"],
+                "content": arguments["content"],
+            }
+            if "priority" in arguments:
+                body["priority"] = arguments["priority"]
+            if "ttl_seconds" in arguments:
+                body["ttl_seconds"] = arguments["ttl_seconds"]
+            if "compression_eligible" in arguments:
+                body["compression_eligible"] = arguments["compression_eligible"]
+            return _out(await _post("/memory/alloc", body))
+
+        elif name == "memory_read":
+            return _out(await _get(f"/memory/read/{arguments['key']}"))
+
+        elif name == "memory_free":
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=30) as c:
+                r = await c.delete(
+                    f"{_api_base()}/memory/{arguments['key']}",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "memory_list":
+            return _out(await _get("/memory"))
+
+        elif name == "memory_compress":
+            return _out(await _post("/memory/compress", {"key": arguments["key"]}))
+
+        elif name == "heap_stats":
+            return _out(await _get("/memory/stats"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

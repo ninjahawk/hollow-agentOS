@@ -25,16 +25,18 @@ _bus: MessageBus = None
 _scheduler: TaskScheduler = None
 _events = None
 _model_manager = None
+_heap_registry = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
-         events=None, model_manager=None):
-    global _registry, _bus, _scheduler, _events, _model_manager
+         events=None, model_manager=None, heap_registry=None):
+    global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
     _registry = registry
     _bus = bus
     _scheduler = scheduler
     _events = events
     _model_manager = model_manager
+    _heap_registry = heap_registry
 
 
 # ── Auth helpers ────────────────────────────────────────────────────────────
@@ -565,3 +567,128 @@ def model_status(authorization: Optional[str] = Header(None)):
     status = _model_manager.status()
     status["queue"] = _scheduler.queue_status() if _scheduler else {}
     return status
+
+
+# ── v1.0.0: Working Memory Heap ───────────────────────────────────────────────
+
+class MemoryAllocRequest(BaseModel):
+    key: str
+    content: str
+    priority: int = 5              # 0-10, higher = protected from compression
+    ttl_seconds: Optional[float] = None   # None = forever
+    compression_eligible: bool = True
+
+
+class MemoryCompressRequest(BaseModel):
+    key: str
+
+
+def _require_heap() -> None:
+    if not _heap_registry:
+        raise HTTPException(status_code=503, detail="HeapRegistry not initialized")
+
+
+@router.post("/memory/alloc")
+def memory_alloc(req: MemoryAllocRequest, authorization: Optional[str] = Header(None)):
+    """
+    Allocate a named memory object on the caller's heap.
+    Overwrites existing key if present.
+    """
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    ttl = (None if req.ttl_seconds is None
+           else __import__("time").time() + req.ttl_seconds)
+    heap = _heap_registry.get(caller.agent_id)
+    obj = heap.alloc(
+        key=req.key,
+        content=req.content,
+        priority=req.priority,
+        ttl=ttl,
+        compression_eligible=req.compression_eligible,
+    )
+    return {
+        "key":         obj.key,
+        "token_count": obj.token_count,
+        "priority":    obj.priority,
+        "ttl":         obj.ttl,
+    }
+
+
+@router.get("/memory/read/{key}")
+def memory_read(key: str, authorization: Optional[str] = Header(None)):
+    """Read a memory object's content. Auto-swaps-in if on disk."""
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    try:
+        content = heap.read(key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"key": key, "content": content}
+
+
+@router.delete("/memory/{key}")
+def memory_free(key: str, authorization: Optional[str] = Header(None)):
+    """Free a memory object and release its tokens."""
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    freed = heap.free(key)
+    if not freed:
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found")
+    return {"freed": key}
+
+
+@router.get("/memory")
+def memory_list(authorization: Optional[str] = Header(None)):
+    """List all memory objects with metadata (no content). Includes heap_stats."""
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    return {
+        "objects": heap.list_objects(),
+        "stats":   heap.heap_stats(),
+    }
+
+
+@router.post("/memory/compress")
+def memory_compress(req: MemoryCompressRequest, authorization: Optional[str] = Header(None)):
+    """
+    Compress a memory object via Ollama summarization.
+    Original stored to disk; summary replaces in-heap content.
+    Requires: ollama capability.
+    """
+    caller = _resolve_agent(authorization)
+    _require_cap(caller, "ollama")
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    try:
+        result = heap.compress(req.key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return result
+
+
+@router.post("/memory/swap/{key}")
+def memory_swap_out(key: str, authorization: Optional[str] = Header(None)):
+    """Serialize content to disk, free from active heap."""
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    ok = heap.swap_out(key)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found or already swapped")
+    return {"swapped_out": key}
+
+
+@router.get("/memory/stats")
+def heap_stats(authorization: Optional[str] = Header(None)):
+    """
+    Return heap statistics for the caller's working memory:
+    total_tokens, object_count, compressible_tokens, swapped_count,
+    fragmentation_score.
+    """
+    caller = _resolve_agent(authorization)
+    _require_heap()
+    heap = _heap_registry.get(caller.agent_id)
+    return heap.heap_stats()
