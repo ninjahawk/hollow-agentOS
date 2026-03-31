@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.0
+AgentOS MCP Server v1.3.1
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (68 total):
+Tools (69 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -34,6 +34,7 @@ Tools (68 total):
   Txn:       txn_begin, txn_commit, txn_rollback, txn_status    (v1.2.0)
   Lineage:   agent_lineage, agent_subtree, agent_blast_radius,
              task_critical_path                                 (v1.3.0)
+  Streaming: task_stream                                        (v1.3.1)
 """
 
 import asyncio
@@ -1096,6 +1097,22 @@ async def list_tools() -> list[Tool]:
                 "required": ["task_id"]
             }
         ),
+        # ── Streaming (v1.3.1) ───────────────────────────────────────────────
+        Tool(
+            name="task_stream",
+            description=(
+                "Read the current partial output of a streaming task, or poll until it completes. "
+                "Use after submitting a task with stream=true. Returns partial_output, status, "
+                "and partial_length. Call repeatedly to monitor progress."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task ID to read partial output for"},
+                },
+                "required": ["task_id"]
+            }
+        ),
     ]
 
 
@@ -1564,6 +1581,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "task_critical_path":
             return _out(await _get(f"/tasks/{arguments['task_id']}/critical-path"))
+
+        # ── Streaming (v1.3.1) ───────────────────────────────────────────────
+        elif name == "task_stream":
+            return _out(await _get(f"/tasks/{arguments['task_id']}/partial"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

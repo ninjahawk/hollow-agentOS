@@ -6,10 +6,12 @@ The registry, bus, and scheduler are passed in at startup (singletons).
 """
 
 from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -135,6 +137,8 @@ class SubmitTaskRequest(BaseModel):
     priority: int = 1  # 0=URGENT, 1=NORMAL, 2=BACKGROUND
     depends_on: Optional[list] = None       # v1.3.0: task_ids this task depends on
     parent_task_id: Optional[str] = None    # v1.3.0: task that caused this submission
+    stream: bool = False                    # v1.3.1: non-blocking streaming mode
+    wait: bool = True                       # v1.3.1: False → return immediately without streaming
 
 
 class SpawnRequest(BaseModel):
@@ -351,6 +355,7 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
     _check_budget(caller)
 
     _registry.set_task(caller.agent_id, req.description)
+    effective_wait = req.wait and not req.stream  # stream=True always non-blocking
     task = _scheduler.submit(
         description=req.description,
         submitted_by=caller.agent_id,
@@ -360,6 +365,8 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         priority=req.priority,
         depends_on=req.depends_on,
         parent_task_id=req.parent_task_id,
+        stream=req.stream,
+        wait=effective_wait,
     )
     _registry.update_usage(caller.agent_id, tokens_in=0, tokens_out=0)  # updated by scheduler
     tokens_used = 0
@@ -370,10 +377,10 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         ms_used = round((task.finished_at - task.started_at) * 1000)
     _audit(caller, "task_submit", {
         "task_id": task.task_id, "complexity": req.complexity,
-        "priority": req.priority, "status": task.status,
-    }, result_code="ok" if task.status == "done" else task.status,
+        "priority": req.priority, "status": task.status, "stream": req.stream,
+    }, result_code="ok" if task.status in ("done", "queued", "running") else task.status,
        tokens=tokens_used, ms=ms_used)
-    return {
+    resp = {
         "task_id": task.task_id,
         "status": task.status,
         "assigned_to": task.assigned_to,
@@ -381,6 +388,10 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         "error": task.error,
         "ms": ms_used or None,
     }
+    if req.stream:
+        resp["stream_url"] = f"/tasks/{task.task_id}/stream"
+        resp["partial_url"] = f"/tasks/{task.task_id}/partial"
+    return resp
 
 
 @router.get("/tasks/{task_id}")
@@ -407,6 +418,87 @@ def list_tasks(
     if not caller.has_cap("admin"):
         agent_id = caller.agent_id
     return {"tasks": _scheduler.list_tasks(agent_id=agent_id, limit=limit)}
+
+
+# ── Streaming task endpoints (v1.3.1) ─────────────────────────────────────────
+
+@router.get("/tasks/{task_id}/stream")
+def task_stream_sse(task_id: str, authorization: Optional[str] = Header(None)):
+    """
+    SSE stream for a streaming task.
+    Emits task.token_chunk events as chunks arrive, then task.completed or task.failed.
+    """
+    caller = _resolve_agent(authorization)
+    task = _scheduler.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.submitted_by != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot stream other agents' tasks")
+
+    def generate():
+        cursor = 0
+        terminal = {"done", "failed", "cancelled"}
+        while True:
+            t = _scheduler.get_task(task_id)
+            if t is None:
+                break
+            current = t.partial_output or ""
+            if len(current) > cursor:
+                new_chunk = current[cursor:]
+                cursor = len(current)
+                event = json.dumps({
+                    "event": "task.token_chunk",
+                    "task_id": task_id,
+                    "chunk": new_chunk,
+                    "partial_length": cursor,
+                })
+                yield f"data: {event}\n\n"
+            if t.status in terminal:
+                final = json.dumps({
+                    "event": f"task.{t.status}",
+                    "task_id": task_id,
+                    "status": t.status,
+                    "result": t.result,
+                    "error": t.error,
+                })
+                yield f"data: {final}\n\n"
+                break
+            time.sleep(0.05)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/tasks/{task_id}/partial")
+def task_partial(task_id: str, authorization: Optional[str] = Header(None)):
+    """Return the current partial output of a streaming task without blocking."""
+    caller = _resolve_agent(authorization)
+    task = _scheduler.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.submitted_by != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot view other agents' tasks")
+    return {
+        "task_id": task_id,
+        "status": task.status,
+        "partial_output": task.partial_output or "",
+        "partial_length": len(task.partial_output or ""),
+    }
+
+
+@router.delete("/tasks/{task_id}")
+def cancel_task(task_id: str, authorization: Optional[str] = Header(None)):
+    """Cancel a queued or running streaming task."""
+    caller = _resolve_agent(authorization)
+    task = _scheduler.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.submitted_by != caller.agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot cancel other agents' tasks")
+    result = _scheduler.cancel(task_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "cancel failed"))
+    _audit(caller, "task_cancel", {"task_id": task_id})
+    return result
 
 
 # ── Agent locks ──────────────────────────────────────────────────────────────

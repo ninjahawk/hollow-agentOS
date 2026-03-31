@@ -33,6 +33,12 @@ from typing import Optional
 TASKS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "tasks.json"
 SHELL_LOG_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "shell-usage-log.json"
 API_BASE = "http://localhost:7777"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+# Emit task.token_chunk event every N tokens during streaming
+STREAM_CHUNK_EVENT_EVERY = 10
+# Emit task.partial_available event every N seconds during streaming
+STREAM_PARTIAL_INTERVAL = 0.5
 
 # Keep at most this many tasks in memory/disk to prevent unbounded growth
 MAX_TASKS = 500
@@ -87,6 +93,10 @@ class Task:
     # v1.3.0: lineage and dependency tracking
     depends_on: list = field(default_factory=list)   # task_ids this task waits for
     parent_task_id: Optional[str] = None             # task that caused this task to be submitted
+    # v1.3.1: streaming
+    stream_enabled: bool = False         # True → use streaming Ollama API
+    partial_output: str = ""             # accumulated text as chunks arrive
+    cancelled: bool = False              # set True to abort a streaming task
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +234,10 @@ class TaskScheduler:
             if task.status == "checkpointed":
                 # Re-queued after preemption — reset so it runs properly
                 task.status = "queued"
-            self._run_task(task)
+            if task.stream_enabled:
+                self._run_task_streaming(task)
+            else:
+                self._run_task(task)
             self._queue.mark_done(task.task_id)
 
     def submit(
@@ -238,6 +251,7 @@ class TaskScheduler:
         priority: int = PRIORITY_NORMAL,
         depends_on: Optional[list] = None,
         parent_task_id: Optional[str] = None,
+        stream: bool = False,
     ) -> Task:
         """
         Submit a task. Scheduler routes it to the right model and runs it.
@@ -261,6 +275,7 @@ class TaskScheduler:
             context=context or {},
             depends_on=depends_on or [],
             parent_task_id=parent_task_id,
+            stream_enabled=stream,
         )
 
         with self._lock:
@@ -288,7 +303,8 @@ class TaskScheduler:
 
         self._queue.put(task)
 
-        if wait:
+        # stream=True always returns immediately (non-blocking)
+        if wait and not stream:
             # Poll until the task leaves queued/running state
             while task.status in ("queued", "running", "checkpointed"):
                 time.sleep(0.05)
@@ -443,6 +459,205 @@ class TaskScheduler:
 
         # Also update submitter's current_task
         self._registry.set_task(task.submitted_by, None)
+
+    def _run_task_streaming(self, task: Task) -> None:
+        """
+        Run a task using the Ollama streaming API.
+        Accumulates chunks in task.partial_output.
+        Emits task.token_chunk and task.partial_available events.
+        Respects task.cancelled to abort mid-stream.
+        """
+        role = COMPLEXITY_ROUTING.get(task.complexity, "general")
+        if self._model_manager:
+            model_for_role = self._model_manager.recommend(task.complexity)
+        else:
+            model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+
+        agent = self._registry.get(task.submitted_by)
+        if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
+            task.status = "failed"
+            task.error = f"Agent model policy blocks use of '{model_for_role}' for role '{role}'"
+            task.finished_at = time.time()
+            with self._lock:
+                self._save()
+            return
+
+        task.assigned_to = model_for_role
+        task.status = "running"
+        task.started_at = time.time()
+
+        if self._event_bus:
+            self._event_bus.emit("task.started", task.submitted_by, {
+                "task_id":    task.task_id,
+                "model_role": role,
+                "model":      model_for_role,
+                "priority":   task.priority,
+                "stream":     True,
+            })
+
+        self._bus.send(
+            from_id="scheduler",
+            to_id=task.submitted_by,
+            content={"task_id": task.task_id, "status": "running", "model_role": role, "stream": True},
+            msg_type="log",
+        )
+
+        messages = []
+        try:
+            from agents.standards import get_relevant_standards_text
+            auto_std = get_relevant_standards_text(task.description)
+            if auto_std:
+                messages.append({"role": "system", "content": auto_std})
+        except Exception:
+            pass
+        if task.context.get("history"):
+            messages.extend(task.context["history"])
+        messages.append({"role": "user", "content": task.description})
+
+        body = json.dumps({
+            "model": model_for_role,
+            "messages": messages,
+            "stream": True,
+        }).encode()
+
+        req = urllib.request.Request(
+            f"{OLLAMA_HOST}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        tokens_so_far = 0
+        last_partial_event = time.time()
+
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                for raw_line in r:
+                    if task.cancelled:
+                        break
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except Exception:
+                        continue
+
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        with self._lock:
+                            task.partial_output += chunk
+                        tokens_so_far += 1
+
+                        if self._event_bus and tokens_so_far % STREAM_CHUNK_EVENT_EVERY == 0:
+                            self._event_bus.emit("task.token_chunk", task.submitted_by, {
+                                "task_id":      task.task_id,
+                                "chunk":        chunk,
+                                "tokens_so_far": tokens_so_far,
+                                "model":        model_for_role,
+                            })
+
+                        now = time.time()
+                        if now - last_partial_event >= STREAM_PARTIAL_INTERVAL:
+                            if self._event_bus:
+                                self._event_bus.emit("task.partial_available", task.submitted_by, {
+                                    "task_id":       task.task_id,
+                                    "partial_length": len(task.partial_output),
+                                    "tokens_so_far": tokens_so_far,
+                                })
+                            last_partial_event = now
+
+                    if data.get("done"):
+                        tokens_in  = data.get("prompt_eval_count", 0)
+                        tokens_out = data.get("eval_count", tokens_so_far)
+                        ms = round(data.get("total_duration", 0) / 1_000_000, 1)
+                        task.result = {
+                            "response":   task.partial_output,
+                            "model":      model_for_role,
+                            "tokens_in":  tokens_in,
+                            "tokens_out": tokens_out,
+                            "ms":         ms,
+                        }
+                        task.status = "cancelled" if task.cancelled else "done"
+                        self._registry.update_usage(task.submitted_by, tokens_in=tokens_in, tokens_out=tokens_out)
+                        if self._model_manager:
+                            self._model_manager.mark_used(model_for_role)
+                        break
+
+            # Stream ended without done=True (e.g., network cut or cancel)
+            if task.status == "running":
+                task.result = {
+                    "response":   task.partial_output,
+                    "model":      model_for_role,
+                    "tokens_in":  0,
+                    "tokens_out": tokens_so_far,
+                    "ms":         None,
+                }
+                task.status = "cancelled" if task.cancelled else "done"
+
+        except Exception as e:
+            task.status = "failed"
+            task.error = str(e)
+            task.result = None
+
+        task.finished_at = time.time()
+        with self._lock:
+            self._save()
+
+        if self._event_bus:
+            if task.status == "done":
+                r = task.result or {}
+                self._event_bus.emit("task.completed", task.submitted_by, {
+                    "task_id":    task.task_id,
+                    "model":      r.get("model"),
+                    "tokens_in":  r.get("tokens_in"),
+                    "tokens_out": r.get("tokens_out"),
+                    "ms":         r.get("ms"),
+                    "stream":     True,
+                })
+            elif task.status == "cancelled":
+                self._event_bus.emit("task.cancelled", task.submitted_by, {
+                    "task_id": task.task_id,
+                })
+            else:
+                self._event_bus.emit("task.failed", task.submitted_by, {
+                    "task_id": task.task_id,
+                    "error":   task.error,
+                })
+
+        self._bus.send(
+            from_id="scheduler",
+            to_id=task.submitted_by,
+            content={
+                "task_id": task.task_id,
+                "status":  task.status,
+                "result":  task.result,
+                "error":   task.error,
+            },
+            msg_type="result",
+        )
+        self._registry.set_task(task.submitted_by, None)
+
+    def cancel(self, task_id: str) -> dict:
+        """
+        Cancel a task. If queued, remove it. If running (streaming), set cancelled flag.
+        Returns {ok: bool, status: str}.
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return {"ok": False, "error": "task not found"}
+            if task.status in ("done", "failed", "cancelled"):
+                return {"ok": False, "error": f"task already {task.status}"}
+            if task.status in ("queued", "checkpointed"):
+                task.status = "cancelled"
+                task.finished_at = time.time()
+                task.cancelled = True
+                self._save()
+                return {"ok": True, "status": "cancelled"}
+            # running — set flag, streaming worker checks it
+            task.cancelled = True
+            return {"ok": True, "status": "cancelling"}
 
     def spawn_agent(
         self,
