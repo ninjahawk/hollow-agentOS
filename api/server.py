@@ -61,6 +61,7 @@ from agents.model_manager import ModelManager
 from memory.heap import HeapRegistry
 from agents.audit import AuditLog, make_entry
 from agents.transaction import TransactionCoordinator
+from agents.lineage import LineageGraph
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -209,12 +210,13 @@ _model_manager: ModelManager = None
 _heap_registry: HeapRegistry = None
 _audit_log: AuditLog = None
 _txn_coordinator: TransactionCoordinator = None
+_lineage: LineageGraph = None
 
 
 @app.on_event("startup")
 async def _startup():
     global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
-    global _audit_log, _txn_coordinator
+    global _audit_log, _txn_coordinator, _lineage
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -225,6 +227,7 @@ async def _startup():
     _heap_registry = HeapRegistry(master_token=master_token)
     _audit_log = AuditLog()
     _txn_coordinator = TransactionCoordinator()
+    _lineage = LineageGraph()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -238,9 +241,12 @@ async def _startup():
     _txn_coordinator.set_subsystems(
         registry=_registry, bus=_bus, heap_registry=_heap_registry
     )
+    _lineage.set_subsystems(
+        registry=_registry, scheduler=_scheduler, txn_coordinator=_txn_coordinator
+    )
     _mem_manager.set_event_bus(_events)
     agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
-                      _heap_registry, _audit_log, _txn_coordinator)
+                      _heap_registry, _audit_log, _txn_coordinator, lineage=_lineage)
     await _check_ollama_available()
 
 

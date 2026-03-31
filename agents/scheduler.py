@@ -84,6 +84,9 @@ class Task:
     finished_at: Optional[float] = None
     error: Optional[str] = None
     context: dict = field(default_factory=dict)  # extra data passed to model
+    # v1.3.0: lineage and dependency tracking
+    depends_on: list = field(default_factory=list)   # task_ids this task waits for
+    parent_task_id: Optional[str] = None             # task that caused this task to be submitted
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +236,8 @@ class TaskScheduler:
         system_prompt: Optional[str] = None,
         wait: bool = True,
         priority: int = PRIORITY_NORMAL,
+        depends_on: Optional[list] = None,
+        parent_task_id: Optional[str] = None,
     ) -> Task:
         """
         Submit a task. Scheduler routes it to the right model and runs it.
@@ -254,6 +259,8 @@ class TaskScheduler:
             created_at=time.time(),
             priority=priority,
             context=context or {},
+            depends_on=depends_on or [],
+            parent_task_id=parent_task_id,
         )
 
         with self._lock:
@@ -446,6 +453,7 @@ class TaskScheduler:
         complexity: int = 2,
         capabilities: Optional[list[str]] = None,
         priority: int = PRIORITY_NORMAL,
+        parent_task_id: Optional[str] = None,
     ) -> dict:
         """
         Spawn a child agent, assign it a task, run it, return result.
@@ -463,6 +471,7 @@ class TaskScheduler:
             capabilities=capabilities,
             parent_id=parent_id,
             group_id=parent_id,
+            parent_task_id=parent_task_id,
         )
 
         # Notify parent
@@ -480,6 +489,7 @@ class TaskScheduler:
             submitted_by=child.agent_id,
             complexity=complexity,
             priority=priority,
+            parent_task_id=parent_task_id,
         )
 
         # Terminate child after task

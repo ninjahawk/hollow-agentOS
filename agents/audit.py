@@ -58,6 +58,10 @@ class AuditEntry:
     tokens_charged: int
     duration_ms: float
     timestamp: float = field(default_factory=time.time)
+    # v1.3.0: causal context for lineage tracing
+    caused_by_task_id: Optional[str] = None
+    parent_txn_id: Optional[str] = None
+    call_depth: int = 0
 
 
 @dataclass
@@ -334,6 +338,9 @@ def make_entry(
     tokens_charged: int = 0,
     duration_ms: float = 0.0,
     role: str = "worker",
+    caused_by_task_id: Optional[str] = None,
+    parent_txn_id: Optional[str] = None,
+    call_depth: int = 0,
 ) -> AuditEntry:
     """
     Construct an AuditEntry with sanitized params.
@@ -350,4 +357,7 @@ def make_entry(
         result_code=result_code,
         tokens_charged=tokens_charged,
         duration_ms=duration_ms,
+        caused_by_task_id=caused_by_task_id,
+        parent_txn_id=parent_txn_id,
+        call_depth=call_depth,
     )

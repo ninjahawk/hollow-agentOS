@@ -78,8 +78,9 @@ class AgentRecord:
     metadata: dict = field(default_factory=dict)
     locks: dict = field(default_factory=dict)          # name → {acquired_at, expires_at}
     model_policies: dict = field(default_factory=dict) # model_name → [allowed_caps]
-    group_id: Optional[str] = None      # v0.8.0: process group (spawner's agent_id)
+    group_id: Optional[str] = None        # v0.8.0: process group (spawner's agent_id)
     tombstone_path: Optional[str] = None  # v0.8.0: path to tombstone.json after termination
+    parent_task_id: Optional[str] = None  # v1.3.0: task that caused this agent to be spawned
 
     def has_cap(self, cap: str) -> bool:
         return cap in self.capabilities
@@ -160,6 +161,7 @@ class AgentRegistry:
         metadata: Optional[dict] = None,
         model_policies: Optional[dict] = None,
         group_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> tuple[AgentRecord, str]:
         """Register a new agent. Returns (record, raw_token)."""
         role = role if role in ROLE_DEFAULTS else "custom"
@@ -200,6 +202,7 @@ class AgentRegistry:
             locks={},
             model_policies=model_policies or {},
             group_id=group_id,
+            parent_task_id=parent_task_id,
         )
 
         with self._lock:
@@ -234,6 +237,20 @@ class AgentRegistry:
 
     def get(self, agent_id: str) -> Optional[AgentRecord]:
         return self._agents.get(agent_id)
+
+    def get_lineage(self, agent_id: str) -> list[AgentRecord]:
+        """Full ancestor chain from agent_id up to root (inclusive)."""
+        chain: list[AgentRecord] = []
+        current_id = agent_id
+        seen: set = set()
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            agent = self._agents.get(current_id)
+            if not agent:
+                break
+            chain.append(agent)
+            current_id = agent.parent_id
+        return chain
 
     def list_agents(self) -> list[AgentRecord]:
         return list(self._agents.values())

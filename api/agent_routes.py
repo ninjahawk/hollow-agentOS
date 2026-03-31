@@ -28,13 +28,14 @@ _model_manager = None
 _heap_registry = None
 _audit_log = None
 _txn_coordinator = None
+_lineage = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
-         txn_coordinator=None):
+         txn_coordinator=None, lineage=None):
     global _registry, _bus, _scheduler, _events, _model_manager
-    global _heap_registry, _audit_log, _txn_coordinator
+    global _heap_registry, _audit_log, _txn_coordinator, _lineage
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -43,6 +44,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _heap_registry = heap_registry
     _audit_log = audit_log
     _txn_coordinator = txn_coordinator
+    _lineage = lineage
 
 
 def _audit(agent, operation: str, params: dict,
@@ -108,6 +110,7 @@ class RegisterRequest(BaseModel):
     metadata: Optional[dict] = None
     model_policies: Optional[dict] = None  # e.g. {"qwen2.5:14b": ["fs_read"], "*": ["fs_read", "fs_write"]}
     group_id: Optional[str] = None         # v0.8.0: process group membership
+    parent_id: Optional[str] = None        # v1.3.0: explicit parent override (admin only)
 
 
 class SignalRequest(BaseModel):
@@ -130,6 +133,8 @@ class SubmitTaskRequest(BaseModel):
     context: Optional[dict] = None
     system_prompt: Optional[str] = None
     priority: int = 1  # 0=URGENT, 1=NORMAL, 2=BACKGROUND
+    depends_on: Optional[list] = None       # v1.3.0: task_ids this task depends on
+    parent_task_id: Optional[str] = None    # v1.3.0: task that caused this submission
 
 
 class SpawnRequest(BaseModel):
@@ -138,6 +143,7 @@ class SpawnRequest(BaseModel):
     task: str
     complexity: int = 2
     capabilities: Optional[list[str]] = None
+    task_id: Optional[str] = None   # v1.3.0: calling task context for lineage
 
 
 # ── Agent lifecycle ──────────────────────────────────────────────────────────
@@ -152,17 +158,27 @@ def register_agent(req: RegisterRequest, authorization: Optional[str] = Header(N
     caller = _resolve_agent(authorization)
     _require_cap(caller, "admin")
 
+    # Allow admin to specify an explicit parent (for lineage testing and cross-agent registration)
+    effective_parent = req.parent_id if req.parent_id and caller.has_cap("admin") else caller.agent_id
     record, raw_token = _registry.register(
         name=req.name,
         role=req.role,
         capabilities=req.capabilities,
         budget=req.budget,
-        parent_id=caller.agent_id,
+        parent_id=effective_parent,
         metadata=req.metadata,
         model_policies=req.model_policies,
         group_id=req.group_id,
     )
-    _audit(caller, "agent_register", {"new_agent_id": record.agent_id, "role": req.role})
+    _audit(caller, "agent_register", {"new_agent_id": record.agent_id, "role": req.role,
+                                       "parent_id": effective_parent})
+    if _lineage:
+        _lineage.record_edge(
+            parent_id=effective_parent,
+            child_id=record.agent_id,
+            edge_type="spawned",
+            metadata={"role": req.role},
+        )
 
     return {
         "agent_id": record.agent_id,
@@ -250,9 +266,18 @@ def spawn_agent(req: SpawnRequest, authorization: Optional[str] = Header(None)):
         task_description=req.task,
         complexity=req.complexity,
         capabilities=req.capabilities,
+        parent_task_id=req.task_id,
     )
+    child_id = result.get("child_agent_id")
+    if _lineage and child_id:
+        _lineage.record_edge(
+            parent_id=caller.agent_id,
+            child_id=child_id,
+            edge_type="spawned",
+            metadata={"task_id": req.task_id, "role": req.role, "complexity": req.complexity},
+        )
     _audit(caller, "agent_spawn", {"name": req.name, "role": req.role, "complexity": req.complexity,
-                                    "child_agent_id": result.get("child_agent_id")})
+                                    "child_agent_id": child_id})
     return result
 
 
@@ -333,6 +358,8 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
         context=req.context,
         system_prompt=req.system_prompt,
         priority=req.priority,
+        depends_on=req.depends_on,
+        parent_task_id=req.parent_task_id,
     )
     _registry.update_usage(caller.agent_id, tokens_in=0, tokens_out=0)  # updated by scheduler
     tokens_used = 0
@@ -910,3 +937,59 @@ def txn_status(txn_id: str, authorization: Optional[str] = Header(None)):
     if status["agent_id"] != caller.agent_id and not caller.has_cap("admin"):
         raise HTTPException(status_code=403, detail="Cannot view other agents' transactions")
     return status
+
+
+# ── Lineage (v1.3.0) ─────────────────────────────────────────────────────────
+
+def _require_lineage():
+    if not _lineage:
+        raise HTTPException(status_code=503, detail="Lineage graph not available")
+
+
+@router.get("/agents/{agent_id}/lineage")
+def agent_lineage(agent_id: str, authorization: Optional[str] = Header(None)):
+    """Get the full ancestor chain for an agent, from agent up to root."""
+    caller = _resolve_agent(authorization)
+    _require_lineage()
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Cannot view other agents' lineage")
+    if not _registry.get(agent_id):
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    chain = _lineage.get_lineage(agent_id)
+    return {"agent_id": agent_id, "lineage": chain, "depth": len(chain) - 1}
+
+
+@router.get("/agents/{agent_id}/subtree")
+def agent_subtree(agent_id: str, authorization: Optional[str] = Header(None)):
+    """Get the full descendant call graph rooted at this agent."""
+    caller = _resolve_agent(authorization)
+    _require_lineage()
+    if not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Requires admin capability")
+    if not _registry.get(agent_id):
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    subtree = _lineage.get_subtree(agent_id)
+    return {"agent_id": agent_id, "subtree": subtree}
+
+
+@router.get("/agents/{agent_id}/blast-radius")
+def agent_blast_radius(agent_id: str, authorization: Optional[str] = Header(None)):
+    """Compute forward-reachability impact if this agent fails right now."""
+    caller = _resolve_agent(authorization)
+    _require_lineage()
+    if not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Requires admin capability")
+    if not _registry.get(agent_id):
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return _lineage.get_blast_radius(agent_id)
+
+
+@router.get("/tasks/{task_id}/critical-path")
+def task_critical_path(task_id: str, authorization: Optional[str] = Header(None)):
+    """Return the longest dependency chain starting at this task."""
+    caller = _resolve_agent(authorization)
+    _require_lineage()
+    if not _scheduler.get_task(task_id):
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    path = _lineage.critical_path(task_id)
+    return {"task_id": task_id, "critical_path": path, "length": len(path)}
