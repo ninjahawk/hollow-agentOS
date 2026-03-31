@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v0.6.0
+AgentOS MCP Server v0.7.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (45 total):
+Tools (48 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -25,6 +25,7 @@ Tools (45 total):
   Project:   project_get, project_set
   Decisions: decision_queue
   Workspace: workspace_diff
+  Events:    event_subscribe, event_unsubscribe, event_history  (v0.7.0)
 """
 
 import asyncio
@@ -731,6 +732,57 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id"]
             }
         ),
+
+        # ── Events (v0.7.0) ──────────────────────────────────────────────────
+        Tool(
+            name="event_subscribe",
+            description=(
+                "Subscribe to system events matching a glob pattern. "
+                "Events are delivered to your message inbox as msg_type='event'. "
+                "Patterns: 'task.*' (all task events), 'agent.terminated', '*' (everything). "
+                "Returns subscription_id for later unsubscription."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pattern":     {"type": "string",
+                                   "description": "Glob pattern, e.g. 'task.*', 'agent.terminated', '*'"},
+                    "ttl_seconds": {"type": "number",
+                                   "description": "Subscription TTL in seconds. Omit for no expiry."},
+                },
+                "required": ["pattern"]
+            }
+        ),
+        Tool(
+            name="event_unsubscribe",
+            description="Remove an event subscription by subscription_id.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string"}
+                },
+                "required": ["subscription_id"]
+            }
+        ),
+        Tool(
+            name="event_history",
+            description=(
+                "Query the append-only event log. Returns events newest-first. "
+                "Use 'since' to get only events after a unix timestamp. "
+                "Use 'event_types' to filter to specific types."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "since":       {"type": "number",
+                                   "description": "Unix timestamp float — return events after this"},
+                    "event_types": {"type": "string",
+                                   "description": "Comma-separated filter, e.g. 'task.completed,agent.terminated'"},
+                    "limit":       {"type": "integer",
+                                   "description": "Max events to return (default 200)"},
+                }
+            }
+        ),
     ]
 
 
@@ -1075,6 +1127,32 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "agent_usage":
             return _out(await _get(f"/agents/{arguments['agent_id']}/usage"))
+
+        # ── Events (v0.7.0) ──────────────────────────────────────────────────
+
+        elif name == "event_subscribe":
+            return _out(await _post("/events/subscribe", {
+                "pattern":     arguments["pattern"],
+                "ttl_seconds": arguments.get("ttl_seconds"),
+            }))
+
+        elif name == "event_unsubscribe":
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.delete(
+                    f"{_api_base()}/events/subscriptions/{arguments['subscription_id']}",
+                    headers=_headers()
+                )
+                return _out(r.json())
+
+        elif name == "event_history":
+            params = {}
+            if "since" in arguments and arguments["since"] is not None:
+                params["since"] = arguments["since"]
+            if "event_types" in arguments and arguments["event_types"]:
+                params["event_types"] = arguments["event_types"]
+            if "limit" in arguments:
+                params["limit"] = arguments["limit"]
+            return _out(await _get("/events/history", params))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

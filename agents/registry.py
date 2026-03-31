@@ -114,9 +114,17 @@ class AgentRegistry:
         self._token_index: dict[str, str] = {}  # token_hash → agent_id (O(1) auth)
         self._master_token = master_token
         self._master_hash = _hash_token(master_token)
+        self._event_bus = None
+        # Track budget thresholds already warned — reset on restart (intentional)
+        self._budget_warned: set = set()       # "{agent_id}:{resource}" keys at 80%
+        self._budget_exhausted: set = set()    # "{agent_id}:{resource}" keys at 100%
         WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
         self._load()
         self._ensure_root()
+
+    def set_event_bus(self, event_bus) -> None:
+        """Inject EventBus after both are created. Called at server startup."""
+        self._event_bus = event_bus
 
     def _ensure_root(self):
         """Root agent always exists — represents the master token caller."""
@@ -194,6 +202,15 @@ class AgentRegistry:
             self._token_index[token_hash] = agent_id
             self._save()
 
+        if self._event_bus:
+            self._event_bus.emit("agent.registered", agent_id, {
+                "agent_id":   agent_id,
+                "name":       name,
+                "role":       role,
+                "parent_id":  parent_id,
+                "spawn_depth": depth,
+            })
+
         return record, raw_token
 
     def authenticate(self, token: str) -> Optional[AgentRecord]:
@@ -217,14 +234,42 @@ class AgentRegistry:
 
     def update_usage(self, agent_id: str, shell_calls: int = 0,
                      tokens_in: int = 0, tokens_out: int = 0):
+        events_to_emit: list[tuple] = []
         with self._lock:
             a = self._agents.get(agent_id)
             if not a:
                 return
             a.usage["shell_calls"] = a.usage.get("shell_calls", 0) + shell_calls
-            a.usage["tokens_in"] = a.usage.get("tokens_in", 0) + tokens_in
-            a.usage["tokens_out"] = a.usage.get("tokens_out", 0) + tokens_out
+            a.usage["tokens_in"]   = a.usage.get("tokens_in", 0) + tokens_in
+            a.usage["tokens_out"]  = a.usage.get("tokens_out", 0) + tokens_out
+            # Check budget thresholds and queue events to emit outside the lock
+            for key, limit in a.budget.items():
+                if limit <= 0:
+                    continue
+                current = a.usage.get(key, 0)
+                pct = current / limit
+                wkey = f"{agent_id}:{key}"
+                if pct >= 1.0 and wkey not in self._budget_exhausted:
+                    self._budget_exhausted.add(wkey)
+                    events_to_emit.append(("budget.exhausted", agent_id, {
+                        "agent_id": agent_id,
+                        "resource": key,
+                        "usage":    current,
+                        "budget":   limit,
+                    }))
+                elif pct >= 0.8 and wkey not in self._budget_warned:
+                    self._budget_warned.add(wkey)
+                    events_to_emit.append(("budget.warning", agent_id, {
+                        "agent_id": agent_id,
+                        "resource": key,
+                        "usage":    current,
+                        "budget":   limit,
+                        "pct_used": round(pct * 100, 1),
+                    }))
             self._save()
+        if self._event_bus:
+            for etype, source, payload in events_to_emit:
+                self._event_bus.emit(etype, source, payload)
 
     def set_task(self, agent_id: str, task: Optional[str]):
         with self._lock:
@@ -236,26 +281,108 @@ class AgentRegistry:
     def terminate(self, agent_id: str):
         if agent_id == "root":
             raise ValueError("Cannot terminate root agent")
+        payload = None
         with self._lock:
             a = self._agents.get(agent_id)
             if a:
+                payload = {
+                    "agent_id":    agent_id,
+                    "name":        a.name,
+                    "role":        a.role,
+                    "parent_id":   a.parent_id,
+                    "final_usage": dict(a.usage),
+                }
                 a.status = "terminated"
                 self._token_index.pop(a.token_hash, None)  # evict from auth index
                 self._save()
+        if payload and self._event_bus:
+            self._event_bus.emit("agent.terminated", agent_id, payload)
 
     def suspend(self, agent_id: str):
+        did_suspend = False
         with self._lock:
             a = self._agents.get(agent_id)
             if a and a.status == "active":
                 a.status = "suspended"
+                did_suspend = True
                 self._save()
+        if did_suspend and self._event_bus:
+            self._event_bus.emit("agent.suspended", agent_id, {"agent_id": agent_id})
 
     def resume(self, agent_id: str):
+        did_resume = False
         with self._lock:
             a = self._agents.get(agent_id)
             if a and a.status == "suspended":
                 a.status = "active"
+                did_resume = True
                 self._save()
+        if did_resume and self._event_bus:
+            self._event_bus.emit("agent.resumed", agent_id, {"agent_id": agent_id})
+
+    def acquire_lock(self, agent_id: str, lock_name: str, ttl_seconds: float = 300) -> bool:
+        """
+        Acquire a named lock for an agent. Returns True if acquired, False if already held
+        by another agent. Locks expire automatically after ttl_seconds.
+        """
+        with self._lock:
+            now = time.time()
+            # Expire stale locks across all agents
+            for a in self._agents.values():
+                stale = [n for n, l in a.locks.items() if l.get("expires_at", 0) < now]
+                for n in stale:
+                    del a.locks[n]
+
+            # Check if any other agent holds this lock
+            for a in self._agents.values():
+                if a.agent_id != agent_id and lock_name in a.locks:
+                    return False
+
+            a = self._agents.get(agent_id)
+            if not a:
+                return False
+            a.locks[lock_name] = {
+                "acquired_at": now,
+                "expires_at": now + ttl_seconds,
+            }
+            self._save()
+            return True
+
+    def release_lock(self, agent_id: str, lock_name: str) -> bool:
+        with self._lock:
+            a = self._agents.get(agent_id)
+            if not a or lock_name not in a.locks:
+                return False
+            del a.locks[lock_name]
+            self._save()
+            return True
+
+    def get_locks(self, agent_id: str) -> dict:
+        a = self._agents.get(agent_id)
+        if not a:
+            return {}
+        now = time.time()
+        return {
+            name: {**lock, "ttl_remaining": max(0, lock["expires_at"] - now)}
+            for name, lock in a.locks.items()
+            if lock.get("expires_at", 0) > now
+        }
+
+    def check_model_policy(self, agent_id: str, model: str, required_cap: str) -> bool:
+        """
+        Check if an agent's model_policies allow `required_cap` for `model`.
+        Returns True if no policy is set (open) or policy includes the cap.
+        """
+        a = self._agents.get(agent_id)
+        if not a or not a.model_policies:
+            return True
+        policy = a.model_policies.get(model)
+        if policy is None:
+            # No explicit policy for this model — check wildcard
+            policy = a.model_policies.get("*")
+        if policy is None:
+            return True  # no policy at all — allow
+        return required_cap in policy
 
     def acquire_lock(self, agent_id: str, lock_name: str, ttl_seconds: float = 300) -> bool:
         """

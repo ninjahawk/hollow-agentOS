@@ -23,6 +23,8 @@ MSG_TYPES = {
     "data",     # pass structured data
     "ping",     # liveness check
     "log",      # agent logging to a monitor
+    "event",    # system event delivered by EventBus (v0.7.0)
+    "signal",   # OS signal delivered by signal_dispatch (v0.8.0)
 }
 
 
@@ -44,7 +46,12 @@ class MessageBus:
         self._lock = threading.Lock()
         self._queues: dict[str, list[Message]] = {}   # agent_id → list[Message]
         self._all: dict[str, Message] = {}             # msg_id → Message
+        self._event_bus = None   # injected after init to avoid circular import
         self._load()
+
+    def set_event_bus(self, event_bus) -> None:
+        """Inject EventBus after both are created. Called at server startup."""
+        self._event_bus = event_bus
 
     def send(
         self,
@@ -79,7 +86,41 @@ class MessageBus:
                 self._queues.setdefault(to_id, []).append(msg)
             self._save()
 
+        # Emit message.received event for non-event, non-signal messages.
+        # Skipping event/signal types prevents infinite recursion: EventBus
+        # delivers via _deliver_event (not send), but the guard is kept here
+        # as defence-in-depth.
+        if msg_type not in ("event", "signal") and self._event_bus:
+            try:
+                self._event_bus.emit("message.received", from_id, {
+                    "msg_id":   msg.msg_id,
+                    "to_id":    to_id,
+                    "from_id":  from_id,
+                    "msg_type": msg_type,
+                })
+            except Exception:
+                pass  # event emission must never break message delivery
+
         return msg.msg_id
+
+    def _deliver_event(self, agent_id: str, event_data: dict) -> None:
+        """
+        Direct delivery path used exclusively by EventBus.
+        Does NOT call send() and does NOT emit a message.received event,
+        which would cause infinite recursion.
+        """
+        msg = Message(
+            msg_id=f"ev-{event_data['event_id']}",
+            from_id="events",
+            to_id=agent_id,
+            msg_type="event",
+            content=event_data,
+            timestamp=event_data["timestamp"],
+        )
+        with self._lock:
+            self._queues.setdefault(agent_id, []).append(msg)
+            self._all[msg.msg_id] = msg
+            self._save()
 
     def receive(self, agent_id: str, unread_only: bool = True, limit: int = 20) -> list[dict]:
         """Return messages addressed to agent_id, marking them read."""
