@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -31,13 +32,14 @@ _heap_registry = None
 _audit_log = None
 _txn_coordinator = None
 _lineage = None
+_rate_limiter = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
-         txn_coordinator=None, lineage=None):
+         txn_coordinator=None, lineage=None, rate_limiter=None):
     global _registry, _bus, _scheduler, _events, _model_manager
-    global _heap_registry, _audit_log, _txn_coordinator, _lineage
+    global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -47,6 +49,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _audit_log = audit_log
     _txn_coordinator = txn_coordinator
     _lineage = lineage
+    _rate_limiter = rate_limiter
 
 
 def _audit(agent, operation: str, params: dict,
@@ -99,6 +102,25 @@ def _check_budget(agent):
         raise HTTPException(
             status_code=429,
             detail=f"Agent '{agent.agent_id}' exceeded budget: {over}"
+        )
+
+
+def _check_rate_limit(agent, resource: str, amount: float = 1.0) -> None:
+    """Check token-bucket rate limit. Raises 429 with Retry-After header if denied."""
+    if not _rate_limiter:
+        return
+    result = _rate_limiter.check(agent.agent_id, resource, agent.role, amount)
+    if not result.allowed:
+        from fastapi.responses import JSONResponse
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "rate_limit_exceeded",
+                "resource": resource,
+                "retry_after_ms": result.wait_ms,
+                "bucket_depth": result.bucket_depth,
+            },
+            headers={"Retry-After": str(math.ceil(result.wait_ms / 1000))},
         )
 
 
@@ -353,6 +375,7 @@ def submit_task(req: SubmitTaskRequest, authorization: Optional[str] = Header(No
     caller = _resolve_agent(authorization)
     _require_cap(caller, "ollama")
     _check_budget(caller)
+    _check_rate_limit(caller, "task_submissions")
 
     _registry.set_task(caller.agent_id, req.description)
     effective_wait = req.wait and not req.stream  # stream=True always non-blocking
@@ -1085,3 +1108,54 @@ def task_critical_path(task_id: str, authorization: Optional[str] = Header(None)
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     path = _lineage.critical_path(task_id)
     return {"task_id": task_id, "critical_path": path, "length": len(path)}
+
+
+# ── Rate Limiting (v1.3.2) ────────────────────────────────────────────────────
+
+class RateLimitConfigureRequest(BaseModel):
+    limits: dict   # {resource: N} or {resource: {"capacity": N, "refill_rate": R}}
+    target: Optional[str] = None  # agent_id or role name; defaults to requesting agent
+
+
+def _require_rate_limiter() -> None:
+    if not _rate_limiter:
+        raise HTTPException(status_code=503, detail="RateLimiter not initialized")
+
+
+@router.get("/agents/{agent_id}/rate-limits")
+def get_rate_limits(agent_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Return current rate-limit bucket state for an agent.
+    Shows bucket depth, capacity, refill rate, and whether circuit breaker is active.
+    Agents can view their own limits; admin can view any.
+    """
+    caller = _resolve_agent(authorization)
+    _require_rate_limiter()
+    if caller.agent_id != agent_id and not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Can only view own rate limits")
+    a = _registry.get(agent_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return _rate_limiter.get_status(agent_id, a.role)
+
+
+@router.post("/agents/{agent_id}/rate-limits")
+def configure_rate_limits(
+    agent_id: str,
+    req: RateLimitConfigureRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Override rate limits for a specific agent or role. Root only.
+    limits: {resource: N} — sets capacity to N, refill rate to N/60/s
+         OR {resource: {"capacity": N, "refill_rate": R}}
+    target: agent_id or role name (defaults to agent_id in path)
+    """
+    caller = _resolve_agent(authorization)
+    _require_rate_limiter()
+    if not caller.has_cap("admin"):
+        raise HTTPException(status_code=403, detail="Requires admin capability")
+    target = req.target or agent_id
+    _rate_limiter.configure(target, req.limits)
+    _audit(caller, "rate_limit_configure", {"target": target, "limits": req.limits})
+    return {"ok": True, "target": target, "limits": req.limits}

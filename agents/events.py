@@ -68,6 +68,9 @@ EVENT_TYPES = frozenset({
     # v1.1.0 — audit kernel
     "security.anomaly",
     "audit.archived",
+    # v1.3.2 — rate limiting
+    "security.circuit_break",
+    "rate_limit.denied",
     # v1.2.0 — multi-agent transactions
     "txn.committed",
     "txn.rolled_back",
