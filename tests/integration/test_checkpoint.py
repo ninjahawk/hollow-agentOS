@@ -118,7 +118,7 @@ def _diff(auth_headers, chk_a, chk_b):
 
 
 def _memory_read(headers, key):
-    r = requests.get(f"{API_URL}/memory/{key}", headers=headers)
+    r = requests.get(f"{API_URL}/memory/read/{key}", headers=headers)
     return r
 
 
