@@ -14,6 +14,9 @@ on:
         required: false
         default: "10"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
 
   nightly-benchmarks:
@@ -63,9 +66,10 @@ jobs:
 
       - name: Start API server in background
         run: |
+          mkdir -p /tmp/hollow-memory /tmp/hollow-workspace benchmark-results
           cd api
-          PYTHONPATH=.. python3 -m uvicorn server:app \
-            --host 0.0.0.0 --port 7777 --log-level error &
+          PYTHONPATH=.. AGENTOS_CONFIG=../config.json AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace python3 -m uvicorn server:app \
+            --host 0.0.0.0 --port 7777 --log-level warning &
           echo "API_PID=$!" >> "$GITHUB_ENV"
 
       - name: Wait for API to become healthy
@@ -74,7 +78,6 @@ jobs:
 
       - name: Run baseline benchmark
         run: |
-          mkdir -p benchmark-results
           python3 tools/bench_real_baseline.py \
             --token ci-test-token-replace-in-production \
             2>&1 | tee benchmark-results/bench_real_baseline.txt

@@ -10,6 +10,9 @@ on:
       - main
       - dev
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
 
   # ---------------------------------------------------------------------------
@@ -102,10 +105,10 @@ jobs:
 
       - name: Start API server in background
         run: |
-          mkdir -p /tmp/hollow-memory
+          mkdir -p /tmp/hollow-memory /tmp/hollow-workspace
           cd api
           PYTHONPATH=.. AGENTOS_CONFIG=../config.json AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace python3 -m uvicorn server:app \
-            --host 0.0.0.0 --port 7777 --log-level error &
+            --host 0.0.0.0 --port 7777 --log-level warning &
           echo "API_PID=$!" >> "$GITHUB_ENV"
 
       - name: Wait for API to become healthy
@@ -114,7 +117,8 @@ jobs:
 
       - name: Run integration tests
         run: |
-          PYTHONPATH=. pytest tests/integration/ -v --tb=short -m integration
+          PYTHONPATH=. AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace \
+            pytest tests/integration/ -v --tb=short -m integration
 
       - name: Stop API server
         if: always()
