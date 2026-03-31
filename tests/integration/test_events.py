@@ -34,6 +34,19 @@ if not _api_reachable():
     )
 
 
+def _ollama_available() -> bool:
+    """True if a local Ollama instance is reachable. Used to skip Ollama-dependent tests."""
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+_OLLAMA = _ollama_available()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -113,6 +126,7 @@ def _poll_inbox_for_event(auth_headers, event_type, timeout=10.0) -> dict:
 # ---------------------------------------------------------------------------
 
 class TestTaskCompletedEvent:
+    @pytest.mark.skipif(not _OLLAMA, reason="Ollama not available")
     def test_subscribe_and_receive_task_completed(self, api_url, auth_headers):
         """
         Subscribe to task.completed. Submit a real Ollama task (complexity=1).
@@ -170,6 +184,7 @@ class TestTaskCompletedEvent:
 # ---------------------------------------------------------------------------
 
 class TestBudgetWarningEvent:
+    @pytest.mark.skipif(not _OLLAMA, reason="Ollama not available")
     def test_budget_warning_fires_at_80_pct(self, api_url, auth_headers):
         """
         Register an agent with tokens_in: 500.
@@ -559,7 +574,7 @@ class TestFileWrittenEvent:
         t0 = time.time()
         sub_id = _subscribe(auth_headers, "file.written")
 
-        test_path = f"/agentOS/workspace/test_event_{int(time.time())}.txt"
+        test_path = f"/tmp/agentos_test_event_{int(time.time())}.txt"
         r = requests.post(
             f"{api_url}/fs/write",
             json={"path": test_path, "content": "event test content"},
