@@ -56,10 +56,12 @@ from agents.scheduler import log_shell_usage
 from agents.registry import AgentRegistry
 from agents.bus import MessageBus
 from agents.scheduler import TaskScheduler
+from agents.events import EventBus
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
 import api.agent_routes as agent_routes
+import memory.manager as _mem_manager
 
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 
@@ -160,6 +162,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _agent_from_token(authorization: Optional[str]):
+    """
+    Resolve a bearer token to an AgentRecord. Returns root record for the
+    master token. Returns None if the token is invalid or registry not ready.
+    """
+    if not _registry or not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    config = _load_config()
+    master = config.get("api", {}).get("token", "")
+    if token == master:
+        return _registry.get("root")
+    return _registry.authenticate(token)
+
+
 def _ollama_host() -> str:
     return _load_config().get("ollama", {}).get("host", "http://localhost:11434")
 
@@ -170,7 +187,7 @@ async def _shell(command: str, cwd: str = None, timeout: int = 30) -> dict:
     return await loop.run_in_executor(None, partial(shell_run, command, cwd, timeout))
 
 
-app = FastAPI(title="AgentOS API", version="0.6.0", docs_url="/docs")
+app = FastAPI(title="AgentOS API", version="0.7.0", docs_url="/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -183,17 +200,25 @@ app.add_middleware(
 _registry: AgentRegistry = None
 _bus: MessageBus = None
 _scheduler: TaskScheduler = None
+_events: EventBus = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _registry, _bus, _scheduler
+    global _registry, _bus, _scheduler, _events
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
+    _events = EventBus()
     _registry = AgentRegistry(master_token)
     _bus = MessageBus()
     _scheduler = TaskScheduler(_registry, _bus, master_token)
-    agent_routes.init(_registry, _bus, _scheduler)
+    # Wire the event bus into every subsystem that emits events
+    _events.set_bus(_bus)
+    _bus.set_event_bus(_events)
+    _registry.set_event_bus(_events)
+    _scheduler.set_event_bus(_events)
+    _mem_manager.set_event_bus(_events)
+    agent_routes.init(_registry, _bus, _scheduler, _events)
     await _check_ollama_available()
 
 
@@ -616,6 +641,14 @@ async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(req.content)
     log_action("file_write", {"path": req.path, "size": len(req.content)})
+    if _events:
+        agent = _agent_from_token(authorization)
+        agent_id = agent.agent_id if agent else "unknown"
+        _events.emit("file.written", agent_id, {
+            "path":       req.path,
+            "size_bytes": len(req.content.encode()),
+            "agent_id":   agent_id,
+        })
     return {"ok": True, "path": str(p), "size_bytes": len(req.content.encode())}
 
 
@@ -985,6 +1018,86 @@ async def decisions_resolve(req: DecisionResolveRequest, authorization: Optional
     if not ok:
         raise HTTPException(status_code=404, detail="Decision not found")
     return {"ok": True}
+
+
+# ── Events (v0.7.0) ───────────────────────────────────────────────────────────
+
+class EventSubscribeRequest(BaseModel):
+    pattern: str
+    ttl_seconds: Optional[float] = None
+
+
+@app.post("/events/subscribe")
+async def events_subscribe(req: EventSubscribeRequest,
+                           authorization: Optional[str] = Header(None)):
+    """
+    Subscribe the authenticated agent to events matching pattern (glob).
+    Events are delivered to the agent's inbox as msg_type="event".
+    Returns subscription_id to use for unsubscribing.
+    """
+    _verify_any_token(authorization)
+    if not _events:
+        raise HTTPException(status_code=503, detail="Event bus not initialized")
+    agent = _agent_from_token(authorization)
+    if not agent:
+        raise HTTPException(status_code=401, detail="Could not resolve agent from token")
+    sub_id = _events.subscribe(agent.agent_id, req.pattern, req.ttl_seconds)
+    return {
+        "subscription_id": sub_id,
+        "agent_id":        agent.agent_id,
+        "pattern":         req.pattern,
+        "expires_at":      (_time.time() + req.ttl_seconds) if req.ttl_seconds else None,
+    }
+
+
+@app.delete("/events/subscriptions/{subscription_id}")
+async def events_unsubscribe(subscription_id: str,
+                             authorization: Optional[str] = Header(None)):
+    """Remove an event subscription by subscription_id."""
+    _verify_any_token(authorization)
+    if not _events:
+        raise HTTPException(status_code=503, detail="Event bus not initialized")
+    ok = _events.unsubscribe(subscription_id)
+    return {"ok": ok, "subscription_id": subscription_id}
+
+
+@app.get("/events/history")
+async def events_history(
+    since: Optional[float] = Query(None, description="Unix timestamp — return events after this"),
+    event_types: Optional[str] = Query(None, description="Comma-separated event types to filter"),
+    limit: int = Query(200, description="Max events to return"),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Query the append-only event log.
+    since: unix timestamp float
+    event_types: comma-separated filter, e.g. "task.completed,agent.terminated"
+    """
+    _verify_any_token(authorization)
+    if not _events:
+        raise HTTPException(status_code=503, detail="Event bus not initialized")
+    types_list = (
+        [t.strip() for t in event_types.split(",") if t.strip()]
+        if event_types else None
+    )
+    evts = _events.get_history(since=since, event_types=types_list, limit=limit)
+    return {"events": evts, "count": len(evts), "since": since}
+
+
+@app.get("/events/subscriptions")
+async def events_list_subscriptions(authorization: Optional[str] = Header(None)):
+    """
+    List active event subscriptions for the authenticated agent.
+    Root/master token sees all subscriptions.
+    """
+    _verify_any_token(authorization)
+    if not _events:
+        raise HTTPException(status_code=503, detail="Event bus not initialized")
+    agent = _agent_from_token(authorization)
+    # Root sees all; other agents see only their own
+    filter_id = None if (agent and agent.agent_id == "root") else (agent.agent_id if agent else None)
+    subs = _events.list_subscriptions(agent_id=filter_id)
+    return {"subscriptions": subs, "count": len(subs)}
 
 
 # ── Processes ─────────────────────────────────────────────────────────────────

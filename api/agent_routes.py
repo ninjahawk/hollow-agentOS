@@ -24,11 +24,13 @@ _bus: MessageBus = None
 _scheduler: TaskScheduler = None
 
 
-def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler):
+def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
+         events=None):
     global _registry, _bus, _scheduler
     _registry = registry
     _bus = bus
     _scheduler = scheduler
+    # events not used in agent_routes directly — registry/scheduler emit their own
 
 
 # ── Auth helpers ────────────────────────────────────────────────────────────

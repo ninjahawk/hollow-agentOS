@@ -15,6 +15,15 @@ from typing import Any
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 MEMORY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory"))
 
+# EventBus reference — injected at server startup, None when running standalone
+_event_bus = None
+
+
+def set_event_bus(event_bus) -> None:
+    """Inject EventBus into the memory manager. Called at server startup."""
+    global _event_bus
+    _event_bus = event_bus
+
 WORKSPACE_MAP   = MEMORY_PATH / "workspace-map.json"
 SESSION_LOG     = MEMORY_PATH / "session-log.json"
 TOOL_REGISTRY   = MEMORY_PATH / "tool-registry.json"
@@ -353,6 +362,12 @@ def resolve_decision(decision_id: str, resolution: str) -> bool:
             decisions["resolved"].append(d)
             decisions["pending"].pop(i)
             _save(DECISIONS, decisions)
+            if _event_bus:
+                _event_bus.emit("decision.resolved", "system", {
+                    "decision_id": decision_id,
+                    "resolution":  resolution,
+                    "message":     d.get("message", ""),
+                })
             return True
     return False
 
@@ -533,11 +548,17 @@ def activate_spec(spec_id: str) -> bool:
         return False
     specs["active_spec_id"] = spec_id
     specs["specs"][spec_id]["status"] = "active"
+    spec_title = specs["specs"][spec_id].get("title", "")
     # Deactivate others
     for sid, s in specs["specs"].items():
         if sid != spec_id and s["status"] == "active":
             s["status"] = "draft"
     _save(SPECS_STORE, specs)
+    if _event_bus:
+        _event_bus.emit("spec.activated", "system", {
+            "spec_id": spec_id,
+            "title":   spec_title,
+        })
     return True
 
 

@@ -73,9 +73,14 @@ class TaskScheduler:
         self._registry = registry
         self._bus = bus
         self._master_token = master_token
+        self._event_bus = None
         self._lock = threading.Lock()
         self._tasks: dict[str, Task] = {}
         self._load()
+
+    def set_event_bus(self, event_bus) -> None:
+        """Inject EventBus after both are created. Called at server startup."""
+        self._event_bus = event_bus
 
     def submit(
         self,
@@ -110,6 +115,13 @@ class TaskScheduler:
             self._tasks[task.task_id] = task
             self._save()
 
+        if self._event_bus:
+            self._event_bus.emit("task.queued", task.submitted_by, {
+                "task_id":      task.task_id,
+                "complexity":   task.complexity,
+                "submitted_by": task.submitted_by,
+            })
+
         future = _task_executor.submit(self._run_task, task, system_prompt)
         if wait:
             future.result()  # blocks caller thread, not the event loop
@@ -137,6 +149,13 @@ class TaskScheduler:
         task.assigned_to = role
         task.status = "running"
         task.started_at = time.time()
+
+        if self._event_bus:
+            self._event_bus.emit("task.started", task.submitted_by, {
+                "task_id":    task.task_id,
+                "model_role": role,
+                "model":      model_for_role,
+            })
 
         # Notify submitter
         self._bus.send(
@@ -187,20 +206,26 @@ class TaskScheduler:
             with urllib.request.urlopen(req, timeout=120) as r:
                 resp = json.loads(r.read())
 
+            # Ollama chat endpoint returns tokens_prompt / tokens_response /
+            # total_duration_ms — map to canonical names used throughout the system
+            tokens_in  = resp.get("tokens_prompt") or resp.get("tokens_in") or 0
+            tokens_out = resp.get("tokens_response") or resp.get("tokens_out") or 0
+            ms         = resp.get("total_duration_ms") or resp.get("ms")
+
             task.result = {
-                "response": resp.get("response", ""),
-                "model": resp.get("model"),
-                "tokens_in": resp.get("tokens_in"),
-                "tokens_out": resp.get("tokens_out"),
-                "ms": resp.get("ms"),
+                "response":  resp.get("response", ""),
+                "model":     resp.get("model"),
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "ms":        ms,
             }
             task.status = "done"
 
-            # Update submitter's usage
+            # Update submitter's usage — this drives budget.warning / budget.exhausted
             self._registry.update_usage(
                 task.submitted_by,
-                tokens_in=resp.get("tokens_in") or 0,
-                tokens_out=resp.get("tokens_out") or 0,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
             )
 
         except Exception as e:
@@ -212,6 +237,22 @@ class TaskScheduler:
 
         with self._lock:
             self._save()
+
+        if self._event_bus:
+            if task.status == "done":
+                r = task.result or {}
+                self._event_bus.emit("task.completed", task.submitted_by, {
+                    "task_id":    task.task_id,
+                    "model":      r.get("model"),
+                    "tokens_in":  r.get("tokens_in"),
+                    "tokens_out": r.get("tokens_out"),
+                    "ms":         r.get("ms"),
+                })
+            else:
+                self._event_bus.emit("task.failed", task.submitted_by, {
+                    "task_id": task.task_id,
+                    "error":   task.error,
+                })
 
         # Deliver result to submitter's inbox
         self._bus.send(
