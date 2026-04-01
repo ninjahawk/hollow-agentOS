@@ -34,15 +34,16 @@ _txn_coordinator = None
 _lineage = None
 _rate_limiter = None
 _checkpoint_manager = None
+_consensus_manager = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
          txn_coordinator=None, lineage=None, rate_limiter=None,
-         checkpoint_manager=None):
+         checkpoint_manager=None, consensus_manager=None):
     global _registry, _bus, _scheduler, _events, _model_manager
     global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
-    global _checkpoint_manager
+    global _checkpoint_manager, _consensus_manager
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -54,6 +55,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _lineage = lineage
     _rate_limiter = rate_limiter
     _checkpoint_manager = checkpoint_manager
+    _consensus_manager = consensus_manager
 
 
 def _audit(agent, operation: str, params: dict,
@@ -1279,3 +1281,139 @@ def replay_checkpoint(
         "consistency_score": result.consistency_score,
     })
     return asdict(result)
+
+
+# ── v1.3.4 — Multi-Agent Consensus ───────────────────────────────────────────
+
+class ProposeRequest(BaseModel):
+    description: str
+    action: dict
+    participants: list
+    required_votes: int
+    ttl_seconds: float = 300.0
+
+
+class VoteRequest(BaseModel):
+    accept: bool
+    reason: str = ""
+
+
+def _require_consensus_manager():
+    if not _consensus_manager:
+        raise HTTPException(status_code=503, detail="Consensus manager not initialized")
+
+
+@router.post("/consensus/propose")
+def propose_consensus(
+    req: ProposeRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Submit a consensus proposal. Participants are notified via consensus.vote_requested event.
+    Returns proposal_id.
+    """
+    caller = _resolve_agent(authorization)
+    _require_consensus_manager()
+    try:
+        proposal_id = _consensus_manager.propose(
+            proposer_id=caller.agent_id,
+            description=req.description,
+            action=req.action,
+            participants=req.participants,
+            required_votes=req.required_votes,
+            ttl_seconds=req.ttl_seconds,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _audit(caller, "consensus_propose", {
+        "proposal_id": proposal_id,
+        "participants": req.participants,
+        "required_votes": req.required_votes,
+    })
+    return {"ok": True, "proposal_id": proposal_id}
+
+
+@router.post("/consensus/{proposal_id}/vote")
+def vote_on_proposal(
+    proposal_id: str,
+    req: VoteRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Cast a vote on a consensus proposal.
+    Caller must be listed in the proposal's participants.
+    Returns current tally and updated status.
+    """
+    caller = _resolve_agent(authorization)
+    _require_consensus_manager()
+    try:
+        from dataclasses import asdict
+        result = _consensus_manager.vote(
+            voter_id=caller.agent_id,
+            proposal_id=proposal_id,
+            accept=req.accept,
+            reason=req.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _audit(caller, "consensus_vote", {
+        "proposal_id": proposal_id,
+        "accept": req.accept,
+        "status": result.status,
+    })
+    return asdict(result)
+
+
+@router.get("/consensus/{proposal_id}")
+def get_proposal(
+    proposal_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Get current state of a consensus proposal.
+    """
+    _resolve_agent(authorization)
+    _require_consensus_manager()
+    proposal = _consensus_manager.get(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id!r} not found")
+    return proposal
+
+
+@router.get("/agents/{agent_id}/consensus")
+def list_agent_consensus(
+    agent_id: str,
+    include_resolved: bool = False,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List consensus proposals where agent_id is the proposer or a participant.
+    By default returns only pending proposals; pass include_resolved=true for all.
+    """
+    caller = _resolve_agent(authorization)
+    _require_consensus_manager()
+    proposals = _consensus_manager.list_for_agent(
+        agent_id, include_resolved=include_resolved
+    )
+    _audit(caller, "consensus_list", {"agent_id": agent_id, "count": len(proposals)})
+    return {"proposals": proposals}
+
+
+@router.delete("/consensus/{proposal_id}")
+def withdraw_proposal(
+    proposal_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Withdraw a pending proposal. Only the proposer may withdraw.
+    """
+    caller = _resolve_agent(authorization)
+    _require_consensus_manager()
+    try:
+        ok = _consensus_manager.withdraw(caller.agent_id, proposal_id)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id!r} not found or not pending")
+    _audit(caller, "consensus_withdraw", {"proposal_id": proposal_id})
+    return {"ok": True}
