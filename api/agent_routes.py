@@ -35,15 +35,16 @@ _lineage = None
 _rate_limiter = None
 _checkpoint_manager = None
 _consensus_manager = None
+_adaptive_router = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
          txn_coordinator=None, lineage=None, rate_limiter=None,
-         checkpoint_manager=None, consensus_manager=None):
+         checkpoint_manager=None, consensus_manager=None, adaptive_router=None):
     global _registry, _bus, _scheduler, _events, _model_manager
     global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
-    global _checkpoint_manager, _consensus_manager
+    global _checkpoint_manager, _consensus_manager, _adaptive_router
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -56,6 +57,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _rate_limiter = rate_limiter
     _checkpoint_manager = checkpoint_manager
     _consensus_manager = consensus_manager
+    _adaptive_router = adaptive_router
 
 
 def _audit(agent, operation: str, params: dict,
@@ -1416,4 +1418,110 @@ def withdraw_proposal(
     if not ok:
         raise HTTPException(status_code=404, detail=f"Proposal {proposal_id!r} not found or not pending")
     _audit(caller, "consensus_withdraw", {"proposal_id": proposal_id})
+    return {"ok": True}
+
+
+# ── v1.3.5 — Adaptive Model Routing ──────────────────────────────────────────
+
+class RoutingOverrideRequest(BaseModel):
+    model: str
+    complexity: Optional[int] = None
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    reason: str = ""
+
+
+def _require_adaptive_router():
+    if not _adaptive_router:
+        raise HTTPException(status_code=503, detail="Adaptive router not initialized")
+
+
+@router.get("/routing/stats")
+def routing_stats(
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return per-(model, complexity) EMA performance stats and scores.
+    Includes observation_count, success_rate, throughput, latency, and composite score.
+    """
+    _resolve_agent(authorization)
+    _require_adaptive_router()
+    return _adaptive_router.get_stats()
+
+
+@router.get("/routing/recommend/{complexity}")
+def routing_recommend(
+    complexity: int,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return the current routing recommendation for a complexity level (1-5).
+    Shows recommended model, scores, confidence, and whether adaptive routing
+    is active or falling back to static defaults.
+    """
+    caller = _resolve_agent(authorization)
+    _require_adaptive_router()
+    if complexity < 1 or complexity > 5:
+        raise HTTPException(status_code=400, detail="complexity must be 1-5")
+    result = _adaptive_router.get_recommendation(complexity)
+    _audit(caller, "routing_recommend", {"complexity": complexity, "recommended": result.get("recommended")})
+    return result
+
+
+@router.post("/routing/override")
+def add_routing_override(
+    req: RoutingOverrideRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Add a hard routing override. Bypasses adaptive scoring entirely.
+    Only admin token may add overrides (master token required).
+    """
+    caller = _resolve_agent(authorization)
+    if caller.role != "root":
+        raise HTTPException(status_code=403, detail="Only root agents may set routing overrides")
+    _require_adaptive_router()
+    override_id = _adaptive_router.add_override(
+        model=req.model,
+        complexity=req.complexity,
+        agent_id=req.agent_id,
+        role=req.role,
+        reason=req.reason,
+    )
+    if _events:
+        _events.emit("routing.override_added", caller.agent_id, {
+            "override_id": override_id,
+            "model": req.model,
+            "complexity": req.complexity,
+        })
+    _audit(caller, "routing_override_add", {"override_id": override_id, "model": req.model})
+    return {"ok": True, "override_id": override_id}
+
+
+@router.get("/routing/overrides")
+def list_routing_overrides(
+    authorization: Optional[str] = Header(None),
+):
+    """List all active routing overrides."""
+    _resolve_agent(authorization)
+    _require_adaptive_router()
+    return {"overrides": _adaptive_router.list_overrides()}
+
+
+@router.delete("/routing/override/{override_id}")
+def remove_routing_override(
+    override_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Remove a routing override. Only root agents may remove overrides."""
+    caller = _resolve_agent(authorization)
+    if caller.role != "root":
+        raise HTTPException(status_code=403, detail="Only root agents may remove routing overrides")
+    _require_adaptive_router()
+    ok = _adaptive_router.remove_override(override_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Override {override_id!r} not found")
+    if _events:
+        _events.emit("routing.override_removed", caller.agent_id, {"override_id": override_id})
+    _audit(caller, "routing_override_remove", {"override_id": override_id})
     return {"ok": True}

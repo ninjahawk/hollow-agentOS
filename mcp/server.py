@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.4
+AgentOS MCP Server v1.3.5
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (79 total):
+Tools (83 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -40,6 +40,8 @@ Tools (79 total):
              checkpoint_diff, checkpoint_replay                 (v1.3.3)
   Consensus: consensus_propose, consensus_vote,
              consensus_status, consensus_list                   (v1.3.4)
+  Routing:   routing_stats, routing_recommend,
+             routing_override, routing_overrides_list           (v1.3.5)
 """
 
 import asyncio
@@ -1251,6 +1253,57 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id"]
             }
         ),
+        # ── Adaptive Routing (v1.3.5) ────────────────────────────────────────
+        Tool(
+            name="routing_stats",
+            description=(
+                "Return per-(model, complexity) EMA performance stats and scores. "
+                "Shows observation_count, success_rate, throughput (tok/ms), "
+                "latency (ms), and composite score for each model at each complexity tier. "
+                "Stats are empty until tasks complete with Ollama."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="routing_recommend",
+            description=(
+                "Return the current routing recommendation for a complexity level (1-5). "
+                "Shows recommended model, per-model scores, whether adaptive routing is "
+                "active (MIN_OBSERVATIONS met) or falling back to static tier defaults."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "complexity": {"type": "integer", "description": "Task complexity 1-5"},
+                },
+                "required": ["complexity"]
+            }
+        ),
+        Tool(
+            name="routing_override",
+            description=(
+                "Add a hard routing override that bypasses adaptive scoring. "
+                "Admin (root agent) only. Specify model and optionally scope by "
+                "complexity, agent_id, or role. Most specific match wins. "
+                "Returns override_id. Use routing_overrides_list to see active overrides."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model":      {"type": "string",  "description": "Model to force for matching tasks"},
+                    "complexity": {"type": "integer", "description": "Scope to this complexity tier (omit for all)"},
+                    "agent_id":   {"type": "string",  "description": "Scope to this agent (omit for all)"},
+                    "role":       {"type": "string",  "description": "Scope to this role (omit for all)"},
+                    "reason":     {"type": "string",  "description": "Reason for override"},
+                },
+                "required": ["model"]
+            }
+        ),
+        Tool(
+            name="routing_overrides_list",
+            description="List all active routing overrides.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         Tool(
             name="rate_limit_status",
@@ -1808,6 +1861,26 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "consensus_list":
             params = f"?include_resolved={str(arguments.get('include_resolved', False)).lower()}"
             return _out(await _get(f"/agents/{arguments['agent_id']}/consensus{params}"))
+
+        # ── Adaptive Routing (v1.3.5) ────────────────────────────────────────
+        elif name == "routing_stats":
+            return _out(await _get("/routing/stats"))
+
+        elif name == "routing_recommend":
+            return _out(await _get(f"/routing/recommend/{arguments['complexity']}"))
+
+        elif name == "routing_override":
+            body = {
+                "model":      arguments["model"],
+                "complexity": arguments.get("complexity"),
+                "agent_id":   arguments.get("agent_id"),
+                "role":       arguments.get("role"),
+                "reason":     arguments.get("reason", ""),
+            }
+            return _out(await _post("/routing/override", body))
+
+        elif name == "routing_overrides_list":
+            return _out(await _get("/routing/overrides"))
 
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         elif name == "rate_limit_status":

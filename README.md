@@ -7,11 +7,11 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.3.4-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.5-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-79-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-95%20passing-brightgreen?style=flat-square)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-83-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-101%20passing-brightgreen?style=flat-square)](#testing)
 
 </div>
 
@@ -21,7 +21,7 @@ The missing layer between a language model and a real computing environment.
 
 Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
 
-This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 95 integration tests run against the live API with no mocks.
+This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 101 integration tests run against the live API with no mocks.
 
 ---
 
@@ -124,6 +124,22 @@ Execution is intentionally out of scope. `consensus.reached` carries the action 
 
 Requires: events (v0.7.0) for vote distribution and consensus notifications, and transactions (v1.2.0) as the primary action type consensus gates.
 
+### Adaptive Model Routing (v1.3.5)
+
+Static complexity→model tiers (v0.9.0) choose the right model for the right complexity. VRAM affinity avoids eviction cost. Neither adapts to what actually happens: a model that loads fine but generates slowly at complexity 3, a model with intermittent failures at complexity 5, a new model that outperforms the static default.
+
+The adaptive router observes every task completion — model, complexity, duration_ms, tokens_out, success — and maintains exponential moving averages (EMA, α=0.15) per (model, complexity) pair. The composite score weights success rate highest (50%), then throughput (30%), then latency (20%), because a fast wrong answer is strictly worse than a slow right one.
+
+Routing decision hierarchy:
+1. **Hard override** — admin-set rules that bypass scoring entirely (per agent, role, or complexity)
+2. **Adaptive score** — highest-scoring model with ≥5 observations for this complexity tier
+3. **VRAM affinity** (v0.9.0) — prefer already-loaded model to avoid 15–30s eviction cost
+4. **Static tier default** — complexity 1–2 → mistral-nemo:12b, 3–4 → qwen2.5:14b, 5 → qwen3.5-35b-moe
+
+Overrides resolve by specificity: agent_id > role > complexity-only > global. The most specific matching override wins. Stats and recommendations are exposed via API and MCP tools, so agents can observe and reason about routing decisions.
+
+Requires: scheduler (v0.9.0) as the observation source, and audit kernel (v1.1.0) as the original per-operation metrics layer the routing decisions are grounded in.
+
 ---
 
 ## Benchmarks
@@ -173,20 +189,21 @@ hollow-agentOS/
 │   ├── ratelimit.py       # Token bucket rate limiting, circuit breaker
 │   ├── checkpoint.py      # Save/restore/diff/replay agent state snapshots
 │   ├── consensus.py       # Multi-agent consensus — propose, vote, quorum, early rejection
+│   ├── adaptive_router.py # EMA performance tracking, score-based routing, hard overrides
 │   ├── model_manager.py   # VRAM tracker, LRU eviction, model affinity
 │   └── standards.py       # Project conventions store + semantic matching
 ├── memory/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 79 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 83 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   ├── bench_real_baseline.py   # Real baseline benchmark
 │   ├── bench_breakeven.py       # Break-even analysis
 │   └── experiment_agent_drift.py # Agent drift experiment
 ├── tests/
-│   └── integration/       # 95 integration tests — no mocks, live API
+│   └── integration/       # 101 integration tests — no mocks, live API
 │       ├── test_api.py
 │       ├── test_events.py
 │       ├── test_signals.py
@@ -197,7 +214,8 @@ hollow-agentOS/
 │       ├── test_streaming.py
 │       ├── test_ratelimit.py
 │       ├── test_checkpoint.py
-│       └── test_consensus.py
+│       ├── test_consensus.py
+│       └── test_adaptive_routing.py
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── sdk/
@@ -279,6 +297,23 @@ POST   /checkpoints/{id}/replay              Run task N times from checkpoint, m
 `replay` body: `{"task_description": "...", "n_runs": 5}` — returns `consistency_score` (0.0–1.0) and `divergence_points`.
 
 Auto-checkpoint fires before transaction commit, on SIGPAUSE, and after tasks >30 seconds.
+
+</details>
+
+<details>
+<summary><strong>Adaptive Model Routing (v1.3.5)</strong></summary>
+
+```
+GET    /routing/stats                    Per-(model, complexity) EMA stats and scores
+GET    /routing/recommend/{complexity}   Recommendation for complexity 1-5 with rationale
+GET    /routing/overrides                List all active hard routing overrides
+POST   /routing/override                 Add a hard override (root only)
+DELETE /routing/override/{id}            Remove an override (root only)
+```
+
+`override` body: `{"model": "qwen2.5:14b", "complexity": 3, "agent_id": null, "role": null, "reason": "..."}`. Omit fields to broaden scope.
+
+Routing hierarchy: hard override → adaptive score (≥5 observations) → VRAM affinity → static tier.
 
 </details>
 
@@ -553,7 +588,7 @@ curl -X POST http://localhost:7777/agents/register \
 
 ## Testing
 
-95 integration tests against the live API. No mocks. No seeded state.
+101 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
 # All integration tests
@@ -568,6 +603,7 @@ PYTHONPATH=. pytest tests/integration/test_streaming.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_consensus.py -v -m integration
+PYTHONPATH=. pytest tests/integration/test_adaptive_routing.py -v -m integration
 ```
 
 Ollama-dependent tests skip automatically if Ollama is unavailable.
@@ -578,7 +614,7 @@ Ollama-dependent tests skip automatically if Ollama is unavailable.
 
 Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
 
-Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints, consensus — work without a GPU.
+Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints, consensus, adaptive routing (overrides, stats, recommendations) — work without a GPU. EMA learning requires Ollama task completions.
 
 With a GPU: models up to 14B fit in VRAM; up to 35B run with partial CPU offload. `nomic-embed-text` (semantic search) uses ~300 MB and stays resident. The VRAM scheduler tracks utilization and routes tasks to already-loaded models first.
 
@@ -603,7 +639,7 @@ Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 | v1.3.2 | Rate Limiting and Admission Control | ✓ |
 | v1.3.3 | Agent Checkpoints and Replay | ✓ |
 | v1.3.4 | Multi-Agent Consensus | ✓ |
-| v1.3.5 | Adaptive Model Routing | — |
+| v1.3.5 | Adaptive Model Routing | ✓ |
 | v1.3.6 | Real Benchmark Suite | — |
 | v1.3.7 | Self-Extending System | — |
 
