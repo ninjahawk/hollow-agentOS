@@ -39,18 +39,10 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 
 REASONING_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "reasoning"
+CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 
-# Qwen model configuration
-QWEN_ENABLED = os.getenv("QWEN_ENABLED", "false").lower() == "true"
-QWEN_HOST = os.getenv("QWEN_HOST", "http://localhost:11434")
-QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen:latest")
-
-# Try to import Ollama client if available
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 
 @dataclass
@@ -76,27 +68,15 @@ class ReasoningLayer:
         self._lock = threading.RLock()
         self._capability_graph = capability_graph
         self._execution_engine = execution_engine
-        self._use_qwen = use_qwen and REQUESTS_AVAILABLE and QWEN_ENABLED
-        self._qwen_available = False
-
-        # Check if Qwen is actually available
-        if self._use_qwen:
-            self._qwen_available = self._check_qwen_health()
-
         REASONING_PATH.mkdir(parents=True, exist_ok=True)
 
-    # ── Health Check ───────────────────────────────────────────────────────
-
-    def _check_qwen_health(self) -> bool:
-        """Check if Qwen model is running and healthy."""
-        if not REQUESTS_AVAILABLE:
-            return False
-
+    def _ollama_model(self) -> str:
+        """Read the configured reasoning model from config.json."""
         try:
-            response = requests.get(f"{QWEN_HOST}/api/tags", timeout=2)
-            return response.status_code == 200
+            cfg = json.loads(CONFIG_PATH.read_text())
+            return cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
         except Exception:
-            return False
+            return "mistral-nemo:12b"
 
     # ── API ────────────────────────────────────────────────────────────────
 
@@ -105,32 +85,26 @@ class ReasoningLayer:
         Reason about an agent intent.
         Returns (capability_id, params, confidence, reasoning_text).
 
-        This is where autonomous decision-making happens.
-        Uses Qwen if available, falls back to heuristics.
+        Uses Ollama to select the best capability and generate its parameters
+        from the intent. Falls back to semantic top-match if Ollama fails.
         """
         reasoning_id = f"rsn-{uuid.uuid4().hex[:12]}"
 
-        # Step 1: Find candidate capabilities
+        # Step 1: Find candidate capabilities via semantic search
         candidates = []
         if self._capability_graph:
-            candidates = self._capability_graph.find(intent, top_k=5, similarity_threshold=0.3)
-            candidates = [cap.capability_id for cap, _ in candidates]
+            results = self._capability_graph.find(intent, top_k=5, similarity_threshold=0.3)
+            candidates = [cap.capability_id for cap, _ in results]
 
         if not candidates:
             return (None, {}, 0.0, "No matching capabilities found")
 
-        # Step 2: Use Qwen if available, otherwise use heuristics
-        if self._qwen_available:
-            selected_cap, params, confidence, reasoning_text = self._reason_with_qwen(
-                intent, candidates
-            )
-        else:
-            selected_cap = candidates[0]
-            params = self._generate_params(intent, selected_cap)
-            confidence = 0.85
-            reasoning_text = f"Selected {selected_cap} to handle '{intent}'"
+        # Step 2: Ask Ollama to pick the best capability and generate params
+        selected_cap, params, confidence, reasoning_text = self._ollama_reason(
+            intent, candidates
+        )
 
-        # Step 3: Record the reasoning
+        # Step 3: Record
         context = ReasoningContext(
             reasoning_id=reasoning_id,
             agent_id=agent_id,
@@ -145,100 +119,59 @@ class ReasoningLayer:
 
         return (selected_cap, params, confidence, reasoning_text)
 
-    def _reason_with_qwen(self, intent: str, candidates: List[str]) -> Tuple[str, dict, float, str]:
+    def _ollama_reason(
+        self, intent: str, candidates: List[str]
+    ) -> Tuple[str, dict, float, str]:
         """
-        Use Qwen model to reason about intent and select capability.
-        Falls back to heuristics if Qwen call fails.
+        Call Ollama with the intent and candidate capabilities (with their
+        input schemas) and ask it to select the best one and generate params.
+
+        Falls back to semantic top-match + empty params on any failure.
         """
         try:
-            # Build prompt for Qwen
-            candidates_str = ", ".join(candidates[:3])  # Limit to first 3 for clarity
-            prompt = f"""You are an intelligent agent system. Given an intent and available capabilities,
-select the best capability to accomplish the goal.
+            import httpx
 
-Intent: "{intent}"
-Available capabilities: {candidates_str}
+            # Build capability descriptions including input schema
+            cap_lines = []
+            for cap_id in candidates[:5]:
+                schema = ""
+                if self._capability_graph:
+                    rec = self._capability_graph.get(cap_id)
+                    if rec:
+                        schema = rec.input_schema
+                cap_lines.append(f'- {cap_id}: input={schema}')
+            caps_text = "\n".join(cap_lines)
 
-Respond ONLY with valid JSON (no other text):
-{{
-    "selected_capability": "<one of the available capabilities>",
-    "reasoning": "<2-3 word explanation>",
-    "confidence": 0.8
-}}"""
-
-            # Call Qwen via Ollama API
-            response = requests.post(
-                f"{QWEN_HOST}/api/generate",
-                json={
-                    "model": QWEN_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "temperature": 0.2,
-                    "top_p": 0.9,
-                },
-                timeout=60,
+            prompt = (
+                f"Agent intent: {intent}\n"
+                f"Available capabilities:\n{caps_text}\n"
+                f'Respond ONLY with JSON: {{"capability_id":"...","params":{{...}}}}'
             )
 
-            if response.status_code != 200:
-                return self._fallback_reasoning(intent, candidates)
+            model = self._ollama_model()
+            resp = httpx.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
+                timeout=OLLAMA_TIMEOUT,
+            )
+            resp.raise_for_status()
 
-            response_text = response.json().get("response", "").strip()
+            raw = resp.json().get("response", "").strip()
+            result = json.loads(raw)
 
-            # Parse JSON response from Qwen
-            try:
-                json_start = response_text.find("{")
-                json_end = response_text.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_text[json_start:json_end]
-                    result = json.loads(json_str)
+            cap_id = result.get("capability_id", "")
+            if cap_id not in candidates:
+                cap_id = candidates[0]
 
-                    selected_cap = result.get("selected_capability", candidates[0])
-                    reasoning = result.get("reasoning", "Qwen-selected capability")
-                    confidence = float(result.get("confidence", 0.75))
-                    params = result.get("parameters", {})
+            params = result.get("params", {})
+            if not isinstance(params, dict):
+                params = {}
 
-                    # Ensure selected capability is in candidates
-                    if selected_cap not in candidates:
-                        selected_cap = candidates[0]
+            return (cap_id, params, 0.90, f"ollama:{model} selected {cap_id}")
 
-                    return (selected_cap, params, confidence, reasoning)
-            except (json.JSONDecodeError, ValueError, IndexError, TypeError):
-                pass
-
-        except Exception:
-            pass
-
-        # Fallback to heuristics
-        return self._fallback_reasoning(intent, candidates)
-
-    def _fallback_reasoning(self, intent: str, candidates: List[str]) -> Tuple[str, dict, float, str]:
-        """Fallback reasoning when Qwen is unavailable."""
-        selected_cap = candidates[0]
-        params = self._generate_params(intent, selected_cap)
-        confidence = 0.70
-        reasoning_text = f"Heuristic: {selected_cap}"
-        return (selected_cap, params, confidence, reasoning_text)
-
-    def _generate_params(self, intent: str, capability_id: str) -> dict:
-        """
-        Generate parameters for a capability based on intent.
-
-        In production: Qwen would generate these from the intent.
-        For now: simple heuristics.
-        """
-        params = {}
-
-        # Simple heuristic examples
-        if "file" in intent.lower() and "read" in intent.lower():
-            params = {"path": "/data/default.txt"}
-        elif "file" in intent.lower() and "write" in intent.lower():
-            params = {"path": "/data/output.txt", "content": "default content"}
-        elif "query" in intent.lower():
-            params = {"query": "SELECT * FROM default"}
-        elif "process" in intent.lower():
-            params = {"data": "test data"}
-
-        return params
+        except Exception as e:
+            # Semantic top-match, no params — better than nothing
+            return (candidates[0], {}, 0.50, f"fallback:{candidates[0]} ({e})")
 
     def _record_reasoning(self, agent_id: str, context: ReasoningContext) -> None:
         """Store reasoning record."""

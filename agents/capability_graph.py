@@ -136,11 +136,22 @@ class CapabilityGraph:
         if cap.capability_id is None or cap.capability_id == "":
             cap.capability_id = f"cap-{uuid.uuid4().hex[:12]}"
 
+        # Skip if already registered (prevents duplicate growth on repeated calls)
+        index_file = CAPABILITY_PATH / "index.json"
+        with self._lock:
+            index = json.loads(index_file.read_text()) if index_file.exists() else {}
+            if cap.capability_id in index:
+                return cap.capability_id
+
         embedding = self._embed(cap.description)
         if embedding is None:
             raise ValueError("Embedding unavailable")
 
         with self._lock:
+            index = json.loads(index_file.read_text()) if index_file.exists() else {}
+            if cap.capability_id in index:
+                return cap.capability_id  # double-check after embedding
+
             # Append to registry
             registry_file = CAPABILITY_PATH / "registry.jsonl"
             registry_file.write_text(
@@ -158,9 +169,6 @@ class CapabilityGraph:
                 embeddings = embedding.reshape(1, -1)
             np.save(embeddings_file, embeddings)
 
-            # Update index
-            index_file = CAPABILITY_PATH / "index.json"
-            index = json.loads(index_file.read_text()) if index_file.exists() else {}
             index[cap.capability_id] = len(embeddings) - 1
             index_file.write_text(json.dumps(index, indent=2))
 
