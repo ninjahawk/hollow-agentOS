@@ -341,7 +341,7 @@ class BenchmarkManager:
             ah = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
             stats_before = self._get(f"/audit/stats/{agent_id}", self._headers())
-            count_before = stats_before.get("total_entries", 0)
+            count_before = stats_before.get("entry_count", 0)
 
             t0 = time.time()
             for i in range(50):
@@ -350,7 +350,7 @@ class BenchmarkManager:
             elapsed = time.time() - t0
 
             stats_after = self._get(f"/audit/stats/{agent_id}", self._headers())
-            count_after = stats_after.get("total_entries", 0)
+            count_after = stats_after.get("entry_count", 0)
             new_entries = count_after - count_before
 
             self._terminate_agent(agent_id)
