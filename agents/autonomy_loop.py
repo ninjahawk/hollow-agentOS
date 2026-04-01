@@ -48,41 +48,32 @@ class AutonomyStep:
 
 
 class AutonomyLoop:
-    """Agent goal pursuit: repeatedly execute reasoning → execution → learning loop."""
+    """Agent goal pursuit: pure embedding-space autonomy loop."""
 
-    def __init__(self, goal_engine=None, reasoning_layer=None, execution_engine=None,
-                 semantic_memory=None, synthesis_engine=None):
+    def __init__(self, goal_engine=None, execution_engine=None,
+                 semantic_memory=None, native_interface=None):
         """
         goal_engine: PersistentGoalEngine
-        reasoning_layer: ReasoningLayer
         execution_engine: ExecutionEngine
         semantic_memory: SemanticMemory (for learning)
-        synthesis_engine: CapabilitySynthesis (for gap detection)
+        native_interface: AgentNativeInterface (embedding-space capability search)
         """
         self._lock = threading.RLock()
         self._goal_engine = goal_engine
-        self._reasoning_layer = reasoning_layer
         self._execution_engine = execution_engine
         self._semantic_memory = semantic_memory
-        self._synthesis_engine = synthesis_engine
+        self._native_interface = native_interface
         AUTONOMY_PATH.mkdir(parents=True, exist_ok=True)
 
     # ── API ────────────────────────────────────────────────────────────────
 
-    def execute_step(self, agent_id: str, max_reasoning_attempts: int = 3) -> Tuple[Optional[str], bool]:
+    def execute_step(self, agent_id: str) -> Tuple[Optional[str], bool]:
         """
         Execute one step of autonomy loop for an agent.
+        Pure embedding-space flow: get goal → embed intent → semantic search → execute → learn
         Returns (goal_id, step_completed_successfully)
-
-        Flow:
-        1. Get active goal for agent
-        2. Reason about next step to pursue that goal
-        3. Execute the selected capability
-        4. Learn from execution outcome
-        5. Update goal progress based on execution result
-        6. Record step in execution chain
         """
-        if not self._goal_engine or not self._reasoning_layer or not self._execution_engine:
+        if not self._goal_engine or not self._native_interface or not self._execution_engine:
             return (None, False)
 
         step_id = f"step-{uuid.uuid4().hex[:12]}"
@@ -96,36 +87,29 @@ class AutonomyLoop:
             active_goal = active_goals[0]
             goal_id = active_goal.goal_id
 
-            # Step 2: Reason about next step
-            # Intent: "progress towards: {goal_description}"
+            # Step 2: Pure embedding-space request
+            # Agent submits intent, OS finds capability by semantic meaning
             intent = f"progress towards: {active_goal.objective}"
-            cap_id, params, confidence, reasoning_text = self._reasoning_layer.reason(
-                agent_id, intent
-            )
+            response_data, confidence = self._native_interface.request(agent_id, intent)
 
+            # Extract capability from response
+            cap_id = response_data.get("resolved_capability_id") if response_data else None
             if not cap_id:
-                # No capability matched, try synthesis if available
-                if self._synthesis_engine:
-                    # Observe gap: "need capability to progress goal"
-                    self._synthesis_engine.observe_gap(agent_id, f"capability for: {intent}")
+                # No capability found through embedding search
                 return (goal_id, False)
 
-            # Get reasoning record ID for linking
-            history = self._reasoning_layer.get_reasoning_history(agent_id, limit=1)
-            reasoning_id = history[0].reasoning_id if history else None
-
             # Step 3: Execute the capability
-            result, status = self._execution_engine.execute(agent_id, cap_id, params)
+            # ExecutionEngine will handle execution with minimal parameters
+            result, status = self._execution_engine.execute(agent_id, cap_id, {})
 
             if status != "success":
-                # Execution failed, record and return
+                # Execution failed, record and continue
                 self._record_step(
                     agent_id, AutonomyStep(
                         step_id=step_id,
                         agent_id=agent_id,
                         goal_id=goal_id,
-                        reasoning_id=reasoning_id,
-                        reasoning_text=reasoning_text,
+                        reasoning_text=f"Found capability by semantic search: {cap_id}",
                         execution_result=result,
                         execution_status=status,
                         step_status="failed",
@@ -133,20 +117,12 @@ class AutonomyLoop:
                 )
                 return (goal_id, False)
 
-            # Step 4: Learn from execution
-            if reasoning_id:
-                self._reasoning_layer.learn_from_execution(
-                    agent_id, reasoning_id, result, status
-                )
-
-            # Step 5: Store execution result in semantic memory for future reference
+            # Step 4: Learn from execution - store outcome in semantic memory
             if self._semantic_memory and result:
-                # Store as embedding for future context
-                memory_key = f"execution_{goal_id}_{step_id}"
-                result_text = json.dumps(result) if isinstance(result, dict) else str(result)
-                self._semantic_memory.store(agent_id, memory_key, result_text)
+                outcome_text = f"Goal '{active_goal.objective}' step succeeded: {json.dumps(result) if isinstance(result, dict) else str(result)}"
+                self._semantic_memory.store(agent_id, outcome_text)
 
-            # Step 6: Update goal progress
+            # Step 5: Update goal progress
             # Success = 0.1 progress (each step contributes incrementally)
             progress_delta = 0.1 if status == "success" else 0.0
             current_metrics = active_goal.metrics.copy() if active_goal.metrics else {}
@@ -164,9 +140,8 @@ class AutonomyLoop:
                     step_id=step_id,
                     agent_id=agent_id,
                     goal_id=goal_id,
-                    reasoning_id=reasoning_id,
                     execution_id=execution_id,
-                    reasoning_text=reasoning_text,
+                    reasoning_text=f"Semantic search found capability {cap_id} (confidence: {confidence:.2f})",
                     execution_result=result,
                     execution_status=status,
                     goal_progress_delta=progress_delta,

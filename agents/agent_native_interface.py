@@ -142,9 +142,11 @@ class AgentNativeInterface:
                 confidence = sim
                 # In real implementation, execute capability here
                 response_data = {
+                    "resolved_capability_id": resolved_capability_id,
                     "capability": best_cap.name,
                     "resolved": True,
                     "intent_understood": intent,
+                    "confidence": sim,
                 }
 
         # Record operation
