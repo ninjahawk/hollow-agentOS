@@ -183,7 +183,7 @@ class CapabilityGraph:
                 return []
 
             embeddings = np.load(embeddings_file)
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = [line for line in registry_file.read_text().strip().split("\n") if line.strip()]
 
             # Compute similarities
             similarities = []
