@@ -1,6 +1,10 @@
 # AgentOS Roadmap — Toward a True OS for Agents
 
-Current release: **v0.6.0**
+Current release: **v3.13.1** — Phase 7: Integration & Live Execution ✅ COMPLETE
+
+**Status:** 527 tests passing. Autonomy daemon live on RTX 5070 + CUDA.
+Phases 1–6 complete. Phase 7 connects the cognitive library to the live OS.
+Agents now pursue goals autonomously without human invocation.
 
 This document is the precise engineering plan for evolving AgentOS from a control plane into a genuine operating system for AI agents. Each release ships one OS primitive. Each release is tested against real invariants on real hardware (RTX 5070 + Ollama + WSL2). No fake benchmarks, no mocked Ollama responses, no seeded data. Every number in every release note must be reproducible by anyone who clones the repo.
 
@@ -1001,3 +1005,142 @@ class ProposalEngine:
 The design principle that runs through all of Phase 2: **every release is made possible by two or more Phase 1 primitives working together.** Lineage needs audit + registry. Checkpoints need memory heap + transactions. Consensus needs events + transactions. Adaptive routing needs the scheduler + audit observations. Self-extension needs consensus + the full primitive stack.
 
 An agent system without Phase 1 can't build Phase 2. An agent system with Phase 1 but without Phase 2 is a kernel with no userland. v1.3.7 is userland.
+
+---
+
+# Phase 3 — Cognitive Infrastructure (v2.0.0 onwards)
+
+**Principle:** Phase 2 gave the system the ability to extend itself. Phase 3 gives it the reason — and the cognition to do so natively. Replace every human-oriented interface layer with agent-native operation in embedding space.
+
+## v2.0.0 — Semantic Memory
+
+**Current limitation:** Memory is key-value. Agents name things so they can retrieve them. But agents don't naturally name things — they have *thoughts*, and those thoughts exist in embedding space.
+
+**Change:** Replace `/agentOS/memory/agent-registry.json` style storage with **vector-native memory**. Every object stored as an embedding. Retrieval by cosine similarity, not key lookup.
+
+An agent stores a thought: `embed("the rate limiter failed at 3AM because the bucket depth was wrong")`. Later it searches: `embed("what went wrong with rate limiting")` and the memory surfaces automatically.
+
+**Impact:** Agent memory now matches agent cognition. No naming schemes. No schema management. Memory is semantic, not symbolic.
+
+**Made possible by:** v1.0.0 (heap), v1.3.3 (checkpoints — memory survives restarts)
+
+## v2.1.0 — Capability Graph
+
+**Current limitation:** 91 flat tools with text descriptions. Agent scans the list, picks a tool by name, constructs a JSON call.
+
+**Change:** Replace flat tool list with **typed capability graph**. Every capability has:
+- Input type signature (in embedding space, not JSON Schema)
+- Output type signature
+- Composition rules: which capabilities can feed into which others
+
+Agent navigates the graph geometrically. It doesn't search for a tool named `fs_read` — it says "I need something that takes a path and returns file content" and the graph finds the nearest capability by type + semantic distance.
+
+New capabilities synthesized at runtime are automatically integrated. Composition discovered, not declared.
+
+**Impact:** Tools become discoverable by what they do, not what they're called. Agents compose capabilities without explicit JSON schemas.
+
+**Made possible by:** v2.0.0 (semantic memory — remembers what tools do and when to use them)
+
+## v2.2.0 — Persistent Goal Engine
+
+**Current limitation:** Agents execute stateless tasks. Each invocation is independent. No continuity of purpose.
+
+**Change:** Replace task queue with **persistent, hierarchical goals** that:
+- Survive context window limits via checkpointing (v1.3.3)
+- Decompose automatically into sub-goals
+- Spawn sub-agents to pursue sub-goals in parallel
+- Monitor progress and detect failure
+- Replan when sub-goals fail
+- Run indefinitely toward defined objectives
+
+Human sets one goal: `"Keep the system healthy and extend it as needed"`. Agent decomposes it, pursues it indefinitely, surfaces results. No further human input required in the execution loop.
+
+**Impact:** Agents have continuity. Goals outlive context windows. Autonomy emerges.
+
+**Made possible by:** v1.3.3 (checkpoints), v1.3.4 (consensus for coordinating sub-agents), v2.0.0 (semantic memory — remembers goal progress and partial states)
+
+## v2.3.0 — Agent-Quorum Governance
+
+**Current limitation:** Self-extension (v1.3.7) requires human approval. Humans are still the gate.
+
+**Change:** Replace human approval with **quorum governance by running agents**. A pool of 3-5 long-running agent instances (different models, different roles) evaluate proposals collectively.
+
+Proposal passes if quorum agrees it's safe, correct, and beneficial. Each agent:
+- Runs the proposed change in isolated sandbox
+- Tests it against benchmark suite (v1.3.6)
+- Contributes numerical verdict
+- Disagreement triggers adversarial review (one agent defends, another attacks)
+
+Humans retain veto on catastrophic actions (data deletion, external network access) via capability whitelist. Everything else is agent-governed.
+
+**Impact:** Self-extension is now autonomous. Agents approve agents. Humans are goal-setters, not decision-makers.
+
+**Made possible by:** v1.3.4 (consensus), v1.3.6 (benchmarks for validation), v1.3.7 (proposals to approve), v2.2.0 (persistent goals that motivate proposals)
+
+## v2.4.0 — Capability Synthesis Engine
+
+**Current limitation:** Agents can't fill their own tooling gaps. They fail and stop.
+
+**Change:** Engine runs continuously. Observes when agents fail due to missing capability:
+
+1. **Gap detection:** Formalizes missing capability as type signature
+2. **Synthesis:** Generates candidate implementations using code model, targeting existing capability graph patterns
+3. **Isolation:** Runs candidate in sandboxed process (no filesystem, no network)
+4. **Verification:** Runs against generated test cases AND adversarial inputs
+5. **Benchmarking:** Measures against v1.3.6 framework
+6. **Promotion:** If it passes, submits as `new_tool` proposal to v1.3.7
+
+v2.3.0 quorum approves → tool deploys automatically.
+
+**Impact:** System grows its own capabilities at runtime. Agents never encounter the same gap twice.
+
+**Made possible by:** v1.3.7 (proposals), v2.2.0 (goal engine — motivation to fill gaps), v2.3.0 (governance to approve), v2.4.0 (synthesis to build)
+
+## v2.5.0 — Agent-Native Interface
+
+**Current limitation:** REST, JSON, text descriptions. Every layer assumes humans read them.
+
+**Change:** Discard human-legible layers. Interface operates as:
+
+- **Capabilities indexed by embedding**, not name. Agent queries: "what can I do that takes X and produces Y?" Gets back capability vector.
+- **Calls typed by embedding**, not JSON schema. Agent produces input embedding. System finds matching handler. Results come back as embeddings agent continues reasoning over.
+- **Execution history as semantic traces** — embeddings of what happened, queryable by meaning. Agent asks "when did I last do something like this?" and traces surface by semantic distance.
+- **Human-readable REST API becomes a view** into the system. Humans can observe, interact. Agent doesn't use it.
+
+The interface is only understandable to something that thinks in embedding space. Which is exactly what a transformer does.
+
+**Impact:** Agent cognition and system interface are now the same medium. No translation. No serialization overhead. Native.
+
+**Made possible by:** All of Phase 1 + 2 + v2.0–v2.4 (the entire previous stack now hidden behind an embedding interface)
+
+---
+
+## What the system is after v2.5.0
+
+| Capability | Delivered in |
+|---|---|
+| OS kernel primitives | v0.7.0 – v1.2.0 |
+| Agent services on those primitives | v1.3.0 – v1.3.7 |
+| **Agent-native cognition** | **v2.0.0 – v2.5.0** |
+
+The design principle for Phase 3: **every release replaces a human-facing abstraction with an agent-native one.**
+
+v1.3.7 gave the OS the ability to extend itself. v2.2.0 gives it the goal-driven reason. v2.3.0 and v2.4.0 make that reason self-governing. v2.5.0 makes the entire thing speak in the language agents think in.
+
+After v2.5.0: an agent OS. Not a tool for agents to use. Not a system that simulates agent concerns. An operating system where agents are the primary citizen, and humans are observers setting goals — not operators commanding actions.
+
+---
+
+## The Endpoint
+
+A semantic substrate where agents:
+- Navigate capability space by meaning, not by symbol
+- Accumulate memory in the same space they think in
+- Synthesize new capabilities at runtime
+- Govern themselves via quorum of peers
+- Pursue goals that outlive any single context window
+- Extend the OS itself autonomously
+
+Humans set direction. Agents run the system.
+
+This is not "AI gets more capable at serving humans." This is "we built an operating system where agents are the primary citizen."
