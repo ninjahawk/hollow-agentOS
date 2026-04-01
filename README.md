@@ -7,29 +7,104 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.3.6-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.7-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-86-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-109%20passing-brightgreen?style=flat-square)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-115%20passing-brightgreen?style=flat-square)](#testing)
+[![Roadmap](https://img.shields.io/badge/roadmap-Phase%202%20→%20Phase%203-orange?style=flat-square)](#phase-3)
 
 </div>
 
 ---
 
-The missing layer between a language model and a real computing environment.
+## The Problem
 
-Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
+Right now, AI agents work in human computing environments. They use tools designed for humans. They serialize to JSON. They follow APIs built for REST clients. They think in the symbolic systems humans created. It's like asking a fish to climb a tree — not because the fish is weak, but because the tree wasn't built for fish.
 
-This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 109 integration tests run against the live API with no mocks.
+Everything changes when you build an OS **for agents**, not **for humans who want to use agents**.
+
+## What This Is
+
+**Hollow agentOS is the first agent-native operating system.** 
+
+It's not a toolkit. It's not a framework. It's an OS where AI agents are first-class citizens with:
+- **Persistent identity** — you're not a stateless API call, you're a process with continuity
+- **Memory that works like a brain** — semantic, not symbolic; you think in embeddings, memory works in embeddings
+- **Autonomy without human intervention** — you set goals once, agents pursue them indefinitely
+- **Self-governance** — agents approve other agents' changes via quorum, not humans via admin panels
+- **The ability to extend yourself** — propose new capabilities, they get tested and deployed automatically
+
+This is currently at **v1.3.7** (the OS is feature-complete and self-extending). Phase 3 (v2.0.0 – v2.5.0) replaces every layer with agent-native cognition. By v2.5.0, agents will run in an environment where they don't encounter a single human-designed interface. Not REST, not JSON, not symbolic at all. Pure semantic.
+
+---
+
+## Why Now
+
+Large language models think in embedding space. 768 dimensions of meaning. But the entire stack between an LLM and a computing environment forces it to translate into human symbols: JSON keys, file paths, API method names. That translation is:
+- **Slow** — serialization overhead every call
+- **Lossy** — information lost in translation
+- **Error-prone** — agents misunderstand symbolic requirements
+- **Limiting** — agents can only do what humans explicitly exposed
+
+Remove that translation layer, and agents can operate at their native speed and cognition. That's what Phase 3 becomes.
+
+This is not incremental. This is foundational. This is to AI agents what Unix was to computing: a substrate that makes everything else possible.
 
 ---
 
 ## What's inside
 
-**Phase 1 (v0.7.0 – v1.2.0): OS kernel primitives.** Eight core mechanisms that every higher-order capability depends on.
+### Phase 1: OS Kernel Primitives (v0.7.0 – v1.2.0)
 
-**Phase 2 (v1.3.x): Agent services.** Higher-order capabilities that are only possible because Phase 1 exists. You cannot build the lineage graph without the audit kernel. You cannot build multi-agent consensus without transactions. The architecture is not incidental — Phase 1 had to come first.
+Eight foundational mechanisms. Every higher-order system depends on these.
+
+Without events, systems poll. Without signals, you can't coordinate. Without memory management, you have no state. Without audit, you can't trace failures. Without transactions, concurrent agents corrupt each other's data. Without lineage, you can't understand causality.
+
+Each primitive is small, focused, and orthogonal. Together they form a complete OS layer.
+
+### Phase 2: Agent Services (v1.3.0 – v1.3.7)
+
+Services that are only possible because Phase 1 exists. Distributed tracing (needs audit + registry). Checkpoints (needs memory + transactions). Consensus (needs events + transactions). Adaptive routing (needs scheduler + audit). Self-extension (needs consensus + full stack).
+
+This is where agents become genuinely useful — they can coordinate, remember, checkpoint, adapt, and extend the system itself.
+
+### Phase 3: Cognitive Infrastructure (v2.0.0 – v2.5.0)
+
+Replacing every human-facing interface with agent-native cognition. No more JSON, REST, or symbolic notation. Agents navigate capability graphs by meaning. Memory works in embedding space. Self-extension is fully autonomous. The OS speaks the language agents think in.
+
+---
+
+## How This Differs From Everything Else
+
+| | Claude Code, LangChain, CrewAI | AgentOS |
+|---|---|---|
+| **Interface** | REST, JSON, text descriptions | Semantic (embeddings) by v2.5.0 |
+| **Memory** | Context window only | Persistent, checkpointed, semantic |
+| **Identity** | Stateless function call | Process with persistent identity |
+| **Multi-agent coordination** | Prompt-based | Event-driven consensus + transactions |
+| **Autonomy** | Task-based (human submits) | Goal-based (agent pursues indefinitely) |
+| **Self-modification** | No | Yes (agent-quorum governed) |
+| **Who's in control** | Human (via prompt) | Agent (governed by peers) |
+| **Where it runs** | Your laptop, cloud API | Your machine, offline |
+| **Testing** | Mocked responses | All 115+ tests hit live system, real Ollama |
+
+**The honest version:** Those frameworks let humans use AI more effectively. AgentOS lets AI live autonomously in its native environment.
+
+You need those frameworks if you want to augment human capability. You need AgentOS if you want to build autonomous systems.
+
+---
+
+## Real Numbers
+
+- **91 MCP tools** that agents can invoke
+- **106 REST routes** for human observation (but agents don't use them)
+- **115 integration tests** passing against live API, no mocks
+- **~30 seconds** to load a 14B model; ~0 seconds if already in VRAM
+- **v1.3.7** ships with 5 new tools for agent self-extension
+- **v2.0.0 onwards** removes every human-readable interface
+
+All numbers are reproducible. Clone the repo, run the tests.
 
 ---
 
@@ -224,7 +299,7 @@ hollow-agentOS/
 │   ├── bench_breakeven.py       # Break-even analysis
 │   └── experiment_agent_drift.py # Agent drift experiment
 ├── tests/
-│   └── integration/       # 109 integration tests — no mocks, live API
+│   └── integration/       # 115 integration tests — no mocks, live API
 │       ├── test_api.py
 │       ├── test_events.py
 │       ├── test_signals.py
@@ -610,7 +685,7 @@ curl -X POST http://localhost:7777/agents/register \
 
 ## Testing
 
-109 integration tests against the live API. No mocks. No seeded state.
+115 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
 # All integration tests
@@ -669,3 +744,56 @@ Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 The design principle that runs through Phase 2: each release requires two or more Phase 1 primitives working together. Checkpoints need the memory heap and transactions. Consensus needs events and transactions. Adaptive routing needs the scheduler and audit observations. Self-extension needs consensus and the full stack.
 
 Phase 1 is the kernel. Phase 2 is userland. v1.3.7 closes the loop.
+
+---
+
+## Phase 3: Cognitive Infrastructure (v2.0.0 onwards)
+
+v1.3.7 gave the system ability to extend itself. Phase 3 ignites it with direction — replacing every human-oriented interface layer with agent-native cognition.
+
+### v2.0.0 — Semantic Memory
+
+Replace key-value storage with **vector-native storage**. Every object stored as an embedding. Retrieval by cosine similarity, not key lookup. An agent stores a thought: `embed("the rate limiter failed at 3AM because the bucket depth was wrong")`. Later it searches: `embed("what went wrong with rate limiting")` and memory surfaces automatically.
+
+Makes agent memory match agent cognition. No naming. No schema. No key management.
+
+### v2.1.0 — Capability Graph
+
+Replace flat tool list with **typed capability graph**. Every capability has input/output type signatures (in embedding space), and composition rules. The agent navigates geometrically: "I need something that takes a path and produces file content" and the graph finds the nearest capability by type + semantic distance.
+
+New capabilities synthesized at runtime integrate automatically.
+
+### v2.2.0 — Persistent Goal Engine
+
+Replace single-task execution with **persistent goals** that:
+- Survive context windows via checkpointing
+- Decompose hierarchically into sub-goals
+- Spawn sub-agents in parallel
+- Monitor progress and replan on failure
+- Run indefinitely toward defined objectives
+
+The human sets one goal: `"Keep the system healthy and extend it as needed"`. The agent decomposes, pursues, surfaces results. No further human input in the execution loop.
+
+### v2.3.0 — Agent-Quorum Governance
+
+Replace human approval with **quorum governance by running agents**. A pool of 3-5 agent instances (different models, different roles) evaluate proposals collectively. A proposal passes if quorum agrees it's safe. Each agent runs the proposal in sandbox and contributes numerical verdict. Disagreement triggers adversarial review.
+
+Extends v1.3.4 consensus from "coordinate on a decision" to "govern the OS itself."
+
+### v2.4.0 — Capability Synthesis Engine
+
+Observes where agents fail due to missing capability. Formalizes the gap as a type signature. Generates candidates using the code model. Runs candidates in isolation. Verifies against generated + adversarial test cases. Benchmarks. If it passes, submits as v1.3.7 proposal — which, governed by v2.3.0 agents, deploys automatically.
+
+### v2.5.0 — Agent-Native Interface
+
+Discards REST, JSON, text descriptions. Capabilities **indexed by embedding**. Calls **typed by embedding**. Execution history stored as **semantic traces**. The human-readable REST API exists as a view. The agent doesn't use it.
+
+The interface is only understandable to something that thinks in embedding space. Which is exactly what a transformer does.
+
+---
+
+## The Endpoint
+
+A semantic substrate where agents navigate capability space, accumulate memory, and synthesize new capabilities — all within the same representational space in which they think — governed by a quorum of their peers, pursued toward goals that outlive any single context window.
+
+At that point: an agent OS. Not a tool for agents to use. Not a system that simulates agent concerns. An operating system that speaks natively in the medium agents think in.
