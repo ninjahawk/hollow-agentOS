@@ -7,11 +7,11 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.3.5-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.6-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-83-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-101%20passing-brightgreen?style=flat-square)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-86-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-109%20passing-brightgreen?style=flat-square)](#testing)
 
 </div>
 
@@ -21,7 +21,7 @@ The missing layer between a language model and a real computing environment.
 
 Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
 
-This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 101 integration tests run against the live API with no mocks.
+This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 109 integration tests run against the live API with no mocks.
 
 ---
 
@@ -140,6 +140,26 @@ Overrides resolve by specificity: agent_id > role > complexity-only > global. Th
 
 Requires: scheduler (v0.9.0) as the observation source, and audit kernel (v1.1.0) as the original per-operation metrics layer the routing decisions are grounded in.
 
+### Real Benchmark Suite (v1.3.6)
+
+The performance numbers in the Benchmarks section are not aspirational. They come from running the actual system. v1.3.6 formalizes this: a benchmark suite that covers all OS primitives, stores results with timestamps, and compares runs to detect regressions automatically.
+
+Seven structural scenarios — no Ollama required:
+
+| Scenario | What it measures |
+|---|---|
+| `heap_alloc_throughput` | Alloc/free ops/sec against the working memory kernel |
+| `message_bus_latency` | Send→receive p50/p95/p99/mean round-trip (ms) |
+| `transaction_commit_latency` | begin→stage(×3)→commit round-trip (ms) |
+| `checkpoint_roundtrip` | save→restore→verify round-trip (ms) |
+| `consensus_vote_latency` | propose→vote→resolved wall time (ms) |
+| `rate_limit_precision` | Verify 429 fires at correct bucket depth |
+| `audit_write_throughput` | Entries captured per second in audit log |
+
+Two Ollama-dependent scenarios (`task_latency_c1`, `task_latency_c3`) measure end-to-end task latency at each complexity tier. `GET /benchmarks/compare` diffs any two runs and flags regressions (>15% degradation) and improvements (>15% gain).
+
+Requires: all Phase 1 primitives (benchmarks exercise each one), adaptive router (v1.3.5) as the downstream consumer of benchmark-derived performance data.
+
 ---
 
 ## Benchmarks
@@ -190,20 +210,21 @@ hollow-agentOS/
 │   ├── checkpoint.py      # Save/restore/diff/replay agent state snapshots
 │   ├── consensus.py       # Multi-agent consensus — propose, vote, quorum, early rejection
 │   ├── adaptive_router.py # EMA performance tracking, score-based routing, hard overrides
+│   ├── benchmark.py       # Real benchmark suite — 7 structural + 2 Ollama scenarios
 │   ├── model_manager.py   # VRAM tracker, LRU eviction, model affinity
 │   └── standards.py       # Project conventions store + semantic matching
 ├── memory/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 83 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 86 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   ├── bench_real_baseline.py   # Real baseline benchmark
 │   ├── bench_breakeven.py       # Break-even analysis
 │   └── experiment_agent_drift.py # Agent drift experiment
 ├── tests/
-│   └── integration/       # 101 integration tests — no mocks, live API
+│   └── integration/       # 109 integration tests — no mocks, live API
 │       ├── test_api.py
 │       ├── test_events.py
 │       ├── test_signals.py
@@ -215,7 +236,8 @@ hollow-agentOS/
 │       ├── test_ratelimit.py
 │       ├── test_checkpoint.py
 │       ├── test_consensus.py
-│       └── test_adaptive_routing.py
+│       ├── test_adaptive_routing.py
+│       └── test_benchmarks.py
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── sdk/
@@ -588,7 +610,7 @@ curl -X POST http://localhost:7777/agents/register \
 
 ## Testing
 
-101 integration tests against the live API. No mocks. No seeded state.
+109 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
 # All integration tests
@@ -604,6 +626,7 @@ PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_consensus.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_adaptive_routing.py -v -m integration
+PYTHONPATH=. pytest tests/integration/test_benchmarks.py -v -m integration
 ```
 
 Ollama-dependent tests skip automatically if Ollama is unavailable.
@@ -640,7 +663,7 @@ Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 | v1.3.3 | Agent Checkpoints and Replay | ✓ |
 | v1.3.4 | Multi-Agent Consensus | ✓ |
 | v1.3.5 | Adaptive Model Routing | ✓ |
-| v1.3.6 | Real Benchmark Suite | — |
+| v1.3.6 | Real Benchmark Suite | ✓ |
 | v1.3.7 | Self-Extending System | — |
 
 The design principle that runs through Phase 2: each release requires two or more Phase 1 primitives working together. Checkpoints need the memory heap and transactions. Consensus needs events and transactions. Adaptive routing needs the scheduler and audit observations. Self-extension needs consensus and the full stack.

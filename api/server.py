@@ -66,6 +66,7 @@ from agents.ratelimit import RateLimiter
 from agents.checkpoint import CheckpointManager
 from agents.consensus import ConsensusManager
 from agents.adaptive_router import AdaptiveRouter
+from agents.benchmark import BenchmarkManager
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -219,13 +220,14 @@ _rate_limiter: RateLimiter = None
 _checkpoint_manager: CheckpointManager = None
 _consensus_manager: ConsensusManager = None
 _adaptive_router: AdaptiveRouter = None
+_benchmark_manager: BenchmarkManager = None
 
 
 @app.on_event("startup")
 async def _startup():
     global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
     global _audit_log, _txn_coordinator, _lineage, _rate_limiter, _checkpoint_manager
-    global _consensus_manager, _adaptive_router
+    global _consensus_manager, _adaptive_router, _benchmark_manager
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -241,6 +243,7 @@ async def _startup():
     _checkpoint_manager = CheckpointManager()
     _consensus_manager = ConsensusManager()
     _adaptive_router = AdaptiveRouter()
+    _benchmark_manager = BenchmarkManager()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -273,11 +276,13 @@ async def _startup():
     _consensus_manager.set_subsystems(events=_events, registry=_registry)
     _adaptive_router.set_subsystems(events=_events, registry=_registry)
     _scheduler.set_adaptive_router(_adaptive_router)
+    _benchmark_manager.set_master_token(master_token)
     _mem_manager.set_event_bus(_events)
     agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
                       _heap_registry, _audit_log, _txn_coordinator, lineage=_lineage,
                       rate_limiter=_rate_limiter, checkpoint_manager=_checkpoint_manager,
-                      consensus_manager=_consensus_manager, adaptive_router=_adaptive_router)
+                      consensus_manager=_consensus_manager, adaptive_router=_adaptive_router,
+                      benchmark_manager=_benchmark_manager)
     await _check_ollama_available()
 
 

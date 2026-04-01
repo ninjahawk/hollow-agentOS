@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.5
+AgentOS MCP Server v1.3.6
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (83 total):
+Tools (86 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -42,6 +42,7 @@ Tools (83 total):
              consensus_status, consensus_list                   (v1.3.4)
   Routing:   routing_stats, routing_recommend,
              routing_override, routing_overrides_list           (v1.3.5)
+  Bench:     benchmark_run, benchmark_results, benchmark_compare (v1.3.6)
 """
 
 import asyncio
@@ -1253,6 +1254,54 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id"]
             }
         ),
+        # ── Benchmarks (v1.3.6) ─────────────────────────────────────────────
+        Tool(
+            name="benchmark_run",
+            description=(
+                "Run the AgentOS benchmark suite against the live API. "
+                "Measures heap throughput, message latency, transaction commit time, "
+                "checkpoint round-trip, consensus vote latency, rate limit precision, "
+                "and audit throughput. Optionally includes Ollama task latency benchmarks. "
+                "Returns a BenchmarkReport with per-scenario metrics. Takes 10–60 seconds."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "scenarios":       {"type": "array", "items": {"type": "string"},
+                                        "description": "Specific scenarios to run (omit for all structural)"},
+                    "include_ollama":  {"type": "boolean", "description": "Include Ollama task latency benchmarks"},
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="benchmark_results",
+            description="Return the last N benchmark run reports (default: 5). "
+                        "Each includes per-scenario metrics, timestamps, and run_id.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of recent runs to return (default: 5)"},
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="benchmark_compare",
+            description=(
+                "Compare two benchmark runs and return a RegressionReport. "
+                "Flags regressions (>15% degradation) and improvements (>15% gain). "
+                "If baseline/current run IDs are omitted, compares the last two runs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "baseline": {"type": "string", "description": "Baseline run_id (omit for auto)"},
+                    "current":  {"type": "string", "description": "Current run_id (omit for auto)"},
+                },
+                "required": []
+            }
+        ),
         # ── Adaptive Routing (v1.3.5) ────────────────────────────────────────
         Tool(
             name="routing_stats",
@@ -1861,6 +1910,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "consensus_list":
             params = f"?include_resolved={str(arguments.get('include_resolved', False)).lower()}"
             return _out(await _get(f"/agents/{arguments['agent_id']}/consensus{params}"))
+
+        # ── Benchmarks (v1.3.6) ─────────────────────────────────────────────
+        elif name == "benchmark_run":
+            body = {
+                "scenarios":      arguments.get("scenarios"),
+                "include_ollama": arguments.get("include_ollama", False),
+            }
+            return _out(await _post("/benchmarks/run", body))
+
+        elif name == "benchmark_results":
+            limit = arguments.get("limit", 5)
+            return _out(await _get(f"/benchmarks/results?limit={limit}"))
+
+        elif name == "benchmark_compare":
+            params = ""
+            if arguments.get("baseline"):
+                params += f"?baseline={arguments['baseline']}"
+            if arguments.get("current"):
+                sep = "&" if params else "?"
+                params += f"{sep}current={arguments['current']}"
+            return _out(await _get(f"/benchmarks/compare{params}"))
 
         # ── Adaptive Routing (v1.3.5) ────────────────────────────────────────
         elif name == "routing_stats":
