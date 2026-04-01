@@ -239,7 +239,7 @@ class TestStandardsSelfUpdate:
             headers=auth_headers,
         )
         assert r.status_code == 200, f"standards/relevant failed: {r.text}"
-        standards = r.json()
+        standards = r.json().get("results", [])
         names = [s.get("name", "") for s in standards]
         assert standard_name in names, (
             f"Standard {standard_name!r} not found in relevant results: {names}"
