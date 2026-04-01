@@ -193,13 +193,12 @@ class BenchmarkManager:
                 r = self._post("/txn/begin", {}, h)
                 txn_id = r["txn_id"]
                 for j in range(3):
-                    self._post("/txn/stage", {
-                        "txn_id": txn_id,
+                    self._post(f"/txn/{txn_id}/stage", {
                         "op_type": "memory_set",
                         "params": {"key": f"bench-txn-{ts}-{i}-{j}", "content": f"v{j}"},
                         "resource": f"bench-txn-{ts}-{i}-{j}",
                     }, h)
-                self._post("/txn/commit", {"txn_id": txn_id}, h)
+                self._post(f"/txn/{txn_id}/commit", {}, h)
                 latencies.append((time.time() - t0) * 1000)
 
             self._terminate_agent(agent_id)
