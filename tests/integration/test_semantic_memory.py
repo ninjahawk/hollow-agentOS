@@ -37,7 +37,7 @@ class TestSemanticMemoryStore:
         Assert: thought is recovered exactly, access_count incremented.
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-1"
+        agent_id = f"test-agent-1-{int(time.time() * 1000)}"
         thought = "the rate limiter failed at 3AM because the bucket depth was wrong"
 
         memory_id = memory.store(agent_id, thought, metadata={"severity": "high"})
@@ -65,7 +65,7 @@ class TestSemanticMemorySearch:
         Search for 'rate limit failure'. Assert: results found with similarity threshold.
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-2"
+        agent_id = f"test-agent-2-{int(time.time() * 1000)}"
 
         thoughts = [
             "the rate limiter failed at 3AM because the bucket depth was wrong",
@@ -90,7 +90,7 @@ class TestSemanticMemorySearch:
         Assert: low-similarity results are filtered out.
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-3"
+        agent_id = f"test-agent-3-{int(time.time() * 1000)}"
 
         thoughts = [
             "Paris is the capital of France",
@@ -120,7 +120,7 @@ class TestSemanticMemoryForget:
         Assert: recall returns None after forgetting.
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-4"
+        agent_id = f"test-agent-4-{int(time.time() * 1000)}"
 
         memory_id = memory.store(agent_id, "secret information to forget")
 
@@ -149,7 +149,7 @@ class TestSemanticMemoryConsolidate:
         30-day age cutoff means consolidate returns 0 for new memories).
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-5"
+        agent_id = f"test-agent-5-{int(time.time() * 1000)}"
 
         # Store 10 thoughts
         ids = []
@@ -181,7 +181,7 @@ class TestSemanticMemoryList:
         Assert: returns memories in reverse chronological order.
         """
         memory = SemanticMemory(capacity_mb=100, vector_dim=768)
-        agent_id = "test-agent-6"
+        agent_id = f"test-agent-list-{int(time.time() * 1000)}"
 
         for i in range(5):
             memory.store(agent_id, f"memory {i}")
