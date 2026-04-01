@@ -200,8 +200,9 @@ class TaskScheduler:
         self._tasks: dict[str, Task] = {}
         self._queue = PriorityTaskQueue()
         self._workers: list[threading.Thread] = []
-        self._model_manager = None   # injected after startup
+        self._model_manager = None      # injected after startup
         self._checkpoint_manager = None  # injected after startup (v1.3.3)
+        self._adaptive_router = None     # injected after startup (v1.3.5)
         self._load()
         self._start_workers()
 
@@ -220,6 +221,10 @@ class TaskScheduler:
     def set_checkpoint_manager(self, checkpoint_manager) -> None:
         """Inject CheckpointManager. Called at server startup (v1.3.3)."""
         self._checkpoint_manager = checkpoint_manager
+
+    def set_adaptive_router(self, adaptive_router) -> None:
+        """Inject AdaptiveRouter. Called at server startup (v1.3.5)."""
+        self._adaptive_router = adaptive_router
 
     def _maybe_auto_checkpoint(self, task: "Task") -> None:
         """
@@ -339,15 +344,31 @@ class TaskScheduler:
     def _run_task(self, task: Task, system_prompt: Optional[str] = None,
                   standards_context: Optional[str] = None):
         role = COMPLEXITY_ROUTING.get(task.complexity, "general")
+        agent = self._registry.get(task.submitted_by)
 
-        # v0.9.0: VRAM-aware model selection
-        if self._model_manager:
-            model_for_role = self._model_manager.recommend(task.complexity)
-        else:
-            model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+        # v1.3.5: Hard override takes highest priority
+        model_for_role = None
+        if self._adaptive_router:
+            agent_role = agent.role if agent else None
+            model_for_role = self._adaptive_router.resolve_override(
+                task.complexity, agent_id=task.submitted_by, role=agent_role
+            )
+
+        if not model_for_role:
+            # v1.3.5: Adaptive score-based selection (requires MIN_OBSERVATIONS)
+            if self._adaptive_router and self._model_manager:
+                from agents.model_manager import COMPLEXITY_MODEL
+                candidates = list(set(COMPLEXITY_MODEL.values()))
+                model_for_role = self._adaptive_router.recommend(task.complexity, candidates)
+
+        if not model_for_role:
+            # v0.9.0: VRAM affinity fallback
+            if self._model_manager:
+                model_for_role = self._model_manager.recommend(task.complexity)
+            else:
+                model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
 
         # Model policy check — does the submitting agent allow this role?
-        agent = self._registry.get(task.submitted_by)
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"
             task.error = f"Agent model policy blocks use of '{model_for_role}' for role '{role}'"
@@ -432,6 +453,16 @@ class TaskScheduler:
             }
             task.status = "done"
 
+            # v1.3.5: Observe completion for adaptive routing
+            if self._adaptive_router and ms:
+                self._adaptive_router.observe(
+                    model=model_for_role,
+                    complexity=task.complexity,
+                    duration_ms=float(ms),
+                    tokens_out=int(tokens_out),
+                    success=True,
+                )
+
             # Update LRU timestamp in model manager
             if self._model_manager:
                 self._model_manager.mark_used(model_for_role)
@@ -465,6 +496,8 @@ class TaskScheduler:
                     "tokens_in":  r.get("tokens_in"),
                     "tokens_out": r.get("tokens_out"),
                     "ms":         r.get("ms"),
+                    "complexity": task.complexity,
+                    "status":     "done",
                 })
             else:
                 self._event_bus.emit("task.failed", task.submitted_by, {
@@ -496,12 +529,25 @@ class TaskScheduler:
         Respects task.cancelled to abort mid-stream.
         """
         role = COMPLEXITY_ROUTING.get(task.complexity, "general")
-        if self._model_manager:
-            model_for_role = self._model_manager.recommend(task.complexity)
-        else:
-            model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
-
         agent = self._registry.get(task.submitted_by)
+
+        # v1.3.5: Adaptive routing — same priority chain as _run_task
+        model_for_role = None
+        if self._adaptive_router:
+            agent_role = agent.role if agent else None
+            model_for_role = self._adaptive_router.resolve_override(
+                task.complexity, agent_id=task.submitted_by, role=agent_role
+            )
+        if not model_for_role and self._adaptive_router and self._model_manager:
+            from agents.model_manager import COMPLEXITY_MODEL
+            candidates = list(set(COMPLEXITY_MODEL.values()))
+            model_for_role = self._adaptive_router.recommend(task.complexity, candidates)
+        if not model_for_role:
+            if self._model_manager:
+                model_for_role = self._model_manager.recommend(task.complexity)
+            else:
+                model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"
             task.error = f"Agent model policy blocks use of '{model_for_role}' for role '{role}'"
@@ -627,6 +673,30 @@ class TaskScheduler:
             task.status = "failed"
             task.error = str(e)
             task.result = None
+            # v1.3.5: Observe streaming failure
+            if self._adaptive_router and task.started_at:
+                elapsed_ms = (time.time() - task.started_at) * 1000
+                self._adaptive_router.observe(
+                    model=model_for_role,
+                    complexity=task.complexity,
+                    duration_ms=elapsed_ms,
+                    tokens_out=0,
+                    success=False,
+                )
+
+        # v1.3.5: Observe streaming success
+        if task.status == "done" and self._adaptive_router and task.result:
+            ms_stream = task.result.get("ms") or (
+                (time.time() - task.started_at) * 1000 if task.started_at else None
+            )
+            if ms_stream:
+                self._adaptive_router.observe(
+                    model=model_for_role,
+                    complexity=task.complexity,
+                    duration_ms=float(ms_stream),
+                    tokens_out=int(task.result.get("tokens_out", 0)),
+                    success=True,
+                )
 
         task.finished_at = time.time()
 

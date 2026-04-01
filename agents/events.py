@@ -71,6 +71,9 @@ EVENT_TYPES = frozenset({
     # v1.3.2 — rate limiting
     "security.circuit_break",
     "rate_limit.denied",
+    # v1.3.5 — adaptive model routing
+    "routing.override_added",
+    "routing.override_removed",
     # v1.3.4 — multi-agent consensus
     "consensus.proposed",
     "consensus.vote_requested",
