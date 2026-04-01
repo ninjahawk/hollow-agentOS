@@ -1,6 +1,6 @@
 # AgentOS Roadmap
 
-## Current Status: v2.5.0 (Phase 3 Complete)
+## Current Status: v2.7.0 (Phase 4 - 52% Complete, 28/54 Tests)
 
 ---
 
@@ -87,47 +87,53 @@ Replacing every human-facing interface with agent-native cognition. No JSON, RES
 
 ---
 
-## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) 🚀 PLANNED
+## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) 🚀 IN PROGRESS
 
-Make agents actually autonomous. Infrastructure → execution → reasoning → self-modification.
+Make agents actually autonomous. Infrastructure → execution → reasoning → autonomy loop → self-modification.
 
 **Core Realization:** Don't distribute non-autonomous systems. Make them think first, then scale them.
 
-### v2.6.0: Execution Engine
-**Goal:** Capabilities become runnable. Metadata → real execution.
+### v2.6.0: Execution Engine + Reasoning Layer ✅
+**Status:** COMPLETE (19 integration tests, all passing)
 
-- Capability dispatch: agent needs X, OS finds capability, invokes it
-- Execution backends: shell, HTTP, Python, container execution
-- Result capture: outcome stored as embedding back into semantic space
-- Error handling and recovery
-- Execution timeout and resource limits
-- **Target: 10 integration tests**
+**Execution Engine:**
+- Capability dispatch: agent intent → graph finds capability → executes it
+- Result capture: outcome stored, execution history tracked per agent
+- Error handling and recovery with timeout support
+- Execution statistics and success rates
 
-Example: Agent says "read /data/log.txt" → graph finds read_file capability → executes it → stores result in memory
+**Reasoning Layer:**
+- Intent → semantic capability discovery → parameter generation
+- Confidence scoring for capability selection
+- Learning from execution outcomes (success/failure tracking)
+- Multi-agent reasoning isolation
 
-### v2.7.0: Reasoning Layer
-**Goal:** Agents think through problems. Qwen integration for autonomous decision-making.
+Example: Agent intent "progress towards goals" → ReasoningLayer reasons → selects best capability → ExecutionEngine runs it → learns outcome
 
-- Connect Qwen (or compatible local LLM) as reasoning engine
-- Intent → reasoning → capability selection
-- Multi-step reasoning (decompose complex intents)
-- Confidence tracking (how sure is the agent?)
-- Reasoning logs stored in memory for learning
-- **Target: 12 integration tests**
+### v2.7.0: Autonomy Loop ✅
+**Status:** COMPLETE (9 integration tests, all passing)
 
-Example: Agent intent "optimize database performance" → Qwen reasons → "I should profile queries, add indexes, and adjust cache" → executes each → learns outcomes
+**Goal Pursuit Engine:**
+- Goal pursuit loop: retrieve goal → reason about next step → execute → learn → update progress
+- Progress tracking: incremental progress accumulation (0.1 per successful step)
+- Automatic goal completion when progress >= 1.0
+- Learning integration: execution outcomes stored in semantic memory
+- Synthesis integration: gap detection when no capabilities match
+- Multi-agent isolation with separate execution chains
 
-### v2.8.0: Autonomy Loop
-**Goal:** Agents pursue goals indefinitely, learn, and improve.
+Example: Agent with goal "increase database performance" → autonomy loop executes → reasons "try optimization" → executes → learns result → updates progress → continues until goal complete
 
-- Goal pursuit loop: retrieve active goal, reason about next step, execute, update progress
-- Learning integration: store execution outcomes + lessons in semantic memory
-- Synthesis integration: observe gaps during execution, propose new capabilities
-- Feedback cycle: measure against goal metrics, adjust strategy
-- Context persistence: agent state survives across multiple invocations
-- **Target: 13 integration tests**
+### v2.8.0: Self-Modification
+**Goal:** Agents extend themselves autonomously. Full agent self-extension via quorum.
 
-Example: Agent working on "reduce latency by 30%" → tries optimization → measures → stores result → next session retrieves memory → continues from there → synthesizes new capability when stuck
+- Gap synthesis fully integrated: agent detects "I can't do X" → generates capability
+- Autonomous testing: synthesized capabilities are tested before proposal
+- Quorum integration: agent proposes new capabilities, gets multi-agent approval
+- Runtime deployment: approved capabilities available immediately
+- Self-improvement loop: agents observe patterns, generate optimizations
+- **Target: 11 integration tests**
+
+Example: Agent repeatedly hits "no capability to send email" → synthesizes email_sender → tests it → proposes to quorum → deployed → now it can email → does same for SMS, Slack, etc.
 
 ### v2.9.0: Self-Modification
 **Goal:** Agents extend themselves autonomously. Full agent self-modification.
@@ -280,6 +286,10 @@ See `/agents/` for Phase 3 implementation examples. All code uses embeddings-nat
 ---
 
 Generated: 2026-04-01
-Current Phase: 3 (Cognitive Infrastructure) ✅ Complete
-Next Phase: 4 (Agent Autonomy) — Make agents think and act
-Future Phase: 5 (Distributed Autonomy) — Scale autonomous agents
+Current Phase: 4 (Agent Autonomy) — 52% Complete (28/54 tests)
+  - v2.6.0: Execution Engine + Reasoning ✅ (19 tests)
+  - v2.7.0: Autonomy Loop ✅ (9 tests)
+  - v2.8.0: Self-Modification (11 tests, planned)
+  - v2.9.0-v3.0.0: Integration and scaling (15+ tests, planned)
+Previous Phase: 3 (Cognitive Infrastructure) ✅ Complete (178 tests)
+Next Phase: 5 (Distributed Autonomy) — Scale autonomous agents to mesh
