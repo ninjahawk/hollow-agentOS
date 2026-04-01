@@ -112,8 +112,8 @@ class AdaptiveRouter:
     def set_subsystems(self, events=None, registry=None) -> None:
         self._events = events
         self._registry = registry
-        if events:
-            events.subscribe("task.completed", "__adaptive_router__", self._on_task_completed)
+        # Primary observation path: scheduler calls observe() directly after each task.
+        # The event bus delivers to agent inboxes, not Python callbacks — no subscription here.
 
     # ── Observation ──────────────────────────────────────────────────────────
 
@@ -157,22 +157,6 @@ class AdaptiveRouter:
                 s.observation_count += 1
                 s.last_updated = time.time()
             self._save()
-
-    def _on_task_completed(self, event_type: str, source_agent: str, data: dict) -> None:
-        """EventBus subscriber for task.completed — observes from task result dict."""
-        model      = data.get("model")
-        complexity = data.get("complexity")
-        ms         = data.get("ms") or data.get("duration_ms")
-        tokens_out = data.get("tokens_out", 0)
-        status     = data.get("status", "")
-        if model and complexity and ms:
-            self.observe(
-                model=model,
-                complexity=int(complexity),
-                duration_ms=float(ms),
-                tokens_out=int(tokens_out),
-                success=(status == "done"),
-            )
 
     # ── Scoring ──────────────────────────────────────────────────────────────
 
