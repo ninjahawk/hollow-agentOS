@@ -1,6 +1,6 @@
 # AgentOS Roadmap
 
-## Current Status: v3.10.0 (Phase 6 Complete — 85 new tests)
+## Current Status: v3.13.2 (Phase 7 Complete — Live Execution Proven)
 
 ---
 
@@ -87,7 +87,7 @@ Replacing every human-facing interface with agent-native cognition. No JSON, RES
 
 ---
 
-## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) 🚀 IN PROGRESS
+## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) ✅ COMPLETE
 
 Make agents actually autonomous. Infrastructure → execution → reasoning → autonomy loop → self-modification.
 
@@ -246,6 +246,96 @@ Scale autonomous agents across multiple machines. Coordination, consensus, colle
 
 ---
 
+## Phase 7: Live Execution (v3.10.1 – v3.13.2) ✅ COMPLETE
+
+Bridge the cognitive layer to a real running OS. All prior phases proved architecture in tests.
+Phase 7 proves it against a live machine.
+
+### v3.10.1: Semantic Indexer Fix ✅
+- Fixed background timer that rebuilds the embedding index
+- Embedding index now stays consistent across server restarts
+
+### v3.11.1: Live Capabilities ✅ (8 tests)
+Eight real OS operations registered as capabilities in the graph:
+- `shell_exec` — run any shell command, capture stdout/stderr
+- `ollama_chat` — call a local LLM (mistral-nemo:12b default)
+- `fs_read` / `fs_write` — read and write files on disk
+- `semantic_search` — ripgrep-backed codebase search
+- `memory_set` / `memory_get` — persistent key-value agent memory
+- `agent_message` — send messages between agents
+
+Each capability registered with semantic description + input/output schema so the capability
+graph can route to them by meaning, not name.
+
+### v3.12.1: Goal API ✅ (16 tests)
+Persistent goals via HTTP endpoints backed by `PersistentGoalEngine`:
+- `POST /goals/{agent_id}` — create goal with objective + priority
+- `GET /goals/{agent_id}` — list all goals
+- `GET /goals/{agent_id}/next` — highest-priority active goal
+- `PATCH /goals/{agent_id}/{goal_id}` — update status/progress/metrics
+- Goals persist to disk (embeddings + registry), survive server restart
+
+### v3.13.1: Autonomy Daemon ✅ (8 tests)
+Background process that drives the goal pursuit loop without external calls:
+- Polls every 30s for agents with active goals
+- For each agent: calls `AutonomyLoop.pursue_goal()` with the live stack
+- Writes progress back to the Goal API after each step
+- Discovers agents from both the registry and disk scan
+- Ships as `agents/daemon.py`, runs standalone or via `entrypoint.sh`
+
+### v3.13.2: Reasoning Layer Fix ✅
+The reasoning layer stub replaced with real Ollama integration:
+- `_ollama_reason()` sends intent + capability input schemas to the configured model
+- Model returns `{"capability_id": "...", "params": {...}}` — real capability selection
+  with real parameters generated from the intent
+- Falls back to semantic top-match if Ollama unavailable
+- Capability graph deduplication: `register()` now checks before appending —
+  prevents 232-entry bloat from repeated `build_capability_graph()` calls
+
+**End-to-end verified:** agent goal → Ollama selects `semantic_search` with real query
+params → executes against live codebase → 5 results returned → progress 0.30 in 3 steps.
+
+**Phase 7 Result:** One agent can receive a goal, reason about it using a local LLM,
+execute real OS operations, and make measurable progress — fully autonomously.
+Three integration test files, Docker container starts daemon + API via `entrypoint.sh`.
+
+---
+
+## Phase 8: Real Task Completion (v3.14.0 – v3.17.0) 🔜 NEXT
+
+**Core Problem:** An agent can execute one capability per cycle but can't chain them.
+It searches but doesn't do anything with what it finds. Goals never actually complete.
+Phase 8 fixes this: agents accomplish real tasks end-to-end.
+
+### v3.14.0: Goal Completion + Step Context
+- Daemon marks goal `completed` when progress >= 1.0
+- Each step receives the result of the previous step as context
+- Agent accumulates a working memory of what it has found/done this cycle
+- Reasoning prompt includes step history so Ollama can make informed next-step decisions
+
+### v3.15.0: Multi-Step Planning
+- Before executing, agent plans N steps toward the goal (not just one)
+- Ollama generates a short plan: `[{capability, params, rationale}, ...]`
+- Steps execute in order; each result feeds the next
+- Failed steps trigger replanning, not infinite retry
+
+### v3.16.0: Result Synthesis
+- After a goal completes, agent synthesizes what it learned into semantic memory
+- Patterns extracted: what worked, what capabilities were effective for this goal type
+- Reasoning history becomes queryable — "how did I solve similar goals before?"
+- Specialization engine picks up patterns and biases future routing
+
+### v3.17.0: Real Task Validation
+- End-to-end integration tests with goals that require multiple capability types
+- Example: "Summarize the autonomy loop implementation" → search codebase →
+  read relevant files → call ollama_chat to summarize → write result to memory
+- Pass criteria: goal completes with a verifiable artifact, not just progress ticks
+
+**Phase 8 Result:** Agents accomplish real, multi-step tasks. The infrastructure built in
+Phases 1–7 becomes genuinely useful.
+
+---
+
 ## Design Principles (All Phases)
 
 1. **Agent-native, not human-augmented.** The OS is for agents to live in, not for humans to use agents.
@@ -286,22 +376,32 @@ Scale autonomous agents across multiple machines. Coordination, consensus, colle
 
 ## How to Contribute
 
-Phase 4 begins after v2.5.0. Core priorities (in order):
+Phase 8 is next. Core priorities (in order):
 
-1. **v2.6.0: Execution Engine** — Make capabilities runnable. Shell, HTTP, Python backends.
-2. **v2.7.0: Reasoning Layer** — Integrate Qwen. Agent reasoning → capability selection.
-3. **v2.8.0: Autonomy Loop** — Goal pursuit, learning, synthesis integration.
-4. **v2.9.0: Self-Modification** — Full autonomous self-extension via quorum.
-5. **v3.0.0: Single Agent Done** — Verify one autonomous agent works end-to-end.
+1. **v3.14.0: Goal completion + step context** — goals should finish; each step should see the last
+2. **v3.15.0: Multi-step planning** — Ollama plans N steps before executing, not one at a time
+3. **v3.16.0: Result synthesis** — completed goals write learnings back to semantic memory
+4. **v3.17.0: Real task validation** — integration tests that verify a goal produced a real artifact
 
-Then Phase 5: Multi-node coordination, distribution, swarm cognition.
-
-See `/agents/` for Phase 3 implementation examples. All code uses embeddings-native design.
+See `/agents/` for current implementation. Key files:
+- `agents/daemon.py` — autonomy daemon (start here to understand the execution loop)
+- `agents/reasoning_layer.py` — Ollama integration for capability selection
+- `agents/autonomy_loop.py` — goal pursuit loop
+- `agents/live_capabilities.py` — the 8 registered OS capabilities
+- `api/goal_routes.py` — goal HTTP API
 
 ---
 
 Generated: 2026-04-01
 Updated: 2026-04-01
+
+✅ PHASE 7 COMPLETE: Live Execution (v3.13.2)
+  - v3.10.1: Semantic indexer fix ✅
+  - v3.11.1: Live Capabilities (8 real OS operations) ✅ (8 tests)
+  - v3.12.1: Goal API (persistent goals via HTTP) ✅ (16 tests)
+  - v3.13.1: Autonomy Daemon ✅ (8 tests)
+  - v3.13.2: Reasoning layer + capability graph dedup fix ✅
+  End-to-end proven: agent → Ollama → capability → execution → progress
 
 ✅ PHASE 6 COMPLETE: Meta-Intelligence (85/85 tests)
   - v3.6.0: Agent Introspection ✅ (16 tests)
@@ -322,11 +422,4 @@ Updated: 2026-04-01
 ✅ PHASE 2 COMPLETE: Agent Services
 ✅ PHASE 1 COMPLETE: OS Kernel Primitives
 
-Grand Total: 527 tests, all passing
-
-Phase 6 deliverables: 5 new modules, 85 new tests, zero failures on first complete run.
-  agents/introspection.py — agents examine themselves and each other
-  agents/meta_synthesis.py — swarm extracts cross-agent knowledge patterns
-  agents/governance_evolution.py — quorum rules evolve from observed outcomes
-  agents/specialization.py — agents discover and bias toward strengths
-  agents/swarm_learning.py — collective improvement loop across all primitives
+Grand Total: 559 tests, all passing
