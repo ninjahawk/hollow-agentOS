@@ -7,11 +7,11 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.3.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-2.4.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-159%20passing-brightgreen?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/integration%20tests-168%20passing-brightgreen?style=flat-square)](#testing)
 [![Roadmap](https://img.shields.io/badge/roadmap-Phase%202%20→%20Phase%203-orange?style=flat-square)](#phase-3)
 
 </div>
@@ -35,7 +35,7 @@ It's not a toolkit. It's not a framework. It's an OS where AI agents are first-c
 - **Self-governance** — agents approve other agents' changes via quorum, not humans via admin panels
 - **The ability to extend yourself** — propose new capabilities, they get tested and deployed automatically
 
-This is currently at **v2.3.0** (Semantic Memory + Capability Graph + Persistent Goals + Agent-Quorum Governance — Phase 3 in progress). The OS is now building toward agent-native cognition. By v2.5.0, agents will run in an environment where they don't encounter a single human-designed interface. Not REST, not JSON, not symbolic at all. Pure semantic.
+This is currently at **v2.4.0** (Semantic Memory + Capability Graph + Persistent Goals + Agent-Quorum Governance + Capability Synthesis — Phase 3 in progress). The OS is now building toward agent-native cognition. By v2.5.0, agents will run in an environment where they don't encounter a single human-designed interface. Not REST, not JSON, not symbolic at all. Pure semantic.
 
 ---
 
