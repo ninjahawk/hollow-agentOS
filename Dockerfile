@@ -26,4 +26,6 @@ EXPOSE 7777
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:7777/health || exit 1
 
-CMD ["python3", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "7777", "--log-level", "warning"]
+# entrypoint.sh starts the autonomy daemon in the background, then uvicorn
+RUN chmod +x entrypoint.sh
+CMD ["./entrypoint.sh"]
