@@ -37,16 +37,18 @@ _checkpoint_manager = None
 _consensus_manager = None
 _adaptive_router = None
 _benchmark_manager = None
+_proposal_engine = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
          txn_coordinator=None, lineage=None, rate_limiter=None,
          checkpoint_manager=None, consensus_manager=None, adaptive_router=None,
-         benchmark_manager=None):
+         benchmark_manager=None, proposal_engine=None):
     global _registry, _bus, _scheduler, _events, _model_manager
     global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
     global _checkpoint_manager, _consensus_manager, _adaptive_router, _benchmark_manager
+    global _proposal_engine
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -61,6 +63,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _consensus_manager = consensus_manager
     _adaptive_router = adaptive_router
     _benchmark_manager = benchmark_manager
+    _proposal_engine = proposal_engine
 
 
 def _audit(agent, operation: str, params: dict,
@@ -1602,3 +1605,167 @@ def benchmark_compare(
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+# ── Self-Extending System (v1.3.7) ────────────────────────────────────────────
+
+def _require_proposal_engine():
+    if not _proposal_engine:
+        raise HTTPException(status_code=503, detail="ProposalEngine not initialized")
+
+
+class ProposalSubmitRequest(BaseModel):
+    proposal_type: str           # "new_tool" | "new_endpoint" | "standard_update" | "config_change"
+    spec: dict
+    test_cases: list
+    rationale: str
+    consensus_quorum: Optional[int] = 1
+
+
+class ProposalRejectRequest(BaseModel):
+    reason: str
+
+
+@router.post("/proposals")
+def submit_proposal(
+    body: ProposalSubmitRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Submit a new system extension proposal.
+    Returns proposal_id and initial status.
+    """
+    caller = _resolve_agent(authorization)
+    _require_proposal_engine()
+    try:
+        proposal_id = _proposal_engine.submit(
+            agent_id=caller.agent_id,
+            proposal_type=body.proposal_type,
+            spec=body.spec,
+            test_cases=body.test_cases,
+            rationale=body.rationale,
+            consensus_quorum=body.consensus_quorum or 1,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _audit(caller, "proposal_submit", {
+        "proposal_id": proposal_id,
+        "proposal_type": body.proposal_type,
+    })
+    return {"proposal_id": proposal_id, "status": "proposed"}
+
+
+@router.get("/proposals")
+def list_proposals(
+    status: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+):
+    """List system extension proposals, optionally filtered by status or agent."""
+    _resolve_agent(authorization)
+    _require_proposal_engine()
+    proposals = _proposal_engine.list_proposals(
+        status=status, agent_id=agent_id, limit=limit
+    )
+    return {"proposals": proposals, "count": len(proposals)}
+
+
+@router.get("/proposals/{proposal_id}")
+def get_proposal(proposal_id: str, authorization: Optional[str] = Header(None)):
+    """Get the current state of a proposal."""
+    _resolve_agent(authorization)
+    _require_proposal_engine()
+    p = _proposal_engine.get(proposal_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return p
+
+
+@router.post("/proposals/{proposal_id}/stage")
+def stage_proposal(proposal_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Stage a proposal: run its test cases in-process.
+    Advances to 'staging' on pass, 'rejected' on failure.
+    """
+    caller = _resolve_agent(authorization)
+    _require_proposal_engine()
+    try:
+        result = _proposal_engine.stage(proposal_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _audit(caller, "proposal_stage", {
+        "proposal_id": proposal_id,
+        "passed": result["staging_passed"],
+    })
+    return result
+
+
+@router.post("/proposals/{proposal_id}/approve")
+def approve_proposal(proposal_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Cast an approval vote on a proposal.
+    If consensus_quorum == 1, applies immediately.
+    If quorum > 1, the proposal advances only when enough distinct approvers vote.
+    Root/admin role required.
+    """
+    caller = _resolve_agent(authorization)
+    if not caller.has_cap("admin") and caller.role not in ("root", "orchestrator"):
+        raise HTTPException(status_code=403, detail="Only root/admin/orchestrator can approve proposals")
+    _require_proposal_engine()
+    try:
+        result = _proposal_engine.approve(proposal_id, approved_by=caller.agent_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _audit(caller, "proposal_approve", {
+        "proposal_id": proposal_id,
+        "status": result.get("status"),
+    })
+    return result
+
+
+@router.post("/proposals/{proposal_id}/reject")
+def reject_proposal(
+    proposal_id: str,
+    body: ProposalRejectRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Manually reject a proposal. Root/admin role required."""
+    caller = _resolve_agent(authorization)
+    if not caller.has_cap("admin") and caller.role not in ("root", "orchestrator"):
+        raise HTTPException(status_code=403, detail="Only root/admin/orchestrator can reject proposals")
+    _require_proposal_engine()
+    ok = _proposal_engine.reject(proposal_id, reason=body.reason, rejected_by=caller.agent_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Proposal not found or already resolved")
+    _audit(caller, "proposal_reject", {"proposal_id": proposal_id, "reason": body.reason})
+    return {"proposal_id": proposal_id, "status": "rejected"}
+
+
+@router.post("/tools/reload")
+def reload_tools(authorization: Optional[str] = Header(None)):
+    """
+    Reload the dynamic tool registry from /agentOS/tools/dynamic/.
+    Returns the updated list of dynamic tools.
+    Hot-reload: no server restart required.
+    """
+    caller = _resolve_agent(authorization)
+    _require_proposal_engine()
+    result = _proposal_engine.reload_tools()
+    _audit(caller, "tools_reload", {"tool_count": result["tool_count"]})
+    return result
+
+
+@router.get("/mcp/tools")
+def list_mcp_tools(authorization: Optional[str] = Header(None)):
+    """
+    List all available MCP tools including dynamically loaded ones.
+    Dynamic tools are hot-loaded from /agentOS/tools/dynamic/.
+    """
+    _resolve_agent(authorization)
+    _require_proposal_engine()
+    dynamic = _proposal_engine.get_dynamic_tools()
+    return {
+        "dynamic_tools": dynamic,
+        "dynamic_count": len(dynamic),
+    }

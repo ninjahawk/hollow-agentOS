@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.6
+AgentOS MCP Server v1.3.7
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (86 total):
+Tools (91 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -43,6 +43,8 @@ Tools (86 total):
   Routing:   routing_stats, routing_recommend,
              routing_override, routing_overrides_list           (v1.3.5)
   Bench:     benchmark_run, benchmark_results, benchmark_compare (v1.3.6)
+  Proposals: proposal_submit, proposal_status, proposal_approve,
+             proposal_reject, tools_reload                       (v1.3.7)
 """
 
 import asyncio
@@ -1254,6 +1256,86 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id"]
             }
         ),
+        # ── Self-Extending System (v1.3.7) ──────────────────────────────────
+        Tool(
+            name="proposal_submit",
+            description=(
+                "Submit a system extension proposal. Agents can propose: new_tool (hot-loaded "
+                "MCP tool), new_endpoint (stored for next restart), standard_update (updates "
+                "the standards layer immediately on approval), or config_change (stored). "
+                "Include test_cases (schema_valid checks) for staging validation. "
+                "Set consensus_quorum > 1 to require multiple approvers."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_type":    {"type": "string",
+                                        "description": "new_tool | new_endpoint | standard_update | config_change"},
+                    "spec":             {"type": "object", "description": "Change specification (name, description, inputSchema, content, etc.)"},
+                    "test_cases":       {"type": "array",  "description": "Validation assertions for staging"},
+                    "rationale":        {"type": "string", "description": "Why this change is needed"},
+                    "consensus_quorum": {"type": "integer","description": "Number of approvals required (default: 1)"},
+                },
+                "required": ["proposal_type", "spec", "test_cases", "rationale"]
+            }
+        ),
+        Tool(
+            name="proposal_status",
+            description=(
+                "Get the current status and details of a system proposal. "
+                "Returns proposal_type, spec, test_cases, status, staging_results, "
+                "approve_votes, rationale, and timestamps."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string", "description": "Proposal ID to look up"},
+                },
+                "required": ["proposal_id"]
+            }
+        ),
+        Tool(
+            name="proposal_approve",
+            description=(
+                "Cast an approval vote on a staged proposal. If consensus_quorum == 1, "
+                "the change is applied immediately (hot-reload for new_tool, direct apply "
+                "for standard_update). If quorum > 1, moves to in_review until enough "
+                "distinct agents approve. Only root/admin/orchestrator role can approve. "
+                "Emits system.extended on full approval."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string", "description": "Proposal ID to approve"},
+                },
+                "required": ["proposal_id"]
+            }
+        ),
+        Tool(
+            name="proposal_reject",
+            description=(
+                "Manually reject a pending or staged proposal. "
+                "Only root/admin/orchestrator role can reject. "
+                "Emits system.proposal_rejected event."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string", "description": "Proposal ID to reject"},
+                    "reason":      {"type": "string", "description": "Reason for rejection"},
+                },
+                "required": ["proposal_id", "reason"]
+            }
+        ),
+        Tool(
+            name="tools_reload",
+            description=(
+                "Reload the dynamic tool registry from /agentOS/tools/dynamic/. "
+                "Hot-reloads approved new_tool proposals without server restart. "
+                "Returns the updated count and list of dynamic tools."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
         # ── Benchmarks (v1.3.6) ─────────────────────────────────────────────
         Tool(
             name="benchmark_run",
@@ -1951,6 +2033,30 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "routing_overrides_list":
             return _out(await _get("/routing/overrides"))
+
+        # ── Self-Extending System (v1.3.7) ──────────────────────────────────
+        elif name == "proposal_submit":
+            body = {
+                "proposal_type":    arguments["proposal_type"],
+                "spec":             arguments["spec"],
+                "test_cases":       arguments["test_cases"],
+                "rationale":        arguments["rationale"],
+                "consensus_quorum": arguments.get("consensus_quorum", 1),
+            }
+            return _out(await _post("/proposals", body))
+
+        elif name == "proposal_status":
+            return _out(await _get(f"/proposals/{arguments['proposal_id']}"))
+
+        elif name == "proposal_approve":
+            return _out(await _post(f"/proposals/{arguments['proposal_id']}/approve", {}))
+
+        elif name == "proposal_reject":
+            body = {"reason": arguments["reason"]}
+            return _out(await _post(f"/proposals/{arguments['proposal_id']}/reject", body))
+
+        elif name == "tools_reload":
+            return _out(await _post("/tools/reload", {}))
 
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         elif name == "rate_limit_status":
