@@ -68,11 +68,13 @@ from agents.consensus import ConsensusManager
 from agents.adaptive_router import AdaptiveRouter
 from agents.benchmark import BenchmarkManager
 from agents.proposals import ProposalEngine
+from agents.persistent_goal import PersistentGoalEngine
 from agents.semantic_memory import SemanticMemory
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
 import api.agent_routes as agent_routes
+import api.goal_routes as goal_routes
 import memory.manager as _mem_manager
 
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
@@ -290,10 +292,13 @@ async def _startup():
                       consensus_manager=_consensus_manager, adaptive_router=_adaptive_router,
                       benchmark_manager=_benchmark_manager,
                       proposal_engine=_proposal_engine)
+    _goal_engine = PersistentGoalEngine()
+    goal_routes.init(_goal_engine, registry=_registry)
     await _check_ollama_available()
 
 
 app.include_router(agent_routes.router)
+app.include_router(goal_routes.router)
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
