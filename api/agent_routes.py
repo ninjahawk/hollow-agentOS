@@ -36,15 +36,17 @@ _rate_limiter = None
 _checkpoint_manager = None
 _consensus_manager = None
 _adaptive_router = None
+_benchmark_manager = None
 
 
 def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
          events=None, model_manager=None, heap_registry=None, audit_log=None,
          txn_coordinator=None, lineage=None, rate_limiter=None,
-         checkpoint_manager=None, consensus_manager=None, adaptive_router=None):
+         checkpoint_manager=None, consensus_manager=None, adaptive_router=None,
+         benchmark_manager=None):
     global _registry, _bus, _scheduler, _events, _model_manager
     global _heap_registry, _audit_log, _txn_coordinator, _lineage, _rate_limiter
-    global _checkpoint_manager, _consensus_manager, _adaptive_router
+    global _checkpoint_manager, _consensus_manager, _adaptive_router, _benchmark_manager
     _registry = registry
     _bus = bus
     _scheduler = scheduler
@@ -58,6 +60,7 @@ def init(registry: AgentRegistry, bus: MessageBus, scheduler: TaskScheduler,
     _checkpoint_manager = checkpoint_manager
     _consensus_manager = consensus_manager
     _adaptive_router = adaptive_router
+    _benchmark_manager = benchmark_manager
 
 
 def _audit(agent, operation: str, params: dict,
@@ -1525,3 +1528,77 @@ def remove_routing_override(
         _events.emit("routing.override_removed", caller.agent_id, {"override_id": override_id})
     _audit(caller, "routing_override_remove", {"override_id": override_id})
     return {"ok": True}
+
+
+# ── v1.3.6 — Real Benchmark Suite ────────────────────────────────────────────
+
+class BenchmarkRunRequest(BaseModel):
+    scenarios: Optional[list] = None          # None = all structural scenarios
+    include_ollama: bool = False
+
+
+def _require_benchmark_manager():
+    if not _benchmark_manager:
+        raise HTTPException(status_code=503, detail="Benchmark manager not initialized")
+
+
+@router.post("/benchmarks/run")
+def run_benchmarks(
+    req: BenchmarkRunRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Run the benchmark suite. Returns a BenchmarkReport with per-scenario metrics.
+    Runs all structural scenarios by default. Set include_ollama=true to also
+    run Ollama-dependent task latency benchmarks (skipped if Ollama unavailable).
+    Note: benchmark runs take 10–60 seconds depending on selected scenarios.
+    """
+    caller = _resolve_agent(authorization)
+    _require_benchmark_manager()
+    from dataclasses import asdict
+    report = _benchmark_manager.run(
+        scenarios=req.scenarios,
+        include_ollama=req.include_ollama,
+    )
+    _audit(caller, "benchmark_run", {
+        "run_id":       report.run_id,
+        "scenario_count": len(report.scenarios_run),
+    })
+    return asdict(report)
+
+
+@router.get("/benchmarks/results")
+def benchmark_results(
+    limit: int = 5,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return the last N benchmark run reports (default: 5).
+    Each report includes full per-scenario metrics and summary.
+    """
+    _resolve_agent(authorization)
+    _require_benchmark_manager()
+    results = _benchmark_manager.get_results(limit=limit)
+    return {"results": results, "count": len(results)}
+
+
+@router.get("/benchmarks/compare")
+def benchmark_compare(
+    baseline: Optional[str] = None,
+    current: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Compare two benchmark runs and return a RegressionReport.
+    If baseline/current run IDs are not specified, compares the last two runs.
+    Flags regressions (>15% degradation) and improvements (>15% gain).
+    """
+    _resolve_agent(authorization)
+    _require_benchmark_manager()
+    result = _benchmark_manager.compare(
+        baseline_run_id=baseline,
+        current_run_id=current,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
