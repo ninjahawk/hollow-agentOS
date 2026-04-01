@@ -40,6 +40,18 @@ from typing import Optional, Tuple, List
 
 REASONING_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "reasoning"
 
+# Qwen model configuration
+QWEN_ENABLED = os.getenv("QWEN_ENABLED", "false").lower() == "true"
+QWEN_HOST = os.getenv("QWEN_HOST", "http://localhost:11434")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen:latest")
+
+# Try to import Ollama client if available
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+
 
 @dataclass
 class ReasoningContext:
@@ -60,11 +72,31 @@ class ReasoningContext:
 class ReasoningLayer:
     """Autonomous decision-making: intent → reasoning → capability selection."""
 
-    def __init__(self, capability_graph=None, execution_engine=None):
+    def __init__(self, capability_graph=None, execution_engine=None, use_qwen=False):
         self._lock = threading.RLock()
         self._capability_graph = capability_graph
         self._execution_engine = execution_engine
+        self._use_qwen = use_qwen and REQUESTS_AVAILABLE and QWEN_ENABLED
+        self._qwen_available = False
+
+        # Check if Qwen is actually available
+        if self._use_qwen:
+            self._qwen_available = self._check_qwen_health()
+
         REASONING_PATH.mkdir(parents=True, exist_ok=True)
+
+    # ── Health Check ───────────────────────────────────────────────────────
+
+    def _check_qwen_health(self) -> bool:
+        """Check if Qwen model is running and healthy."""
+        if not REQUESTS_AVAILABLE:
+            return False
+
+        try:
+            response = requests.get(f"{QWEN_HOST}/api/tags", timeout=2)
+            return response.status_code == 200
+        except Exception:
+            return False
 
     # ── API ────────────────────────────────────────────────────────────────
 
@@ -74,7 +106,7 @@ class ReasoningLayer:
         Returns (capability_id, params, confidence, reasoning_text).
 
         This is where autonomous decision-making happens.
-        In production: replace mock with actual Qwen call.
+        Uses Qwen if available, falls back to heuristics.
         """
         reasoning_id = f"rsn-{uuid.uuid4().hex[:12]}"
 
@@ -87,12 +119,16 @@ class ReasoningLayer:
         if not candidates:
             return (None, {}, 0.0, "No matching capabilities found")
 
-        # Step 2: Mock Qwen reasoning (production: actual LLM call here)
-        # In real impl: call Qwen API with intent + candidates
-        selected_cap = candidates[0]  # For now, pick top match
-        params = self._generate_params(intent, selected_cap)
-        confidence = 0.85  # Mock confidence
-        reasoning_text = f"Selected {selected_cap} to handle '{intent}'"
+        # Step 2: Use Qwen if available, otherwise use heuristics
+        if self._qwen_available:
+            selected_cap, params, confidence, reasoning_text = self._reason_with_qwen(
+                intent, candidates
+            )
+        else:
+            selected_cap = candidates[0]
+            params = self._generate_params(intent, selected_cap)
+            confidence = 0.85
+            reasoning_text = f"Selected {selected_cap} to handle '{intent}'"
 
         # Step 3: Record the reasoning
         context = ReasoningContext(
@@ -107,6 +143,80 @@ class ReasoningLayer:
         )
         self._record_reasoning(agent_id, context)
 
+        return (selected_cap, params, confidence, reasoning_text)
+
+    def _reason_with_qwen(self, intent: str, candidates: List[str]) -> Tuple[str, dict, float, str]:
+        """
+        Use Qwen model to reason about intent and select capability.
+        Falls back to heuristics if Qwen call fails.
+        """
+        try:
+            # Build prompt for Qwen
+            candidates_str = ", ".join(candidates[:3])  # Limit to first 3 for clarity
+            prompt = f"""You are an intelligent agent system. Given an intent and available capabilities,
+select the best capability to accomplish the goal.
+
+Intent: "{intent}"
+Available capabilities: {candidates_str}
+
+Respond ONLY with valid JSON (no other text):
+{{
+    "selected_capability": "<one of the available capabilities>",
+    "reasoning": "<2-3 word explanation>",
+    "confidence": 0.8
+}}"""
+
+            # Call Qwen via Ollama API
+            response = requests.post(
+                f"{QWEN_HOST}/api/generate",
+                json={
+                    "model": QWEN_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "temperature": 0.2,
+                    "top_p": 0.9,
+                },
+                timeout=60,
+            )
+
+            if response.status_code != 200:
+                return self._fallback_reasoning(intent, candidates)
+
+            response_text = response.json().get("response", "").strip()
+
+            # Parse JSON response from Qwen
+            try:
+                json_start = response_text.find("{")
+                json_end = response_text.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = response_text[json_start:json_end]
+                    result = json.loads(json_str)
+
+                    selected_cap = result.get("selected_capability", candidates[0])
+                    reasoning = result.get("reasoning", "Qwen-selected capability")
+                    confidence = float(result.get("confidence", 0.75))
+                    params = result.get("parameters", {})
+
+                    # Ensure selected capability is in candidates
+                    if selected_cap not in candidates:
+                        selected_cap = candidates[0]
+
+                    return (selected_cap, params, confidence, reasoning)
+            except (json.JSONDecodeError, ValueError, IndexError, TypeError):
+                pass
+
+        except Exception:
+            pass
+
+        # Fallback to heuristics
+        return self._fallback_reasoning(intent, candidates)
+
+    def _fallback_reasoning(self, intent: str, candidates: List[str]) -> Tuple[str, dict, float, str]:
+        """Fallback reasoning when Qwen is unavailable."""
+        selected_cap = candidates[0]
+        params = self._generate_params(intent, selected_cap)
+        confidence = 0.70
+        reasoning_text = f"Heuristic: {selected_cap}"
         return (selected_cap, params, confidence, reasoning_text)
 
     def _generate_params(self, intent: str, capability_id: str) -> dict:
