@@ -155,7 +155,7 @@ class BenchmarkManager:
             latencies = []
             for i in range(20):
                 t0 = time.time()
-                self._post("/messages", {"to": id_b, "content": f"ping {i}"}, h_a)
+                self._post("/messages", {"to_id": id_b, "content": {"text": f"ping {i}"}}, h_a)
                 msgs = self._get("/messages?unread_only=true&limit=1", h_b)
                 latencies.append((time.time() - t0) * 1000)
 
