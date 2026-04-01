@@ -87,21 +87,91 @@ Replacing every human-facing interface with agent-native cognition. No JSON, RES
 
 ---
 
-## Phase 4: Distributed Infrastructure (v2.6.0 – v3.0.0) 🚀 PLANNED
+## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) 🚀 PLANNED
 
-Agents operating across multiple machines (cloud + local). Seamless coordination in embedding space.
+Make agents actually autonomous. Infrastructure → execution → reasoning → self-modification.
 
-### v2.6.0: Multi-Node Communication
-**Goal:** Network-transparent agent communication
+**Core Realization:** Don't distribute non-autonomous systems. Make them think first, then scale them.
 
-- Semantic message passing between machines (no REST)
-- Agent location discovery (which machine has agent X)
+### v2.6.0: Execution Engine
+**Goal:** Capabilities become runnable. Metadata → real execution.
+
+- Capability dispatch: agent needs X, OS finds capability, invokes it
+- Execution backends: shell, HTTP, Python, container execution
+- Result capture: outcome stored as embedding back into semantic space
+- Error handling and recovery
+- Execution timeout and resource limits
+- **Target: 10 integration tests**
+
+Example: Agent says "read /data/log.txt" → graph finds read_file capability → executes it → stores result in memory
+
+### v2.7.0: Reasoning Layer
+**Goal:** Agents think through problems. Qwen integration for autonomous decision-making.
+
+- Connect Qwen (or compatible local LLM) as reasoning engine
+- Intent → reasoning → capability selection
+- Multi-step reasoning (decompose complex intents)
+- Confidence tracking (how sure is the agent?)
+- Reasoning logs stored in memory for learning
+- **Target: 12 integration tests**
+
+Example: Agent intent "optimize database performance" → Qwen reasons → "I should profile queries, add indexes, and adjust cache" → executes each → learns outcomes
+
+### v2.8.0: Autonomy Loop
+**Goal:** Agents pursue goals indefinitely, learn, and improve.
+
+- Goal pursuit loop: retrieve active goal, reason about next step, execute, update progress
+- Learning integration: store execution outcomes + lessons in semantic memory
+- Synthesis integration: observe gaps during execution, propose new capabilities
+- Feedback cycle: measure against goal metrics, adjust strategy
+- Context persistence: agent state survives across multiple invocations
+- **Target: 13 integration tests**
+
+Example: Agent working on "reduce latency by 30%" → tries optimization → measures → stores result → next session retrieves memory → continues from there → synthesizes new capability when stuck
+
+### v2.9.0: Self-Modification
+**Goal:** Agents extend themselves autonomously. Full agent self-modification.
+
+- Gap synthesis fully integrated: agent detects "I can't do X" → generates capability
+- Autonomous testing: synthesized capabilities are tested before proposal
+- Quorum integration: agent proposes new capabilities, gets multi-agent approval
+- Runtime deployment: approved capabilities available immediately
+- Self-improvement loop: agents observe patterns, generate optimizations
+- **Target: 11 integration tests**
+
+Example: Agent repeatedly hits "no capability to send email" → synthesizes email_sender → tests it → proposes to quorum → deployed → now it can email → does same for SMS, Slack, etc.
+
+### v3.0.0: Fully Autonomous Single Agent
+**Goal:** Single agent that can think, act, learn, extend itself.
+
+- All Phase 4 components integrated
+- Agent can pursue arbitrary goals indefinitely
+- No human intervention needed (no prompts, no config changes)
+- Self-evolving (gets better, faster, more capable over time)
+- Operates in pure embedding space (no REST, no JSON, no symbolic translation)
+- **Target: 15 integration tests**
+
+Example: Agent spawns with goal "maintain system health" → reasons about what's needed → executes health checks → learns patterns → synthesizes monitoring capabilities → proposes optimizations → improves continuously
+
+**Phase 4 Result:** Single autonomous agent in embedding space. Ready to scale.
+
+---
+
+## Phase 5: Distributed Autonomy (v3.1.0 – v3.5.0) 🔮 PLANNED
+
+Scale autonomous agents across multiple machines. Coordination, consensus, collective reasoning.
+
+### v3.1.0: Multi-Node Communication
+**Goal:** Agents coordinate across machines in embedding space.
+
+- Semantic message passing (no REST)
+- Agent location discovery (distributed registry)
 - Embedding-space network protocol
 - Network topology management
 - **Target: 8 integration tests**
 
-### v2.7.0: Distributed Consensus
-**Goal:** Quorum voting across machines
+### v3.2.0: Distributed Consensus
+**Goal:** Multi-agent governance at scale.
 
 - Cross-node proposal voting
 - Byzantine fault tolerance
@@ -109,8 +179,8 @@ Agents operating across multiple machines (cloud + local). Seamless coordination
 - Network partition recovery
 - **Target: 10 integration tests**
 
-### v2.8.0: Distributed Memory & Goals
-**Goal:** Synchronized state across all nodes
+### v3.3.0: Distributed Memory & Goals
+**Goal:** Global state synchronized across nodes.
 
 - Semantic memory replication
 - Distributed goal tracking
@@ -118,37 +188,40 @@ Agents operating across multiple machines (cloud + local). Seamless coordination
 - Conflict resolution for concurrent updates
 - **Target: 12 integration tests**
 
-### v2.9.0: Agent Migration
-**Goal:** Agents move freely between machines
+### v3.4.0: Agent Migration & Load Balancing
+**Goal:** Agents move freely, swarm coordination.
 
 - State serialization in embedding space
 - Load balancing based on capability distribution
-- Local ↔ cloud transitions (seamless)
+- Local ↔ cloud transitions
 - Resource-aware placement
+- Swarm consensus on resource allocation
 - **Target: 9 integration tests**
 
-### v3.0.0: Fully Distributed AgentOS
-**Goal:** Peer-to-peer, no central authority
+### v3.5.0: Fully Distributed Autonomous Swarm
+**Goal:** Multi-agent mesh. Peer-to-peer, collective reasoning.
 
-- All Phase 3 components working across N machines
-- Peer-to-peer architecture (optional central coordinator)
-- Cloud bursting (local spawns cloud when needed)
-- True agent autonomy at any scale
+- All Phase 5 components integrated
+- Agents coordinate via quorum at scale
+- Collective problem-solving (swarm cognition)
+- Emergent capabilities (agents discovering patterns together)
+- Cloud bursting (local swarm spawns cloud nodes when needed)
 - **Target: 15 integration tests**
 
-**Phase 4 Result:** Agents scale from single machine to global mesh. Still pure embedding space end-to-end.
+**Phase 5 Result:** Autonomous agent mesh at any scale. Local to global.
 
 ---
 
-## Phase 5: Advanced Cognition (v3.1.0 – v3.5.0) 🔮 FUTURE
+## Phase 6: Meta-Intelligence (v3.6.0+) 🔮 FUTURE
 
-Once agents can distribute, they can specialize and collaborate deeper.
+Once distributed autonomous agents exist, enable meta-cognition.
 
-- Multi-agent reasoning (collective problem solving)
-- Knowledge synthesis (combining agent memories)
-- Emergent capabilities (agents discovering new patterns together)
-- Meta-learning (agents that learn how to learn)
-- Self-modifying governance (agents evolving their own rules)
+- Multi-agent reasoning (swarm problem-solving strategies)
+- Knowledge synthesis (agents combining insights across memory)
+- Emergent capabilities (discovering patterns from swarm behavior)
+- Meta-learning (agents learning how to learn better)
+- Self-evolving governance (agents refining quorum rules)
+- Agent specialization (agents optimize for different domains)
 
 ---
 
@@ -192,18 +265,21 @@ Once agents can distribute, they can specialize and collaborate deeper.
 
 ## How to Contribute
 
-Phase 4 begins after v2.5.0 lands. Core priorities:
+Phase 4 begins after v2.5.0. Core priorities (in order):
 
-1. **Multi-node message passing** — Design semantic network protocol. No REST.
-2. **Distributed memory sync** — Replicate embeddings across machines. Keep index.json global.
-3. **Agent migration** — Serialize goal engine state. Move agents between machines.
-4. **Load balancing** — Place agents where capabilities exist. Optimize placement.
-5. **Byzantine tolerance** — Make quorum voting work with faulty nodes.
+1. **v2.6.0: Execution Engine** — Make capabilities runnable. Shell, HTTP, Python backends.
+2. **v2.7.0: Reasoning Layer** — Integrate Qwen. Agent reasoning → capability selection.
+3. **v2.8.0: Autonomy Loop** — Goal pursuit, learning, synthesis integration.
+4. **v2.9.0: Self-Modification** — Full autonomous self-extension via quorum.
+5. **v3.0.0: Single Agent Done** — Verify one autonomous agent works end-to-end.
+
+Then Phase 5: Multi-node coordination, distribution, swarm cognition.
 
 See `/agents/` for Phase 3 implementation examples. All code uses embeddings-native design.
 
 ---
 
 Generated: 2026-04-01
-Current Phase: 3 (Cognitive Infrastructure)
-Next Phase: 4 (Distributed Infrastructure)
+Current Phase: 3 (Cognitive Infrastructure) ✅ Complete
+Next Phase: 4 (Agent Autonomy) — Make agents think and act
+Future Phase: 5 (Distributed Autonomy) — Scale autonomous agents
