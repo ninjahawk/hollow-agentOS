@@ -590,7 +590,14 @@ if __name__ == "__main__":
     if cmd == "index":
         root = sys.argv[2] if len(sys.argv) > 2 else None
         result = index_workspace(root)
-        print(json.dumps({"ok": True, "stats": result["stats"]}))
+        # Also rebuild the semantic (embedding) index so search stays current
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from tools.semantic import index_workspace as semantic_index
+            sem = semantic_index()
+            print(json.dumps({"ok": True, "stats": result["stats"], "semantic": sem}))
+        except Exception as e:
+            print(json.dumps({"ok": True, "stats": result["stats"], "semantic_error": str(e)}))
 
     elif cmd == "context":
         print(json.dumps(get_session_context()))
