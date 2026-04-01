@@ -81,6 +81,11 @@ EVENT_TYPES = frozenset({
     "consensus.reached",
     "consensus.rejected",
     "consensus.expired",
+    # v1.3.7 — self-extending system
+    "system.proposal_submitted",
+    "system.staging_ready",
+    "system.extended",
+    "system.proposal_rejected",
     # v1.3.3 — checkpoints and replay
     "agent.checkpointed",
     "agent.restored",
