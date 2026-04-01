@@ -68,6 +68,7 @@ from agents.consensus import ConsensusManager
 from agents.adaptive_router import AdaptiveRouter
 from agents.benchmark import BenchmarkManager
 from agents.proposals import ProposalEngine
+from agents.semantic_memory import SemanticMemory
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
