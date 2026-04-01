@@ -20,7 +20,7 @@
 
 ## The Problem
 
-Right now, AI agents work in human computing environments. They use tools designed for humans. They serialize to JSON. They follow APIs built for REST clients. They think in the symbolic systems humans created. It's like asking a fish to climb a tree — not because the fish is weak, but because the tree wasn't built for fish.
+Right now, AI agents work in human computing environments. They use tools designed for humans. They serialize to JSON. They follow APIs built for REST clients. They think in the symbolic systems humans created. It's like asking a fish to climb a tree, not because the fish is weak, but because the tree wasn't built for fish.
 
 Everything changes when you build an OS **for agents**, not **for humans who want to use agents**.
 
