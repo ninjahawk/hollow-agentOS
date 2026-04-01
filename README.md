@@ -7,11 +7,11 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.3.3-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-1.3.4-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-75-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-88%20passing-brightgreen?style=flat-square)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-79-purple?style=flat-square)](#mcp-tools)
+[![Tests](https://img.shields.io/badge/integration%20tests-95%20passing-brightgreen?style=flat-square)](#testing)
 
 </div>
 
@@ -21,7 +21,7 @@ The missing layer between a language model and a real computing environment.
 
 Current agent frameworks give you tool calling. What they don't give you is what an OS gives a process: identity with enforced boundaries, signals, non-blocking I/O, memory with eviction policy, audit-quality observability, atomic multi-party coordination, and the ability to compose agents into systems where you can trace causality, measure blast radius, and recover from failure. Hollow builds that layer.
 
-This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 88 integration tests run against the live API with no mocks.
+This is not a research demo. It runs on a single machine, routes tasks to local Ollama models, and all 95 integration tests run against the live API with no mocks.
 
 ---
 
@@ -114,6 +114,16 @@ Three auto-checkpoint triggers:
 
 Requires: memory heap (v1.0.0) for heap snapshot/restore, and transactions (v1.2.0) for pre-commit auto-checkpoint.
 
+### Multi-Agent Consensus (v1.3.4)
+
+One agent reaching a conclusion is a decision. Multiple independent agents reaching the same conclusion is a commitment — one that survives the failure or compromise of any single participant.
+
+A proposer submits an action with a list of participants and a required vote count. Participants receive a `consensus.vote_requested` event and vote accept or reject. When accepts reach `required_votes`, the proposal is accepted and `consensus.reached` fires with the full action payload. Early rejection is computed: if the remaining uncast votes cannot mathematically close the gap, the proposal is rejected immediately rather than waiting for the TTL. This prevents cascading delays in time-sensitive pipelines.
+
+Execution is intentionally out of scope. `consensus.reached` carries the action dict; the proposer acts on it. Consensus is a coordination mechanism, not an executor. To couple consensus to a transaction: include `{"txn_id": "..."}` in the action dict and listen for `consensus.reached` before committing. Pre-commit checkpoints (v1.3.3) ensure rollback is possible if anything fails after consensus but before the transaction commits.
+
+Requires: events (v0.7.0) for vote distribution and consensus notifications, and transactions (v1.2.0) as the primary action type consensus gates.
+
 ---
 
 ## Benchmarks
@@ -162,20 +172,21 @@ hollow-agentOS/
 │   ├── lineage.py         # Agent call graph, blast radius, critical path
 │   ├── ratelimit.py       # Token bucket rate limiting, circuit breaker
 │   ├── checkpoint.py      # Save/restore/diff/replay agent state snapshots
+│   ├── consensus.py       # Multi-agent consensus — propose, vote, quorum, early rejection
 │   ├── model_manager.py   # VRAM tracker, LRU eviction, model affinity
 │   └── standards.py       # Project conventions store + semantic matching
 ├── memory/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 75 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 79 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   ├── bench_real_baseline.py   # Real baseline benchmark
 │   ├── bench_breakeven.py       # Break-even analysis
 │   └── experiment_agent_drift.py # Agent drift experiment
 ├── tests/
-│   └── integration/       # 82 integration tests — no mocks, live API
+│   └── integration/       # 95 integration tests — no mocks, live API
 │       ├── test_api.py
 │       ├── test_events.py
 │       ├── test_signals.py
@@ -185,7 +196,8 @@ hollow-agentOS/
 │       ├── test_lineage.py
 │       ├── test_streaming.py
 │       ├── test_ratelimit.py
-│       └── test_checkpoint.py
+│       ├── test_checkpoint.py
+│       └── test_consensus.py
 ├── shell/
 │   └── agent_shell.py     # JSON-native shell, deadlock-safe
 ├── sdk/
@@ -267,6 +279,25 @@ POST   /checkpoints/{id}/replay              Run task N times from checkpoint, m
 `replay` body: `{"task_description": "...", "n_runs": 5}` — returns `consistency_score` (0.0–1.0) and `divergence_points`.
 
 Auto-checkpoint fires before transaction commit, on SIGPAUSE, and after tasks >30 seconds.
+
+</details>
+
+<details>
+<summary><strong>Multi-Agent Consensus (v1.3.4)</strong></summary>
+
+```
+POST   /consensus/propose              Submit proposal — returns proposal_id
+POST   /consensus/{id}/vote            Cast a vote (accept/reject)
+GET    /consensus/{id}                 Get proposal status and current tally
+GET    /agents/{id}/consensus          List proposals where agent is proposer or participant
+DELETE /consensus/{id}                 Withdraw pending proposal (proposer only)
+```
+
+`propose` body: `{"description": "...", "action": {...}, "participants": ["id1", "id2"], "required_votes": 2, "ttl_seconds": 300}`.
+
+`vote` body: `{"accept": true, "reason": "optional explanation"}`.
+
+Early rejection fires when remaining uncast votes cannot reach quorum — no waiting for TTL.
 
 </details>
 
@@ -522,7 +553,7 @@ curl -X POST http://localhost:7777/agents/register \
 
 ## Testing
 
-88 integration tests against the live API. No mocks. No seeded state.
+95 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
 # All integration tests
@@ -536,6 +567,7 @@ PYTHONPATH=. pytest tests/integration/test_lineage.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_streaming.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
+PYTHONPATH=. pytest tests/integration/test_consensus.py -v -m integration
 ```
 
 Ollama-dependent tests skip automatically if Ollama is unavailable.
@@ -546,7 +578,7 @@ Ollama-dependent tests skip automatically if Ollama is unavailable.
 
 Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
 
-Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints — work without a GPU.
+Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints, consensus — work without a GPU.
 
 With a GPU: models up to 14B fit in VRAM; up to 35B run with partial CPU offload. `nomic-embed-text` (semantic search) uses ~300 MB and stays resident. The VRAM scheduler tracks utilization and routes tasks to already-loaded models first.
 
@@ -570,7 +602,7 @@ Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
 | v1.3.1 | Streaming Task Outputs | ✓ |
 | v1.3.2 | Rate Limiting and Admission Control | ✓ |
 | v1.3.3 | Agent Checkpoints and Replay | ✓ |
-| v1.3.4 | Multi-Agent Consensus | — |
+| v1.3.4 | Multi-Agent Consensus | ✓ |
 | v1.3.5 | Adaptive Model Routing | — |
 | v1.3.6 | Real Benchmark Suite | — |
 | v1.3.7 | Self-Extending System | — |

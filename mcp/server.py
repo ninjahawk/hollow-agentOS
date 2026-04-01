@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.3
+AgentOS MCP Server v1.3.4
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (75 total):
+Tools (79 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -38,6 +38,8 @@ Tools (75 total):
   Rate:      rate_limit_status, rate_limit_configure            (v1.3.2)
   Checkpts:  agent_checkpoint, agent_restore,
              checkpoint_diff, checkpoint_replay                 (v1.3.3)
+  Consensus: consensus_propose, consensus_vote,
+             consensus_status, consensus_list                   (v1.3.4)
 """
 
 import asyncio
@@ -1182,6 +1184,73 @@ async def list_tools() -> list[Tool]:
                 "required": ["checkpoint_id", "task_description"]
             }
         ),
+        # ── Consensus (v1.3.4) ──────────────────────────────────────────────
+        Tool(
+            name="consensus_propose",
+            description=(
+                "Submit a multi-agent consensus proposal. Participants are notified via "
+                "consensus.vote_requested events and must vote accept/reject. "
+                "Consensus is reached when accepts >= required_votes. "
+                "Returns proposal_id. Include a txn_id in action to commit a transaction on consensus."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "description":   {"type": "string", "description": "Human-readable description of what is being proposed"},
+                    "action":        {"type": "object", "description": "Opaque action payload returned in consensus.reached event"},
+                    "participants":  {"type": "array",  "items": {"type": "string"}, "description": "Agent IDs who may vote"},
+                    "required_votes": {"type": "integer", "description": "Number of accepts needed to reach consensus"},
+                    "ttl_seconds":   {"type": "number",  "description": "Seconds before proposal expires (default: 300)"},
+                },
+                "required": ["description", "action", "participants", "required_votes"]
+            }
+        ),
+        Tool(
+            name="consensus_vote",
+            description=(
+                "Cast a vote on a consensus proposal. Caller must be listed in participants. "
+                "Returns the current tally and updated proposal status "
+                "(pending | accepted | rejected)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string",  "description": "Proposal ID to vote on"},
+                    "accept":      {"type": "boolean", "description": "True to accept, False to reject"},
+                    "reason":      {"type": "string",  "description": "Optional explanation for the vote"},
+                },
+                "required": ["proposal_id", "accept"]
+            }
+        ),
+        Tool(
+            name="consensus_status",
+            description=(
+                "Get the current state of a consensus proposal: status, votes cast, "
+                "required_votes, participants, and result if resolved."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string", "description": "Proposal ID to inspect"},
+                },
+                "required": ["proposal_id"]
+            }
+        ),
+        Tool(
+            name="consensus_list",
+            description=(
+                "List consensus proposals where the given agent is the proposer or a participant. "
+                "By default returns only pending proposals."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id":          {"type": "string",  "description": "Agent ID to list proposals for"},
+                    "include_resolved":  {"type": "boolean", "description": "Include accepted/rejected/expired proposals (default: false)"},
+                },
+                "required": ["agent_id"]
+            }
+        ),
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         Tool(
             name="rate_limit_status",
@@ -1714,6 +1783,31 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return _out(await _post(
                 f"/checkpoints/{arguments['checkpoint_id']}/replay", body
             ))
+
+        # ── Consensus (v1.3.4) ──────────────────────────────────────────────
+        elif name == "consensus_propose":
+            body = {
+                "description":   arguments["description"],
+                "action":        arguments["action"],
+                "participants":  arguments["participants"],
+                "required_votes": arguments["required_votes"],
+                "ttl_seconds":   arguments.get("ttl_seconds", 300.0),
+            }
+            return _out(await _post("/consensus/propose", body))
+
+        elif name == "consensus_vote":
+            body = {
+                "accept": arguments["accept"],
+                "reason": arguments.get("reason", ""),
+            }
+            return _out(await _post(f"/consensus/{arguments['proposal_id']}/vote", body))
+
+        elif name == "consensus_status":
+            return _out(await _get(f"/consensus/{arguments['proposal_id']}"))
+
+        elif name == "consensus_list":
+            params = f"?include_resolved={str(arguments.get('include_resolved', False)).lower()}"
+            return _out(await _get(f"/agents/{arguments['agent_id']}/consensus{params}"))
 
         # ── Rate Limiting (v1.3.2) ───────────────────────────────────────────
         elif name == "rate_limit_status":

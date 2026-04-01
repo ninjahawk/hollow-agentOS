@@ -71,6 +71,13 @@ EVENT_TYPES = frozenset({
     # v1.3.2 — rate limiting
     "security.circuit_break",
     "rate_limit.denied",
+    # v1.3.4 — multi-agent consensus
+    "consensus.proposed",
+    "consensus.vote_requested",
+    "consensus.vote_cast",
+    "consensus.reached",
+    "consensus.rejected",
+    "consensus.expired",
     # v1.3.3 — checkpoints and replay
     "agent.checkpointed",
     "agent.restored",

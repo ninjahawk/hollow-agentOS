@@ -64,6 +64,7 @@ from agents.transaction import TransactionCoordinator
 from agents.lineage import LineageGraph
 from agents.ratelimit import RateLimiter
 from agents.checkpoint import CheckpointManager
+from agents.consensus import ConsensusManager
 from agents.standards import (
     set_standard, get_standard, list_standards, delete_standard, get_relevant_standards
 )
@@ -215,12 +216,14 @@ _txn_coordinator: TransactionCoordinator = None
 _lineage: LineageGraph = None
 _rate_limiter: RateLimiter = None
 _checkpoint_manager: CheckpointManager = None
+_consensus_manager: ConsensusManager = None
 
 
 @app.on_event("startup")
 async def _startup():
     global _registry, _bus, _scheduler, _events, _model_manager, _heap_registry
     global _audit_log, _txn_coordinator, _lineage, _rate_limiter, _checkpoint_manager
+    global _consensus_manager
     config = _load_config()
     master_token = config.get("api", {}).get("token", "")
     _events = EventBus()
@@ -234,6 +237,7 @@ async def _startup():
     _lineage = LineageGraph()
     _rate_limiter = RateLimiter()
     _checkpoint_manager = CheckpointManager()
+    _consensus_manager = ConsensusManager()
     # Wire the event bus into every subsystem that emits events
     _events.set_bus(_bus)
     _bus.set_event_bus(_events)
@@ -263,10 +267,12 @@ async def _startup():
         events=_events,
     )
     _scheduler.set_checkpoint_manager(_checkpoint_manager)
+    _consensus_manager.set_subsystems(events=_events, registry=_registry)
     _mem_manager.set_event_bus(_events)
     agent_routes.init(_registry, _bus, _scheduler, _events, _model_manager,
                       _heap_registry, _audit_log, _txn_coordinator, lineage=_lineage,
-                      rate_limiter=_rate_limiter, checkpoint_manager=_checkpoint_manager)
+                      rate_limiter=_rate_limiter, checkpoint_manager=_checkpoint_manager,
+                      consensus_manager=_consensus_manager)
     await _check_ollama_available()
 
 
