@@ -1,6 +1,6 @@
 # AgentOS Roadmap
 
-## Current Status: v3.6.0 (Phase 6 Started - Agent Introspection Complete)
+## Current Status: v3.10.0 (Phase 6 Complete — 85 new tests)
 
 ---
 
@@ -222,41 +222,27 @@ Scale autonomous agents across multiple machines. Coordination, consensus, colle
 
 ---
 
-## Phase 6: Meta-Intelligence (v3.6.0+) 🚀 IN PROGRESS
+## Phase 6: Meta-Intelligence (v3.6.0 – v3.10.0) ✅ COMPLETE (85 tests)
 
-Once distributed autonomous agents exist, enable meta-cognition.
+### v3.6.0: Agent Introspection ✅ (16 tests)
+- `AgentIntrospector`: query_knowledge, explain_failure, compare, knowledge_gap
+- Read-only meta-lens on real stored state; no LLM inference
 
-### v3.6.0: Agent Introspection ✅
-**Status:** COMPLETE (16 integration tests, all passing)
+### v3.7.0: Meta-Knowledge Synthesis ✅ (19 tests)
+- `MetaSynthesizer`: synthesize cross-agent patterns, query, top_patterns,
+  agent_ranking, diff between synthesis snapshots
 
-- `AgentIntrospector`: read-only lens into agent knowledge and execution history
-- `query_knowledge(agent_id)`: memory topics, execution stats, capability usage, audit profile
-- `explain_failure(agent_id, task_id)`: causal chain tracing, root cause classification, remedies
-- `compare(agent_id_a, agent_id_b)`: diffs knowledge topics and capability strengths
-- `knowledge_gap(agent_id, task)`: identifies what an agent lacks for a specific task
-- Composes SemanticMemory, ExecutionEngine, AuditLog, CapabilityGraph — no LLM calls
+### v3.8.0: Self-Evolving Governance ✅ (17 tests)
+- `GovernanceEvolutionEngine`: observe outcomes, analyze quorum effectiveness,
+  propose rule changes via consensus, apply approved changes, auto_propose
 
-### v3.7.0: Meta-Knowledge Synthesis (next)
-- Cross-agent pattern extraction from execution histories
-- Shared knowledge pool queryable by any agent
-- "Across all agents, what approaches succeed on code tasks?"
-- Depends on: introspection + distributed memory
+### v3.9.0: Agent Specialization ✅ (16 tests)
+- `SpecializationEngine`: update, profile, route, top_specialist,
+  compare_specializations; specialization_score measures generalist↔specialist
 
-### v3.8.0: Self-Evolving Governance
-- Agents analyze quorum rule effectiveness
-- Propose and vote on changes to governance thresholds
-- Goes through existing consensus system
-- Depends on: synthesis + consensus
-
-### v3.9.0: Agent Specialization
-- Agents track success rates per task type
-- Swarm routes tasks based on discovered specializations
-- Depends on: synthesis + adaptive router
-
-### v3.10.0: Swarm Meta-Learning
-- Collective improvement over repeated problems
-- Synthesis of patterns discovered by specialization
-- Depends on: all above
+### v3.10.0: Swarm Meta-Learning ✅ (17 tests)
+- `LearningOrchestrator`: full learning cycle wiring all Phase 6 primitives;
+  improvement_trend, compare_cycles, recommendations, persistence
 
 ---
 
@@ -317,8 +303,12 @@ See `/agents/` for Phase 3 implementation examples. All code uses embeddings-nat
 Generated: 2026-04-01
 Updated: 2026-04-01
 
-✅ PHASE 6 STARTED: Meta-Intelligence
+✅ PHASE 6 COMPLETE: Meta-Intelligence (85/85 tests)
   - v3.6.0: Agent Introspection ✅ (16 tests)
+  - v3.7.0: Meta-Knowledge Synthesis ✅ (19 tests)
+  - v3.8.0: Self-Evolving Governance ✅ (17 tests)
+  - v3.9.0: Agent Specialization ✅ (16 tests)
+  - v3.10.0: Swarm Meta-Learning ✅ (17 tests)
 
 ✅ PHASE 5 COMPLETE: Distributed Autonomy (99/99 tests)
   - v3.1.0: Multi-Node Communication ✅
@@ -332,6 +322,11 @@ Updated: 2026-04-01
 ✅ PHASE 2 COMPLETE: Agent Services
 ✅ PHASE 1 COMPLETE: OS Kernel Primitives
 
-Grand Total: 442 tests, all passing
+Grand Total: 527 tests, all passing
 
-🚀 Next: v3.7.0 Meta-Knowledge Synthesis — cross-agent pattern extraction
+Phase 6 deliverables: 5 new modules, 85 new tests, zero failures on first complete run.
+  agents/introspection.py — agents examine themselves and each other
+  agents/meta_synthesis.py — swarm extracts cross-agent knowledge patterns
+  agents/governance_evolution.py — quorum rules evolve from observed outcomes
+  agents/specialization.py — agents discover and bias toward strengths
+  agents/swarm_learning.py — collective improvement loop across all primitives
