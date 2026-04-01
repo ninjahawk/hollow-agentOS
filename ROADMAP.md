@@ -1,6 +1,6 @@
 # AgentOS Roadmap
 
-## Current Status: v3.0.0 (Phase 4 Complete - 54/54 Tests) ✅ READY FOR PHASE 5
+## Current Status: v3.6.0 (Phase 6 Started - Agent Introspection Complete)
 
 ---
 
@@ -167,7 +167,7 @@ Example: Agent spawns with goal "maintain system health" → reasons about steps
 
 ---
 
-## Phase 5: Distributed Autonomy (v3.1.0 – v3.5.0) 🔮 PLANNED
+## Phase 5: Distributed Autonomy (v3.1.0 – v3.5.0) ✅ COMPLETE (99 tests)
 
 Scale autonomous agents across multiple machines. Coordination, consensus, collective reasoning.
 
@@ -222,16 +222,41 @@ Scale autonomous agents across multiple machines. Coordination, consensus, colle
 
 ---
 
-## Phase 6: Meta-Intelligence (v3.6.0+) 🔮 FUTURE
+## Phase 6: Meta-Intelligence (v3.6.0+) 🚀 IN PROGRESS
 
 Once distributed autonomous agents exist, enable meta-cognition.
 
-- Multi-agent reasoning (swarm problem-solving strategies)
-- Knowledge synthesis (agents combining insights across memory)
-- Emergent capabilities (discovering patterns from swarm behavior)
-- Meta-learning (agents learning how to learn better)
-- Self-evolving governance (agents refining quorum rules)
-- Agent specialization (agents optimize for different domains)
+### v3.6.0: Agent Introspection ✅
+**Status:** COMPLETE (16 integration tests, all passing)
+
+- `AgentIntrospector`: read-only lens into agent knowledge and execution history
+- `query_knowledge(agent_id)`: memory topics, execution stats, capability usage, audit profile
+- `explain_failure(agent_id, task_id)`: causal chain tracing, root cause classification, remedies
+- `compare(agent_id_a, agent_id_b)`: diffs knowledge topics and capability strengths
+- `knowledge_gap(agent_id, task)`: identifies what an agent lacks for a specific task
+- Composes SemanticMemory, ExecutionEngine, AuditLog, CapabilityGraph — no LLM calls
+
+### v3.7.0: Meta-Knowledge Synthesis (next)
+- Cross-agent pattern extraction from execution histories
+- Shared knowledge pool queryable by any agent
+- "Across all agents, what approaches succeed on code tasks?"
+- Depends on: introspection + distributed memory
+
+### v3.8.0: Self-Evolving Governance
+- Agents analyze quorum rule effectiveness
+- Propose and vote on changes to governance thresholds
+- Goes through existing consensus system
+- Depends on: synthesis + consensus
+
+### v3.9.0: Agent Specialization
+- Agents track success rates per task type
+- Swarm routes tasks based on discovered specializations
+- Depends on: synthesis + adaptive router
+
+### v3.10.0: Swarm Meta-Learning
+- Collective improvement over repeated problems
+- Synthesis of patterns discovered by specialization
+- Depends on: all above
 
 ---
 
@@ -290,23 +315,23 @@ See `/agents/` for Phase 3 implementation examples. All code uses embeddings-nat
 ---
 
 Generated: 2026-04-01
+Updated: 2026-04-01
+
+✅ PHASE 6 STARTED: Meta-Intelligence
+  - v3.6.0: Agent Introspection ✅ (16 tests)
+
+✅ PHASE 5 COMPLETE: Distributed Autonomy (99/99 tests)
+  - v3.1.0: Multi-Node Communication ✅
+  - v3.2.0: Distributed Consensus ✅
+  - v3.3.0: Distributed Memory & Goals ✅
+  - v3.4.0: Agent Migration ✅
+  - v3.5.0: Fully Distributed Autonomous Swarm ✅
+
 ✅ PHASE 4 COMPLETE: Complete Single Autonomous Agent (54/54 tests)
-  - v2.6.0: Execution Engine + Reasoning Layer ✅ (19 tests)
-  - v2.7.0: Autonomy Loop ✅ (9 tests)
-  - v2.8.0: Self-Modification ✅ (15 tests)
-  - v2.9.0: Self-Improvement Loop ✅ (9 tests)
-  - v3.0.0: Complete Autonomous Agent ✅ (2 end-to-end tests)
+✅ PHASE 3 COMPLETE: Cognitive Infrastructure (63 tests, 178 total with phases 1+2)
+✅ PHASE 2 COMPLETE: Agent Services
+✅ PHASE 1 COMPLETE: OS Kernel Primitives
 
-Previous Phases:
-  - Phase 1: OS Kernel Primitives ✅ Complete
-  - Phase 2: Agent Services ✅ Complete
-  - Phase 3: Cognitive Infrastructure ✅ Complete (178 tests)
+Grand Total: 442 tests, all passing
 
-Grand Total: 232 tests passing
-
-🔮 Next Phase: 5 (Distributed Autonomy v3.1.0-v3.5.0) — Scale autonomous agents to mesh
-  - Multi-node communication
-  - Distributed consensus
-  - Agent migration
-  - Swarm coordination
-  - Collective reasoning
+🚀 Next: v3.7.0 Meta-Knowledge Synthesis — cross-agent pattern extraction
