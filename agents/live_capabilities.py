@@ -163,7 +163,7 @@ LIVE_CAPABILITIES = [
             "Run a shell command on the OS. Use for file operations, running "
             "scripts, checking system state, installing packages, git operations."
         ),
-        "input_schema": "a shell command string to execute",
+        "input_schema": '{"command": "ls -la /agentOS/agents/", "cwd": "/agentOS"}',
         "output_schema": "stdout text, stderr text, exit code, and success flag",
         "composition_tags": ["execution", "system", "shell"],
         "fn": shell_exec,
@@ -176,7 +176,7 @@ LIVE_CAPABILITIES = [
             "Ask a language model a question or request reasoning. Use for "
             "analysis, planning, summarization, code generation, decision making."
         ),
-        "input_schema": "a question or prompt string",
+        "input_schema": '{"prompt": "Summarize the following: ..."}',
         "output_schema": "the model's response text",
         "composition_tags": ["reasoning", "inference", "llm", "analysis"],
         "fn": ollama_chat,
@@ -189,7 +189,7 @@ LIVE_CAPABILITIES = [
             "Read the contents of a file from the filesystem. "
             "Use to inspect code, configs, logs, or any text file."
         ),
-        "input_schema": "an absolute file path",
+        "input_schema": '{"path": "/agentOS/agents/autonomy_loop.py"}',
         "output_schema": "the file contents as text",
         "composition_tags": ["filesystem", "read", "io"],
         "fn": fs_read,
@@ -202,7 +202,7 @@ LIVE_CAPABILITIES = [
             "Write content to a file. Creates parent directories automatically. "
             "Use to save code, configs, results, or any text output."
         ),
-        "input_schema": "an absolute file path and content string to write",
+        "input_schema": '{"path": "/agentOS/workspace/output.txt", "content": "text to write"}',
         "output_schema": "confirmation with the path written",
         "composition_tags": ["filesystem", "write", "io"],
         "fn": fs_write,
@@ -216,7 +216,7 @@ LIVE_CAPABILITIES = [
             "and concepts matching a natural language query. "
             "Use before reading files to locate the right code."
         ),
-        "input_schema": "a natural language search query describing what to find",
+        "input_schema": '{"query": "how goals are stored on disk", "top_k": 5}',
         "output_schema": "list of matching code chunks with file path and score",
         "composition_tags": ["search", "semantic", "code", "discovery"],
         "fn": semantic_search,
@@ -229,7 +229,7 @@ LIVE_CAPABILITIES = [
             "Persist a key-value pair to shared agent memory. "
             "Use to remember facts, decisions, or intermediate state across steps."
         ),
-        "input_schema": "a key string and a value string to store",
+        "input_schema": '{"key": "search_results", "value": "summary of what was found"}',
         "output_schema": "confirmation that the value was stored",
         "composition_tags": ["memory", "storage", "persistence"],
         "fn": memory_set,
@@ -242,7 +242,7 @@ LIVE_CAPABILITIES = [
             "Retrieve a previously stored memory value by key. "
             "Use to recall facts or state saved in earlier steps."
         ),
-        "input_schema": "a key string to look up",
+        "input_schema": '{"key": "search_results"}',
         "output_schema": "the stored value for that key, or None if not found",
         "composition_tags": ["memory", "retrieval", "persistence"],
         "fn": memory_get,
@@ -255,7 +255,7 @@ LIVE_CAPABILITIES = [
             "Send a message to another agent by ID. "
             "Use for coordination, delegation, reporting results, or requesting help."
         ),
-        "input_schema": "a target agent ID and a message content string",
+        "input_schema": '{"to_id": "agent-abc123", "content": "task complete"}',
         "output_schema": "confirmation with the message ID",
         "composition_tags": ["communication", "coordination", "message"],
         "fn": agent_message,

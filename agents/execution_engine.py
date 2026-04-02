@@ -152,10 +152,16 @@ class ExecutionEngine:
         return (context.result, context.status)
 
     def _call_with_timeout(self, func: Callable, params: dict, timeout_ms: int) -> Any:
-        """Call function with timeout."""
-        # For now: simple execution (no true timeout for CPU-bound)
-        # In production: use threading, async, or subprocess for real timeout
-        result = func(**params) if params else func()
+        """Call function with timeout. Filters params to only those the function accepts."""
+        import inspect
+        if params:
+            sig = inspect.signature(func)
+            accepted = set(sig.parameters.keys())
+            # Pass only params the function actually accepts — Ollama may hallucinate extras
+            filtered = {k: v for k, v in params.items() if k in accepted}
+            result = func(**filtered)
+        else:
+            result = func()
         return result
 
     def _log_execution(self, agent_id: str, context: ExecutionContext) -> None:
