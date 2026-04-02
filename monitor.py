@@ -78,22 +78,82 @@ def _read_new_thoughts() -> list[str]:
 
 
 def _poll_narrator():
+    """
+    Generate a narrator summary directly via Ollama — no agent queue needed.
+    Reads recent project memory keys and asks the model to write 2-3 plain
+    English sentences describing what the system is doing.
+    Runs in a background thread so it never blocks the TUI.
+    """
     global NARRATOR_TEXT
-    try:
-        cfg = json.loads(CONFIG_PATH.read_text())
-        token = cfg["api"]["token"]
-        import urllib.request
-        req = urllib.request.Request(
-            "http://localhost:7777/memory/project",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read())
-        val = data.get("narrator_summary", "")
-        if val and isinstance(val, str) and len(val) > 10:
-            NARRATOR_TEXT = val.strip()
-    except Exception:
-        pass
+    import threading
+
+    def _run():
+        global NARRATOR_TEXT
+        try:
+            # 1. Read project memory for context
+            cfg = json.loads(CONFIG_PATH.read_text())
+            token = cfg["api"]["token"]
+            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            import urllib.request, urllib.error
+            req = urllib.request.Request(
+                "http://localhost:7777/memory/project",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                mem = json.loads(resp.read())
+
+            # Pick a handful of interesting keys (skip test keys and nulls)
+            skip = {"updated_at", "test_key"}
+            snippets = []
+            for k, v in mem.items():
+                if k.startswith("test-") or k in skip:
+                    continue
+                val = str(v).strip()
+                if len(val) < 5 or val in ("null", "None", "{}", "[]"):
+                    continue
+                snippets.append(f"{k}: {val[:120]}")
+                if len(snippets) >= 8:
+                    break
+
+            if not snippets:
+                return
+
+            context = "\n".join(snippets)
+            total  = len(AGENT_STATE)
+            done   = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
+            active = sum(1 for s in AGENT_STATE.values() if 0 < s["progress"] < 1.0)
+
+            prompt = (
+                f"You are narrating a live AI agent system to a non-technical observer.\n"
+                f"System stats: {total} agents running, {done} completed goals, {active} actively working.\n"
+                f"Recent results from agent memory:\n{context}\n\n"
+                f"Write exactly 2-3 plain English sentences describing what these agents have "
+                f"accomplished and what they are currently working on. Be specific. No jargon. "
+                f"Do not mention JSON, keys, or code. Respond with only the sentences, nothing else."
+            )
+
+            # 2. Call Ollama directly
+            payload = json.dumps({
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "think": False,
+            }).encode()
+            req2 = urllib.request.Request(
+                "http://localhost:11434/api/generate",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req2, timeout=45) as resp2:
+                result = json.loads(resp2.read())
+            text = result.get("response", "").strip()
+            if text and len(text) > 20:
+                NARRATOR_TEXT = text
+
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _stats_line() -> str:
@@ -290,15 +350,9 @@ class HollowMonitor(App):
     def on_mount(self) -> None:
         _load_config()
         _parse_daemon_log()
-        _poll_narrator()
-        self.set_interval(2.0, self._tick)
-        self.set_interval(8.0, self._tick_narrator)
-
-    def _tick(self) -> None:
-        _parse_daemon_log()
-
-    def _tick_narrator(self) -> None:
-        _poll_narrator()
+        _poll_narrator()                        # fire immediately in background
+        self.set_interval(2.0, _parse_daemon_log)
+        self.set_interval(30.0, _poll_narrator) # refresh narrator every 30s
 
 
 if __name__ == "__main__":
