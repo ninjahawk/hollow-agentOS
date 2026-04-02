@@ -39,6 +39,19 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 
 REASONING_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "reasoning"
+THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
+
+
+def _thought(agent_id: str, msg: str) -> None:
+    """Append a thought/action line to the live thoughts log."""
+    try:
+        ts = time.strftime("%H:%M:%S")
+        line = f"[{ts}] [{agent_id}] {msg}\n"
+        THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(THOUGHTS_LOG, "a") as f:
+            f.write(line)
+    except Exception:
+        pass
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -156,7 +169,7 @@ class ReasoningLayer:
             model = self._ollama_model()
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
+                json={"model": model, "prompt": prompt, "stream": False, "format": "json", "think": False},
                 timeout=OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()
@@ -195,9 +208,9 @@ class ReasoningLayer:
         if not candidates:
             return []
 
-        return self._ollama_plan(objective, candidates)
+        return self._ollama_plan(agent_id, objective, candidates)
 
-    def _ollama_plan(self, objective: str, candidates: list) -> list:
+    def _ollama_plan(self, agent_id: str, objective: str, candidates: list) -> list:
         """
         Ask Ollama to generate a complete N-step plan.
         Params may contain {result} placeholder — substituted at execution time.
@@ -229,7 +242,7 @@ class ReasoningLayer:
             model = self._ollama_model()
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
+                json={"model": model, "prompt": prompt, "stream": False, "format": "json", "think": False},
                 timeout=OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()
@@ -253,6 +266,14 @@ class ReasoningLayer:
                     "params": params,
                     "rationale": s.get("rationale", ""),
                 })
+
+            if valid:
+                _thought(agent_id, f"GOAL: {objective[:100]}")
+                plan_str = " → ".join(s["capability_id"] for s in valid)
+                _thought(agent_id, f"PLAN: {plan_str}")
+                for i, s in enumerate(valid):
+                    params_preview = json.dumps(s["params"])[:120]
+                    _thought(agent_id, f"  step {i+1}: {s['capability_id']} | {params_preview}")
 
             return valid if valid else []
 

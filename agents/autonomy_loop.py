@@ -26,6 +26,19 @@ except Exception:
     _resource_manager = None
 
 AUTONOMY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "autonomy"
+THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
+
+
+def _thought(agent_id: str, msg: str) -> None:
+    """Append a thought/action line to the live thoughts log."""
+    try:
+        ts = time.strftime("%H:%M:%S")
+        line = f"[{ts}] [{agent_id}] {msg}\n"
+        THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(THOUGHTS_LOG, "a") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -139,7 +152,10 @@ class AutonomyLoop:
                 return (goal_id, False, None)
 
         # Execute
+        _thought(agent_id, f"  RUN: {cap_id} | params: {json.dumps(params)[:120]}")
         result, status = self._execution_engine.execute(agent_id, cap_id, params)
+        result_preview = _result_to_text(result)[:200] if result else "none"
+        _thought(agent_id, f"  {'OK' if status == 'success' else 'FAIL'}: {cap_id} | {result_preview}")
 
         # Learn
         if self._semantic_memory and result and status == "success":
