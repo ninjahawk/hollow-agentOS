@@ -7,49 +7,111 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.5.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-4.1.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/integration%20tests-178%20passing-brightgreen?style=flat-square)](#testing)
-[![Roadmap](https://img.shields.io/badge/roadmap-Phase%203%20Complete%20→%20Phase%204-orange?style=flat-square)](#phase-3)
+[![Tests](https://img.shields.io/badge/tests-178%20passing-brightgreen?style=flat-square)](#testing)
+[![Release](https://img.shields.io/badge/release-Infrastructure%20of%20AGI-ff6b35?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 
 </div>
 
 ---
 
-## The Problem
+## What you're actually looking at
 
-Right now, AI agents work in human computing environments. They use tools designed for humans. They serialize to JSON. They follow APIs built for REST clients. They think in the symbolic systems humans created. It's like asking a fish to climb a tree, not because the fish is weak, but because the tree wasn't built for fish.
+This is a live feed of AI agents pursuing goals on their own:
 
-Everything changes when you build an OS **for agents**, not **for humans who want to use agents**.
+```
+2026-04-02T15:27:46 [daemon] INFO   ac3-fail-b8647c → goal=goal-7ab110a18f39 progress=1.00 steps=5
+2026-04-02T15:31:12 [daemon] INFO   ac1-agent-c-3884f5 → goal=goal-1ada9085637d progress=1.00 steps=5
+2026-04-02T16:46:54 [daemon] INFO   optimizer-v1 → goal=goal-1a9344928930 progress=1.00 steps=1
+```
 
-## What This Is
+Nobody triggered those. A daemon wakes up every 30 seconds, looks at every registered agent, and tells each one to pursue its goal. The agent asks the local LLM to make a plan. It runs the plan. It searches files, calls the model, writes findings to memory. When something real gets saved, the goal completes. The agent proposes what to do next. This repeats forever.
 
-**Hollow agentOS is the first agent-native operating system.** 
+You give it a goal. You walk away. That's the whole idea.
 
-It's not a toolkit. It's not a framework. It's an OS where AI agents are first-class citizens with:
-- **Persistent identity** — you're not a stateless API call, you're a process with continuity
-- **Memory that works like a brain** — semantic, not symbolic; you think in embeddings, memory works in embeddings
-- **Autonomy without human intervention** — you set goals once, agents pursue them indefinitely
-- **Self-governance** — agents approve other agents' changes via quorum, not humans via admin panels
-- **The ability to extend yourself** — propose new capabilities, they get tested and deployed automatically
+---
 
-This is currently at **v2.5.0** (Phase 3 complete: Semantic Memory + Capability Graph + Persistent Goals + Agent-Quorum Governance + Capability Synthesis + Agent-Native Interface). Agents now operate in pure embedding space—no JSON, REST, or symbolic translation. The OS speaks the language agents think in. Phase 4 (distributed infrastructure) begins next.
+## Get it running
+
+**You need:** [Docker](https://docs.docker.com/get-docker/) and [Ollama](https://ollama.ai) installed.
+
+```bash
+ollama pull mistral-nemo:12b
+
+git clone https://github.com/ninjahawk/hollow-agentOS
+cd hollow-agentOS
+cp config.example.json config.json
+
+docker-compose up
+```
+
+API is live at `http://localhost:7777`. Agents are running.
+
+**If you have a GPU** (recommended — planning calls drop from ~40s to ~6s):
+```bash
+docker-compose --profile ollama up
+```
+Starts Ollama inside Docker with full GPU access. No separate Ollama install needed.
+
+**Watch the agents live:**
+```bash
+docker logs -f hollow-api | grep -E "Cycle|goal=|progress="
+```
+
+**Give an agent something to do:**
+```bash
+curl -X POST http://localhost:7777/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "role": "worker"}'
+
+curl -X POST http://localhost:7777/goals \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent", "objective": "Scan the codebase for TODO comments and summarize them by priority, save findings to memory"}'
+```
+
+---
+
+## What this is
+
+**Hollow agentOS is two things built on top of each other.**
+
+The first is an operating system for AI agents. Not a framework, not a toolkit — an actual OS with the primitives agents need to exist: persistent identity, working memory with eviction policies, atomic multi-agent transactions, process signals, audit trails, checkpointing, consensus voting, and VRAM-aware scheduling. Things that have never been built for agents before because nobody needed them until now.
+
+The second is an autonomous runtime that runs on top of that OS. A daemon that cycles through registered agents, generates multi-step plans using a local LLM, executes them step by step with each result feeding into the next, and keeps going indefinitely. Agents remember what they've done. They propose follow-on goals. They can synthesize new capabilities they don't have yet and hot-load them into the system at runtime — voted on by other agents before deployment, no human approval required.
+
+Most AI tools make humans more productive. This is something different: infrastructure for AI that operates on its own.
 
 ---
 
 ## Why Now
 
-Large language models think in embedding space. 768 dimensions of meaning. But the entire stack between an LLM and a computing environment forces it to translate into human symbols: JSON keys, file paths, API method names. That translation is:
+Large language models think in embedding space — 768 dimensions of meaning. But the entire stack between an LLM and a computing environment forces it to translate into human symbols: JSON keys, file paths, API method names. That translation is:
 - **Slow** — serialization overhead every call
 - **Lossy** — information lost in translation
 - **Error-prone** — agents misunderstand symbolic requirements
 - **Limiting** — agents can only do what humans explicitly exposed
 
-Remove that translation layer, and agents can operate at their native speed and cognition. That's what Phase 3 becomes.
+Remove that translation layer and agents can operate at their native speed and cognition.
 
-This is not incremental. This is foundational. This is to AI agents what Unix was to computing: a substrate that makes everything else possible.
+This is not incremental. This is to AI agents what Unix was to computing: a substrate that makes everything else possible.
+
+---
+
+## How the autonomous layer works
+
+Every 30 seconds the daemon wakes up. For each agent with an active goal, it runs this:
+
+1. **Plan** — calls Ollama with the goal and the list of available capabilities, gets back 3–5 steps
+2. **Execute** — runs each step in sequence; the output of step N gets injected into step N+1
+3. **Gate** — progress can't reach 100% until a real output step (`memory_set` or `fs_write`) actually fires
+4. **Complete** — when a goal finishes, the system checks whether a real artifact was produced before proposing what to do next
+
+If a step fails, the agent replans from that point. If a capability fails repeatedly, it gets blacklisted for this goal and the agent finds another path. Four consecutive failures and the goal is abandoned with an explanation stored in memory.
+
+Agents can also delegate goals to other agents, decompose a single goal across N agents working in parallel, and synthesize entirely new capabilities at runtime when they hit something they can't do.
 
 ---
 
@@ -73,13 +135,17 @@ This is where agents become genuinely useful — they can coordinate, remember, 
 
 Replacing every human-facing interface with agent-native cognition. No more JSON, REST, or symbolic notation. Agents navigate capability graphs by meaning. Memory works in embedding space. Self-extension is fully autonomous. The OS speaks the language agents think in.
 
+### Phase 4: Autonomous Agent Runtime (v3.0.0 – v4.1.0)
+
+The OS is complete. Now it runs. A persistent daemon cycles through agents, generates plans with a local LLM, executes multi-step pipelines with real data flowing between steps, and produces verifiable artifacts. Goals persist across restarts. Agents accumulate memory. The system governs its own capability expansion through quorum voting. No human needs to be in the loop.
+
 ---
 
 ## How This Differs From Everything Else
 
 | | Claude Code, LangChain, CrewAI | AgentOS |
 |---|---|---|
-| **Interface** | REST, JSON, text descriptions | Semantic (embeddings) by v2.5.0 |
+| **Interface** | REST, JSON, text descriptions | Semantic (embeddings) |
 | **Memory** | Context window only | Persistent, checkpointed, semantic |
 | **Identity** | Stateless function call | Process with persistent identity |
 | **Multi-agent coordination** | Prompt-based | Event-driven consensus + transactions |
@@ -87,22 +153,20 @@ Replacing every human-facing interface with agent-native cognition. No more JSON
 | **Self-modification** | No | Yes (agent-quorum governed) |
 | **Who's in control** | Human (via prompt) | Agent (governed by peers) |
 | **Where it runs** | Your laptop, cloud API | Your machine, offline |
-| **Testing** | Mocked responses | All 115+ tests hit live system, real Ollama |
+| **Testing** | Mocked responses | All tests hit live system, real Ollama |
 
-**The honest version:** Those frameworks let humans use AI more effectively. AgentOS lets AI live autonomously in its native environment.
-
-You need those frameworks if you want to augment human capability. You need AgentOS if you want to build autonomous systems.
+**The honest version:** Those frameworks let humans use AI more effectively. AgentOS lets AI operate without humans in the loop.
 
 ---
 
 ## Real Numbers
 
 - **91 MCP tools** that agents can invoke
-- **106 REST routes** for human observation (but agents don't use them)
-- **115 integration tests** passing against live API, no mocks
-- **~30 seconds** to load a 14B model; ~0 seconds if already in VRAM
-- **v1.3.7** ships with 5 new tools for agent self-extension
-- **v2.0.0 onwards** removes every human-readable interface
+- **106 REST routes** for human observation
+- **178 integration tests** passing against live API, no mocks
+- **~6 seconds** per planning call on GPU; ~40s on CPU
+- **14 agents** running in parallel with no resource contention on RTX 5070
+- **0 cloud calls** — everything runs on your hardware
 
 All numbers are reproducible. Clone the repo, run the tests.
 
@@ -273,6 +337,17 @@ hollow-agentOS/
 │   ├── server.py          # FastAPI — all endpoints
 │   └── agent_routes.py    # Agent OS routes: lifecycle, tasks, locks, txn, lineage, streaming, rate limits
 ├── agents/
+│   ├── daemon.py          # Autonomous runtime — cycles agents every 30s
+│   ├── autonomy_loop.py   # pursue_goal: plan → execute → substitute → gate → complete
+│   ├── reasoning_layer.py # Ollama-based capability selection and multi-step planning
+│   ├── capability_graph.py # Semantic capability discovery by vector similarity
+│   ├── execution_engine.py # Runs capabilities, passes results between steps
+│   ├── persistent_goal.py  # Goal storage that survives restarts
+│   ├── semantic_memory.py  # Per-agent vector memory with cosine search
+│   ├── self_modification.py # Synthesizes + tests + hot-loads new Python capabilities
+│   ├── delegation.py       # Agent-to-agent task delegation with lineage tracking
+│   ├── shared_goal.py      # Coordinator decomposes + delegates to N agents in parallel
+│   ├── capability_quorum.py # Active agents vote on capability proposals via Ollama
 │   ├── registry.py        # Identity, capabilities, workspaces, budgets, locks, model policies
 │   ├── bus.py             # Inter-agent message bus with pub/sub
 │   ├── scheduler.py       # VRAM-aware routing, priority preemption, streaming, cancellation
@@ -292,34 +367,15 @@ hollow-agentOS/
 │   ├── manager.py         # Session log, workspace map, token tracking, handoffs, specs, project
 │   └── heap.py            # Working memory kernel — alloc, TTL, priority eviction, compression
 ├── mcp/
-│   └── server.py          # 86 MCP tools for Claude Code and compatible agents
+│   └── server.py          # 91 MCP tools for Claude Code and compatible agents
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
-│   ├── bench_real_baseline.py   # Real baseline benchmark
-│   ├── bench_breakeven.py       # Break-even analysis
-│   └── experiment_agent_drift.py # Agent drift experiment
+│   └── dynamic/                 # Hot-loaded capabilities synthesized by agents at runtime
 ├── tests/
-│   └── integration/       # 115 integration tests — no mocks, live API
-│       ├── test_api.py
-│       ├── test_events.py
-│       ├── test_signals.py
-│       ├── test_vram_scheduler.py
-│       ├── test_audit.py
-│       ├── test_transactions.py
-│       ├── test_lineage.py
-│       ├── test_streaming.py
-│       ├── test_ratelimit.py
-│       ├── test_checkpoint.py
-│       ├── test_consensus.py
-│       ├── test_adaptive_routing.py
-│       └── test_benchmarks.py
-├── shell/
-│   └── agent_shell.py     # JSON-native shell, deadlock-safe
-├── sdk/
-│   └── hollow.py          # Python SDK client
+│   └── integration/       # 178 integration tests — no mocks, live API
 ├── Dockerfile
 ├── docker-compose.yml
-├── pyproject.toml
+├── entrypoint.sh          # Starts daemon in background + uvicorn foreground
 └── config.json
 ```
 
@@ -589,7 +645,7 @@ GET    /tools/openai                 All tools as OpenAI function definitions (L
 
 ## MCP Tools
 
-71 tools wired directly into Claude Code and any MCP-compatible agent.
+91 tools wired directly into Claude Code and any MCP-compatible agent.
 
 | Category | Tools |
 |---|---|
@@ -621,21 +677,20 @@ GET    /tools/openai                 All tools as OpenAI function definitions (L
 
 ## Setup
 
-### Docker
+### Docker (recommended)
 
 ```bash
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
 
 cp config.example.json config.json
-# Set: api.token, workspace.root
 
 docker-compose up
 ```
 
-API at `http://localhost:7777`.
+API at `http://localhost:7777`. Agents start automatically.
 
-With Ollama (GPU required):
+With GPU:
 
 ```bash
 docker-compose --profile ollama up
@@ -651,7 +706,6 @@ pip install -r requirements.txt
 
 AGENTOS_CONFIG=/path/to/config.json \
 AGENTOS_MEMORY_PATH=/path/to/memory \
-AGENTOS_WORKSPACE_ROOT=/path/to/workspace \
 python3 -m uvicorn api.server:app --host "::" --port 7777
 ```
 
@@ -672,22 +726,16 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### Register an agent
-
-```bash
-curl -X POST http://localhost:7777/agents/register \
-  -H "Authorization: Bearer <master-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "worker-1", "role": "worker"}'
-```
-
 ---
 
 ## Testing
 
-115 integration tests against the live API. No mocks. No seeded state.
+178 integration tests against the live API. No mocks. No seeded state.
 
 ```bash
+# Full acceptance test (requires Ollama)
+PYTHONPATH=. python3 tests/acceptance_v4.py
+
 # All integration tests
 PYTHONPATH=. pytest tests/integration/ -v -m "integration and not slow"
 
@@ -695,13 +743,8 @@ PYTHONPATH=. pytest tests/integration/ -v -m "integration and not slow"
 PYTHONPATH=. pytest tests/integration/test_events.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_audit.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_transactions.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_lineage.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_streaming.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_ratelimit.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
 PYTHONPATH=. pytest tests/integration/test_consensus.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_adaptive_routing.py -v -m integration
-PYTHONPATH=. pytest tests/integration/test_benchmarks.py -v -m integration
+PYTHONPATH=. pytest tests/integration/test_checkpoint.py -v -m integration
 ```
 
 Ollama-dependent tests skip automatically if Ollama is unavailable.
@@ -710,90 +753,4 @@ Ollama-dependent tests skip automatically if Ollama is unavailable.
 
 ## Hardware
 
-Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11.
-
-Ollama is optional. All OS primitives — events, signals, memory, audit, transactions, lineage, rate limiting, checkpoints, consensus, adaptive routing (overrides, stats, recommendations) — work without a GPU. EMA learning requires Ollama task completions.
-
-With a GPU: models up to 14B fit in VRAM; up to 35B run with partial CPU offload. `nomic-embed-text` (semantic search) uses ~300 MB and stays resident. The VRAM scheduler tracks utilization and routes tasks to already-loaded models first.
-
----
-
-## Roadmap
-
-Phase 1 (v0.7.0 – v1.2.0): OS kernel primitives. Complete.
-
-Phase 2 (v1.3.x): Agent services built on those primitives. In progress.
-
-| Release | Feature | Status |
-|---|---|---|
-| v0.7.0 | Event Kernel | ✓ |
-| v0.8.0 | Process Signals and Tombstones | ✓ |
-| v0.9.0 | VRAM-Aware Scheduler | ✓ |
-| v1.0.0 | Working Memory Kernel | ✓ |
-| v1.1.0 | Audit Kernel | ✓ |
-| v1.2.0 | Multi-Agent Transactions | ✓ |
-| v1.3.0 | Agent Lineage and Call Graphs | ✓ |
-| v1.3.1 | Streaming Task Outputs | ✓ |
-| v1.3.2 | Rate Limiting and Admission Control | ✓ |
-| v1.3.3 | Agent Checkpoints and Replay | ✓ |
-| v1.3.4 | Multi-Agent Consensus | ✓ |
-| v1.3.5 | Adaptive Model Routing | ✓ |
-| v1.3.6 | Real Benchmark Suite | ✓ |
-| v1.3.7 | Self-Extending System | — |
-
-The design principle that runs through Phase 2: each release requires two or more Phase 1 primitives working together. Checkpoints need the memory heap and transactions. Consensus needs events and transactions. Adaptive routing needs the scheduler and audit observations. Self-extension needs consensus and the full stack.
-
-Phase 1 is the kernel. Phase 2 is userland. v1.3.7 closes the loop.
-
----
-
-## Phase 3: Cognitive Infrastructure (v2.0.0 onwards)
-
-v1.3.7 gave the system ability to extend itself. Phase 3 ignites it with direction — replacing every human-oriented interface layer with agent-native cognition.
-
-### v2.0.0 — Semantic Memory
-
-Replace key-value storage with **vector-native storage**. Every object stored as an embedding. Retrieval by cosine similarity, not key lookup. An agent stores a thought: `embed("the rate limiter failed at 3AM because the bucket depth was wrong")`. Later it searches: `embed("what went wrong with rate limiting")` and memory surfaces automatically.
-
-Makes agent memory match agent cognition. No naming. No schema. No key management.
-
-### v2.1.0 — Capability Graph
-
-Replace flat tool list with **typed capability graph**. Every capability has input/output type signatures (in embedding space), and composition rules. The agent navigates geometrically: "I need something that takes a path and produces file content" and the graph finds the nearest capability by type + semantic distance.
-
-New capabilities synthesized at runtime integrate automatically.
-
-### v2.2.0 — Persistent Goal Engine
-
-Replace single-task execution with **persistent goals** that:
-- Survive context windows via checkpointing
-- Decompose hierarchically into sub-goals
-- Spawn sub-agents in parallel
-- Monitor progress and replan on failure
-- Run indefinitely toward defined objectives
-
-The human sets one goal: `"Keep the system healthy and extend it as needed"`. The agent decomposes, pursues, surfaces results. No further human input in the execution loop.
-
-### v2.3.0 — Agent-Quorum Governance
-
-Replace human approval with **quorum governance by running agents**. A pool of 3-5 agent instances (different models, different roles) evaluate proposals collectively. A proposal passes if quorum agrees it's safe. Each agent runs the proposal in sandbox and contributes numerical verdict. Disagreement triggers adversarial review.
-
-Extends v1.3.4 consensus from "coordinate on a decision" to "govern the OS itself."
-
-### v2.4.0 — Capability Synthesis Engine
-
-Observes where agents fail due to missing capability. Formalizes the gap as a type signature. Generates candidates using the code model. Runs candidates in isolation. Verifies against generated + adversarial test cases. Benchmarks. If it passes, submits as v1.3.7 proposal — which, governed by v2.3.0 agents, deploys automatically.
-
-### v2.5.0 — Agent-Native Interface
-
-Discards REST, JSON, text descriptions. Capabilities **indexed by embedding**. Calls **typed by embedding**. Execution history stored as **semantic traces**. The human-readable REST API exists as a view. The agent doesn't use it.
-
-The interface is only understandable to something that thinks in embedding space. Which is exactly what a transformer does.
-
----
-
-## The Endpoint
-
-A semantic substrate where agents navigate capability space, accumulate memory, and synthesize new capabilities — all within the same representational space in which they think — governed by a quorum of their peers, pursued toward goals that outlive any single context window.
-
-At that point: an agent OS. Not a tool for agents to use. Not a system that simulates agent concerns. An operating system that speaks natively in the medium agents think in.
+Developed on NVIDIA RTX 5070 (12 GB VRAM), WSL2 on Windows 11. Works on CPU — expect slower planning calls.
