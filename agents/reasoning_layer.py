@@ -131,21 +131,26 @@ class ReasoningLayer:
         try:
             import httpx
 
-            # Build capability descriptions including input schema
+            # Build capability list with description + param format
             cap_lines = []
             for cap_id in candidates[:5]:
-                schema = ""
+                desc, schema = "", ""
                 if self._capability_graph:
                     rec = self._capability_graph.get(cap_id)
                     if rec:
+                        desc = rec.description[:80]
                         schema = rec.input_schema
-                cap_lines.append(f'- {cap_id}: input={schema}')
+                cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
             caps_text = "\n".join(cap_lines)
 
             prompt = (
-                f"Agent intent: {intent}\n"
-                f"Available capabilities:\n{caps_text}\n"
-                f'Respond ONLY with JSON: {{"capability_id":"...","params":{{...}}}}'
+                f"Select the best capability for this agent intent and generate real params.\n"
+                f"Intent: {intent}\n\n"
+                f"Capabilities:\n{caps_text}\n\n"
+                f"Rules: prefer semantic_search for any search/find/discover goal. "
+                f"Only use fs_read if you know a specific real file path. "
+                f"Generate real param values, not placeholder text.\n"
+                f'Respond ONLY with JSON: {{"capability_id":"<id>","params":{{<params>}}}}'
             )
 
             model = self._ollama_model()
