@@ -122,11 +122,13 @@ def semantic_search(query: str = "", top_k: int = 5) -> dict:
     }
 
 
-def memory_set(key: str = "", value: str = "") -> dict:
+def memory_set(key: str = "", value=None) -> dict:
     """Persist a key-value pair to shared agent memory."""
     if not key:
         return {"error": "no key provided", "ok": False}
-    _call("post", "/memory/project", json={"key": key, "value": value})
+    # Stringify non-string values so callers can store dicts/lists directly
+    str_value = json.dumps(value) if not isinstance(value, str) else value
+    _call("post", "/memory/project", json={"key": key, "value": str_value})
     return {"ok": True, "key": key}
 
 
