@@ -95,6 +95,8 @@ def _build_stack():
     from agents.autonomy_loop import AutonomyLoop
     from agents.persistent_goal import PersistentGoalEngine
     from agents.semantic_memory import SemanticMemory
+    from agents.agent_quorum import AgentQuorum
+    from agents.capability_quorum import CapabilityQuorum
 
     graph, engine = build_live_stack()
     reasoning = ReasoningLayer(capability_graph=graph, execution_engine=engine)
@@ -107,7 +109,9 @@ def _build_stack():
         semantic_memory=memory,
     )
 
-    _stack = (graph, engine, reasoning, loop, goal_engine)
+    agent_quorum = AgentQuorum()
+    cap_quorum = CapabilityQuorum(agent_quorum=agent_quorum)
+    _stack = (graph, engine, reasoning, loop, goal_engine, cap_quorum)
     log.info("Autonomy stack ready: %d capabilities registered", len(graph._embedder and [] or []))
     return _stack
 
@@ -232,7 +236,7 @@ def main():
 
     log.info("API reachable. Building autonomy stack…")
     try:
-        _, _, _, loop, _ = _build_stack()
+        _, _, _, loop, _, cap_quorum = _build_stack()
     except Exception as e:
         log.error("Failed to build autonomy stack: %s", e)
         sys.exit(1)
@@ -294,6 +298,16 @@ def main():
                     metrics.stalled_agents[a] = 0
                 log.info("Released %d cooled-off agent(s) back into rotation", len(released))
             log.debug("No active agents this cycle")
+
+        # Quorum: active agents vote on pending capability proposals
+        if active:
+            try:
+                finalized = cap_quorum.vote_on_pending(active[:5])  # max 5 voters
+                for fp in finalized:
+                    log.info("[QUORUM] proposal=%s %s (yes=%d no=%d)",
+                             fp.proposal_id, fp.status, fp.yes_votes, fp.no_votes)
+            except Exception as qe:
+                log.debug("Quorum voting error: %s", qe)
 
         # Periodic status report every 10 cycles
         if metrics.cycles % 10 == 0:
