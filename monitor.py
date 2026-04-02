@@ -7,14 +7,12 @@ Usage: wsl -e python3 /agentOS/monitor.py
 import re
 import json
 import time
-import threading
 from pathlib import Path
-from collections import deque
 
+from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Log, Label
+from textual.widgets import Static, RichLog
 from textual.containers import Horizontal, Vertical, ScrollableContainer
-from textual.reactive import reactive
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 DAEMON_LOG   = Path("/agentOS/logs/daemon.log")
@@ -24,8 +22,9 @@ CONFIG_PATH  = Path("/agentOS/config.json")
 # ── Shared state ────────────────────────────────────────────────────────────
 THOUGHTS_OFFSET = 0
 AGENT_STATE: dict = {}
-CYCLE = reactive(0)
+CYCLE = 0
 MODEL = "unknown"
+NARRATOR_TEXT = "narrator starting…"
 
 
 def _load_config():
@@ -68,8 +67,8 @@ def _read_new_thoughts() -> list[str]:
         with open(THOUGHTS_LOG, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
-            if THOUGHTS_OFFSET == 0 and size > 6000:
-                THOUGHTS_OFFSET = max(0, size - 6000)
+            if THOUGHTS_OFFSET == 0 and size > 8000:
+                THOUGHTS_OFFSET = max(0, size - 8000)
             f.seek(THOUGHTS_OFFSET)
             raw = f.read()
             THOUGHTS_OFFSET = size
@@ -78,35 +77,31 @@ def _read_new_thoughts() -> list[str]:
         return []
 
 
-def _build_summary() -> str:
-    """Generate a plain-text summary of current system state."""
-    if not AGENT_STATE:
-        return "waiting for agents…"
+def _poll_narrator():
+    global NARRATOR_TEXT
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+        token = cfg["api"]["token"]
+        import urllib.request
+        req = urllib.request.Request(
+            "http://localhost:7777/memory/project",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        val = data.get("narrator_summary", "")
+        if val and isinstance(val, str) and len(val) > 10:
+            NARRATOR_TEXT = val.strip()
+    except Exception:
+        pass
 
+
+def _stats_line() -> str:
     total   = len(AGENT_STATE)
     done    = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
     active  = sum(1 for s in AGENT_STATE.values() if 0 < s["progress"] < 1.0)
-    stalled = total - done - active
-
-    lines = []
-    lines.append(f"{total} agents  ·  {done} done  ·  {active} running  ·  {stalled} idle")
-
-    # top movers
-    in_progress = [
-        (aid, s) for aid, s in AGENT_STATE.items()
-        if 0 < s["progress"] < 1.0
-    ]
-    in_progress.sort(key=lambda x: -x[1]["progress"])
-    if in_progress:
-        top = in_progress[:3]
-        parts = [f"{aid.split('-')[0]} {s['progress']:.0%}" for aid, s in top]
-        lines.append("leading:  " + "   ".join(parts))
-
-    if done:
-        completed = [aid for aid, s in AGENT_STATE.items() if s["progress"] >= 1.0]
-        lines.append("done:  " + "  ".join(c.split("-")[0] for c in completed[:4]))
-
-    return "\n".join(lines)
+    idle    = total - done - active
+    return f"{total} agents  ·  {done} done  ·  {active} active  ·  {idle} idle"
 
 
 # ── CSS ─────────────────────────────────────────────────────────────────────
@@ -119,9 +114,9 @@ Screen {
 #header-bar {
     height: 1;
     background: #111111;
-    color: #555555;
+    color: #444444;
     padding: 0 2;
-    border-bottom: solid #222222;
+    border-bottom: solid #1e1e1e;
 }
 
 #main {
@@ -129,31 +124,37 @@ Screen {
 }
 
 #left {
-    width: 26;
-    border-right: solid #222222;
+    width: 28;
+    border-right: solid #1e1e1e;
     padding: 1 2;
     background: #111111;
 }
 
-#section-label {
-    color: #444444;
+.section-title {
+    color: #3a3a3a;
     text-style: bold;
     margin-bottom: 1;
 }
 
 #agent-list {
     height: 1fr;
-}
-
-#summary-divider {
-    color: #222222;
-    margin-top: 1;
     margin-bottom: 1;
 }
 
-#summary-text {
-    color: #555555;
+#divider {
+    color: #1e1e1e;
+    margin-bottom: 1;
+}
+
+#stats-line {
+    color: #2e2e2e;
+    margin-bottom: 1;
+}
+
+#narrator-box {
     height: auto;
+    max-height: 8;
+    color: #666666;
 }
 
 #right {
@@ -161,120 +162,109 @@ Screen {
     background: #111111;
 }
 
-#thoughts-label {
-    color: #444444;
+#thoughts-title {
+    color: #3a3a3a;
     text-style: bold;
     margin-bottom: 1;
 }
 
-#thoughts {
+#thoughts-log {
     height: 1fr;
     background: #111111;
     scrollbar-size: 1 1;
-    scrollbar-color: #222222 #111111;
+    scrollbar-color: #1e1e1e #111111;
 }
 
 #footer-bar {
     height: 1;
     background: #111111;
-    color: #333333;
+    color: #2a2a2a;
     padding: 0 2;
-    border-top: solid #222222;
+    border-top: solid #1e1e1e;
 }
 """
 
 
-# ── Widgets ──────────────────────────────────────────────────────────────────
+# ── Widgets ───────────────────────────────────────────────────────────────────
+class HeaderBar(Static):
+    def on_mount(self) -> None:
+        self.update(self._build())
+        self.set_interval(2.0, lambda: self.update(self._build()))
+
+    def _build(self) -> str:
+        return (
+            f"[bold #7c7cf5]hollowOS[/bold #7c7cf5]"
+            f"  [dim]·[/dim]  [dim]{MODEL}[/dim]"
+            f"  [dim]·[/dim]  cycle [white]{CYCLE}[/white]"
+            f"  [dim]·[/dim]  [dim]{len(AGENT_STATE)} agents[/dim]"
+            f"  [dim]·[/dim]  [dim]q quit[/dim]"
+        )
+
+
 class AgentList(Static):
     def on_mount(self) -> None:
-        self.set_interval(1.5, self._refresh)
+        self.update(self._build())
+        self.set_interval(1.5, lambda: self.update(self._build()))
 
-    def _refresh(self) -> None:
-        self.update(self._render())
-
-    def _render(self) -> str:
+    def _build(self) -> str:
         if not AGENT_STATE:
             return "[dim]waiting…[/dim]"
-
         agents = sorted(AGENT_STATE.items(), key=lambda x: -x[1]["progress"])
         out = []
         for agent_id, state in agents:
             prog = state["progress"]
-
-            # shorten name: strip long hex suffixes
             parts = agent_id.split("-")
-            # drop last part if it looks like a hex suffix (6+ hex chars)
             if parts and re.match(r"^[0-9a-f]{6,}$", parts[-1]):
                 parts = parts[:-1]
-            name = "-".join(parts)
-            if len(name) > 16:
-                name = name[:16]
-
-            pct = f"{prog:.0%}"
-
+            name = "-".join(parts)[:16]
+            pct = "done" if prog >= 1.0 else f"{prog:.0%}"
             if prog >= 1.0:
-                out.append(f"[green]{name:<16}  {pct:>4}[/green]")
+                out.append(f"[green]{name:<16}  {pct}[/green]")
             elif prog > 0.5:
-                out.append(f"[white]{name:<16}[/white]  [cyan]{pct:>4}[/cyan]")
+                out.append(f"[white]{name:<16}[/white]  [dim cyan]{pct}[/dim cyan]")
             elif prog > 0:
-                out.append(f"[dim white]{name:<16}  {pct:>4}[/dim white]")
+                out.append(f"[dim]{name:<16}  {pct}[/dim]")
             else:
-                out.append(f"[dim]{name:<16}   —[/dim]")
-
+                out.append(f"[dim]{name:<16}    —[/dim]")
         return "\n".join(out)
 
-    def render(self) -> str:
-        return self._render()
 
-
-class SummaryText(Static):
+class StatsLine(Static):
     def on_mount(self) -> None:
-        self.set_interval(3.0, self._refresh)
+        self.update(self._build())
+        self.set_interval(2.0, lambda: self.update(self._build()))
 
-    def _refresh(self) -> None:
-        self.update(f"[dim]{_build_summary()}[/dim]")
-
-    def render(self) -> str:
-        return f"[dim]{_build_summary()}[/dim]"
+    def _build(self) -> str:
+        return f"[dim]{_stats_line()}[/dim]"
 
 
-class HeaderBar(Static):
+class NarratorBox(Static):
     def on_mount(self) -> None:
-        self.set_interval(2.0, self._refresh)
+        self.update(self._build())
+        self.set_interval(5.0, lambda: self.update(self._build()))
 
-    def _refresh(self) -> None:
-        self.update(self._render())
-
-    def _render(self) -> str:
-        total = len(AGENT_STATE)
-        return (
-            f"[bold #7c7cf5]hollowOS[/bold #7c7cf5]"
-            f"  [dim]·[/dim]  {MODEL}"
-            f"  [dim]·[/dim]  cycle [white]{CYCLE}[/white]"
-            f"  [dim]·[/dim]  [dim]{total} agents[/dim]"
-            f"  [dim]·[/dim]  [dim]q  quit[/dim]"
-        )
-
-    def render(self) -> str:
-        return self._render()
+    def _build(self) -> str:
+        return f"[dim]{NARRATOR_TEXT}[/dim]"
 
 
-class ThoughtsPane(ScrollableContainer):
+class ThoughtsLog(ScrollableContainer):
     def compose(self) -> ComposeResult:
-        yield Log(highlight=False, auto_scroll=True, max_lines=600, id="log")
+        yield RichLog(highlight=False, auto_scroll=True, max_lines=800, id="log")
 
     def on_mount(self) -> None:
         self.set_interval(0.4, self._poll)
 
     def _poll(self) -> None:
         lines = _read_new_thoughts()
-        log = self.query_one("#log", Log)
+        if not lines:
+            return
+        log = self.query_one("#log", RichLog)
         for line in lines:
             if line.strip():
-                log.write_line(line)
+                log.write(Text.from_ansi(line))
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────
 class HollowMonitor(App):
     CSS = CSS
     BINDINGS = [("q", "quit", "quit")]
@@ -283,26 +273,32 @@ class HollowMonitor(App):
         yield HeaderBar(id="header-bar")
         with Horizontal(id="main"):
             with Vertical(id="left"):
-                yield Static("AGENTS", id="section-label")
+                yield Static("AGENTS", classes="section-title")
                 yield AgentList(id="agent-list")
-                yield Static("─" * 22, id="summary-divider")
-                yield Static("SUMMARY", id="section-label")
-                yield SummaryText(id="summary-text")
+                yield Static("─" * 24, id="divider")
+                yield StatsLine(id="stats-line")
+                yield Static("NARRATOR", classes="section-title")
+                yield NarratorBox(id="narrator-box")
             with Vertical(id="right"):
-                yield Static("THOUGHTS", id="thoughts-label")
-                yield ThoughtsPane(id="thoughts")
+                yield Static("THOUGHTS", id="thoughts-title")
+                yield ThoughtsLog(id="thoughts-log")
         yield Static(
-            "[dim]  hollowOS autonomous runtime  ·  agents think, you watch[/dim]",
+            "[dim]  autonomous agent runtime  ·  hollowOS[/dim]",
             id="footer-bar",
         )
 
     def on_mount(self) -> None:
         _load_config()
         _parse_daemon_log()
-        self.set_interval(2.0, self._poll_daemon)
+        _poll_narrator()
+        self.set_interval(2.0, self._tick)
+        self.set_interval(8.0, self._tick_narrator)
 
-    def _poll_daemon(self) -> None:
+    def _tick(self) -> None:
         _parse_daemon_log()
+
+    def _tick_narrator(self) -> None:
+        _poll_narrator()
 
 
 if __name__ == "__main__":
