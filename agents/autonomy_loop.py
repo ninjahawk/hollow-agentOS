@@ -1,24 +1,13 @@
 """
-Autonomy Loop — AgentOS v3.14.0.
+Autonomy Loop — AgentOS v3.15.0.
 
-Agents pursue goals indefinitely. Retrieve goal → reason about next step → execute → learn.
-Full feedback cycle with goal progress tracking, step context passing, and goal completion.
-
-Changes from v2.7.0:
-  - Accepts reasoning_layer (ReasoningLayer) instead of native_interface
-  - execute_step() passes previous step result as context to next reasoning call
-  - pursue_goal() threads context through all steps
-  - Goal marked completed when progress >= 1.0
+Multi-step planning: before executing, Ollama generates a complete plan.
+Each step's result is substituted into the next step's params ({result} placeholder).
+Failed steps trigger replanning from that point.
 
 Design:
-  AutonomyLoop:
-    pursue_goal(agent_id, max_steps) → (goal_id, final_progress, steps_executed)
-    execute_step(agent_id, context) → (goal_id, success, result)
-
-Storage:
-  /agentOS/memory/autonomy/
-    {agent_id}/
-      execution_chain.jsonl  # full step history
+  pursue_goal(agent_id, max_steps) → (goal_id, final_progress, steps_executed)
+  execute_step(agent_id, context, planned_cap, planned_params) → (goal_id, success, result)
 """
 
 import json
@@ -35,7 +24,6 @@ AUTONOMY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "aut
 
 @dataclass
 class AutonomyStep:
-    """Single step in autonomy loop: goal → reasoning → execution."""
     step_id: str
     agent_id: str
     goal_id: str
@@ -46,23 +34,34 @@ class AutonomyStep:
     execution_result: Optional[dict] = None
     execution_status: Optional[str] = None
     goal_progress_delta: float = 0.0
-    step_status: str = "pending"  # pending, completed, failed
+    step_status: str = "pending"
     timestamp: float = field(default_factory=time.time)
 
 
-class AutonomyLoop:
-    """Agent goal pursuit: reason → execute → learn → repeat."""
+def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
+    """
+    Replace {result} placeholders in params with the previous result.
+    Also fixes invalid param values (False, None, empty) by substituting context.
+    """
+    if not previous_result:
+        return params
+    result_str = json.dumps(previous_result)[:500]
+    out = {}
+    for k, v in params.items():
+        if isinstance(v, str) and "{result}" in v:
+            out[k] = v.replace("{result}", result_str)
+        elif not v and v != 0:
+            # param is empty/False/None — substitute previous result
+            out[k] = result_str
+        else:
+            out[k] = v
+    return out
 
+
+class AutonomyLoop:
     def __init__(self, goal_engine=None, execution_engine=None,
                  reasoning_layer=None, semantic_memory=None,
                  native_interface=None):
-        """
-        goal_engine:      PersistentGoalEngine
-        execution_engine: ExecutionEngine
-        reasoning_layer:  ReasoningLayer  (Ollama-backed capability selection)
-        semantic_memory:  SemanticMemory  (for storing learned outcomes)
-        native_interface: ignored, kept for backwards compat
-        """
         self._lock = threading.RLock()
         self._goal_engine = goal_engine
         self._execution_engine = execution_engine
@@ -73,19 +72,18 @@ class AutonomyLoop:
     # ── API ────────────────────────────────────────────────────────────────
 
     def execute_step(
-        self, agent_id: str, context: Optional[dict] = None
+        self,
+        agent_id: str,
+        context: Optional[dict] = None,
+        planned_cap: Optional[str] = None,
+        planned_params: Optional[dict] = None,
     ) -> Tuple[Optional[str], bool, Optional[dict]]:
-        """
-        Execute one autonomy step for an agent.
-        context: result dict from the previous step (None on first step).
-        Returns (goal_id, success, result_dict).
-        """
+        """Execute one step. Uses planned cap/params if provided, else falls back to reason()."""
         if not self._goal_engine or not self._reasoning_layer or not self._execution_engine:
             return (None, False, None)
 
         step_id = f"step-{uuid.uuid4().hex[:12]}"
 
-        # Step 1: Get highest-priority active goal
         active_goals = self._goal_engine.list_active(agent_id, limit=1)
         if not active_goals:
             return (None, False, None)
@@ -93,52 +91,43 @@ class AutonomyLoop:
         active_goal = active_goals[0]
         goal_id = active_goal.goal_id
 
-        # Step 2: Build intent — include previous result as context
-        intent = f"progress towards: {active_goal.objective}"
-        if context:
-            # Summarise previous result so Ollama can pick a better next step
-            ctx_summary = json.dumps(context)[:300]
-            intent = (
-                f"progress towards: {active_goal.objective}\n"
-                f"Previous step result: {ctx_summary}"
-            )
+        # Determine capability and params
+        if planned_cap:
+            cap_id = planned_cap
+            params = _substitute_result(planned_params or {}, context)
+            reasoning_text = f"planned: {cap_id}"
+        else:
+            # Fallback: single-step reasoning with context
+            intent = f"progress towards: {active_goal.objective}"
+            if context:
+                intent += f"\nPrevious result: {json.dumps(context)[:300]}"
+            cap_id, params, _, reasoning_text = self._reasoning_layer.reason(agent_id, intent)
+            if not cap_id:
+                return (goal_id, False, None)
 
-        # Step 3: Reason — Ollama picks capability + generates params
-        cap_id, params, confidence, reasoning_text = self._reasoning_layer.reason(
-            agent_id, intent
-        )
-
-        if not cap_id:
-            return (goal_id, False, None)
-
-        # Step 4: Execute
+        # Execute
         result, status = self._execution_engine.execute(agent_id, cap_id, params)
 
-        # Step 5: Learn — store outcome in semantic memory
+        # Learn
         if self._semantic_memory and result and status == "success":
-            outcome = (
-                f"Goal '{active_goal.objective}' step used {cap_id}: "
-                f"{json.dumps(result)[:200]}"
+            self._semantic_memory.store(
+                agent_id,
+                f"Goal '{active_goal.objective}' step {cap_id}: {json.dumps(result)[:200]}"
             )
-            self._semantic_memory.store(agent_id, outcome)
 
-        # Step 6: Update goal progress
+        # Progress
         progress_delta = 0.1 if status == "success" else 0.0
-        current_metrics = dict(active_goal.metrics) if active_goal.metrics else {}
-        current_progress = current_metrics.get("progress", 0.0)
-        current_metrics["progress"] = current_progress + progress_delta
-        current_metrics["steps_completed"] = current_metrics.get("steps_completed", 0) + 1
-        self._goal_engine.update_progress(agent_id, goal_id, current_metrics)
+        metrics = dict(active_goal.metrics) if active_goal.metrics else {}
+        metrics["progress"] = metrics.get("progress", 0.0) + progress_delta
+        metrics["steps_completed"] = metrics.get("steps_completed", 0) + 1
+        self._goal_engine.update_progress(agent_id, goal_id, metrics)
 
-        # Step 7: Record
         exec_history = self._execution_engine.get_execution_history(agent_id, limit=1)
-        execution_id = exec_history[0].execution_id if exec_history else None
-
         self._record_step(agent_id, AutonomyStep(
             step_id=step_id,
             agent_id=agent_id,
             goal_id=goal_id,
-            execution_id=execution_id,
+            execution_id=exec_history[0].execution_id if exec_history else None,
             capability_id=cap_id,
             reasoning_text=reasoning_text,
             execution_result=result,
@@ -153,10 +142,9 @@ class AutonomyLoop:
         self, agent_id: str, max_steps: int = 10
     ) -> Tuple[Optional[str], float, int]:
         """
-        Pursue the agent's highest-priority active goal.
-        Threads the result of each step as context into the next.
-        Marks goal completed when progress >= 1.0.
-        Returns (goal_id, final_progress, steps_executed).
+        Plan then execute. Ollama generates the full step sequence upfront.
+        Each step's result feeds the next via {result} substitution.
+        Replans if a step fails.
         """
         if not self._goal_engine:
             return (None, 0.0, 0)
@@ -165,51 +153,79 @@ class AutonomyLoop:
         if not active_goals:
             return (None, 0.0, 0)
 
-        goal_id = active_goals[0].goal_id
+        goal = active_goals[0]
+        goal_id = goal.goal_id
         steps_executed = 0
-        context = None  # carries result from one step to the next
+        context = None
 
-        for _ in range(max_steps):
-            goal_id_returned, success, result = self.execute_step(agent_id, context=context)
+        # Generate plan
+        plan = self._reasoning_layer.plan(agent_id, goal.objective) if self._reasoning_layer else []
+        if not plan:
+            # Fallback: unplanned execution
+            plan = [{"capability_id": None, "params": {}, "rationale": "fallback"}]
 
-            if goal_id_returned is None:
-                break  # no active goal
+        # Cap at max_steps
+        plan = plan[:max_steps]
+        plan_index = 0
+
+        while steps_executed < max_steps:
+            if plan_index < len(plan):
+                step_def = plan[plan_index]
+                cap_id = step_def.get("capability_id")
+                params = step_def.get("params", {})
+            else:
+                cap_id, params = None, {}
+
+            goal_id_out, success, result = self.execute_step(
+                agent_id,
+                context=context,
+                planned_cap=cap_id,
+                planned_params=params,
+            )
+
+            if goal_id_out is None:
+                break
 
             steps_executed += 1
+            plan_index += 1
 
-            # Pass this step's result as context to the next step
             if success and result:
                 context = result
+            elif not success and plan_index < len(plan):
+                # Step failed — replan remaining steps with what we know
+                remaining_objective = (
+                    f"{goal.objective} "
+                    f"(already tried {cap_id}, continue from step {plan_index})"
+                )
+                new_plan = self._reasoning_layer.plan(agent_id, remaining_objective)
+                if new_plan:
+                    plan = plan[:plan_index] + new_plan
+                plan_index = plan_index  # stay at same index, new plan takes over
 
-            # Check for completion
-            current_goal = self._goal_engine.get(agent_id, goal_id)
-            if current_goal:
-                current_progress = current_goal.metrics.get("progress", 0.0)
-                if current_progress >= 1.0:
-                    self._goal_engine.complete(agent_id, goal_id)
-                    return (goal_id, 1.0, steps_executed)
+            # Check completion
+            current = self._goal_engine.get(agent_id, goal_id)
+            if current and current.metrics.get("progress", 0.0) >= 1.0:
+                self._goal_engine.complete(agent_id, goal_id)
+                return (goal_id, 1.0, steps_executed)
 
             if not success:
                 time.sleep(0.1)
 
-        final_goal = self._goal_engine.get(agent_id, goal_id)
-        final_progress = final_goal.metrics.get("progress", 0.0) if final_goal else 0.0
-        return (goal_id, final_progress, steps_executed)
+        final = self._goal_engine.get(agent_id, goal_id)
+        progress = final.metrics.get("progress", 0.0) if final else 0.0
+        return (goal_id, progress, steps_executed)
 
     # ── Introspection ──────────────────────────────────────────────────────
 
     def get_execution_chain(self, agent_id: str, limit: int = 50) -> List[AutonomyStep]:
-        """Get execution history for an agent."""
         with self._lock:
-            agent_dir = AUTONOMY_PATH / agent_id
-            chain_file = agent_dir / "execution_chain.jsonl"
+            chain_file = AUTONOMY_PATH / agent_id / "execution_chain.jsonl"
             if not chain_file.exists():
                 return []
             try:
                 steps = [
-                    AutonomyStep(**json.loads(line))
-                    for line in chain_file.read_text().strip().split("\n")
-                    if line.strip()
+                    AutonomyStep(**json.loads(l))
+                    for l in chain_file.read_text().strip().split("\n") if l.strip()
                 ]
                 steps.sort(key=lambda s: s.timestamp, reverse=True)
                 return steps[:limit]
@@ -223,8 +239,7 @@ class AutonomyLoop:
         chain = self.get_execution_chain(agent_id, limit=1000)
         if not chain:
             return 0.0
-        successful = sum(1 for s in chain if s.step_status == "completed")
-        return successful / len(chain)
+        return sum(1 for s in chain if s.step_status == "completed") / len(chain)
 
     # ── Internal ───────────────────────────────────────────────────────────
 

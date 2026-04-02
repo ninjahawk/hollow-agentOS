@@ -178,6 +178,85 @@ class ReasoningLayer:
             # Semantic top-match, no params — better than nothing
             return (candidates[0], {}, 0.50, f"fallback:{candidates[0]} ({e})")
 
+
+    def plan(self, agent_id: str, objective: str) -> list:
+        """
+        Generate a multi-step execution plan for a goal.
+        Uses ALL registered capabilities so planning has full context.
+        Returns list of {capability_id, params, rationale} dicts.
+        """
+        candidates = []
+        if self._capability_graph:
+            # Planning needs all capabilities, not just the most similar ones
+            all_caps = self._capability_graph.list_all(limit=100)
+            candidates = [(cap.capability_id, cap.description[:60], cap.input_schema)
+                          for cap in all_caps]
+
+        if not candidates:
+            return []
+
+        return self._ollama_plan(objective, candidates)
+
+    def _ollama_plan(self, objective: str, candidates: list) -> list:
+        """
+        Ask Ollama to generate a complete N-step plan.
+        Params may contain {result} placeholder — substituted at execution time.
+        Falls back to single semantic_search step on failure.
+        """
+        try:
+            import httpx
+
+            cap_lines = []
+            for cap_id, desc, schema in candidates:
+                cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
+            caps_text = "\n".join(cap_lines)
+
+            prompt = (
+                f"Plan 3-5 steps for an AI agent to accomplish this goal.\n"
+                f"Goal: {objective}\n\n"
+                f"Available capabilities:\n{caps_text}\n\n"
+                f"Rules:\n"
+                f"- Start with semantic_search or fs_read to gather information\n"
+                f"- Use ollama_chat to analyze or summarize gathered data\n"
+                f"- End with memory_set or fs_write to save the result\n"
+                f"- For params that depend on a previous step's output, use {{result}} as placeholder\n"
+                f"- Generate specific real values for params that don't depend on previous steps\n\n"
+                f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
+            )
+
+            model = self._ollama_model()
+            resp = httpx.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
+                timeout=OLLAMA_TIMEOUT,
+            )
+            resp.raise_for_status()
+
+            raw = resp.json().get("response", "").strip()
+            result = json.loads(raw)
+            steps = result.get("steps", [])
+
+            # Validate each step has required fields
+            valid = []
+            for s in steps:
+                cap_id = s.get("capability_id", "")
+                valid_ids = [c[0] for c in candidates]
+                if cap_id not in valid_ids:
+                    continue
+                params = s.get("params", {})
+                if not isinstance(params, dict):
+                    params = {}
+                valid.append({
+                    "capability_id": cap_id,
+                    "params": params,
+                    "rationale": s.get("rationale", ""),
+                })
+
+            return valid if valid else []
+
+        except Exception as e:
+            return []
+
     def _record_reasoning(self, agent_id: str, context: ReasoningContext) -> None:
         """Store reasoning record."""
         with self._lock:
