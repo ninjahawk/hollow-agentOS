@@ -1,10 +1,10 @@
 # AgentOS Roadmap — Toward a True OS for Agents
 
-Current release: **v3.13.1** — Phase 7: Integration & Live Execution ✅ COMPLETE
+Current release: **v4.0.0** — hollowOS ✅ COMPLETE
 
-**Status:** 527 tests passing. Autonomy daemon live on RTX 5070 + CUDA.
-Phases 1–6 complete. Phase 7 connects the cognitive library to the live OS.
-Agents now pursue goals autonomously without human invocation.
+**Status:** All 12 phases complete. Acceptance test passed on RTX 5070 + CUDA.
+Deploy once. Point at Ollama. Give agents goals. Walk away.
+Agents reason, execute, synthesize capabilities, coordinate, and govern themselves.
 
 This document is the precise engineering plan for evolving AgentOS from a control plane into a genuine operating system for AI agents. Each release ships one OS primitive. Each release is tested against real invariants on real hardware (RTX 5070 + Ollama + WSL2). No fake benchmarks, no mocked Ollama responses, no seeded data. Every number in every release note must be reproducible by anyone who clones the repo.
 
