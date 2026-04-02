@@ -15,11 +15,12 @@ This is not a framework for humans to use AI. It is an environment AI operates f
 
 ---
 
-## Current Status: v3.13.2 (Phase 7 Complete — Live Execution Proven)
+## Current Status: v4.0.0 — hollowOS COMPLETE ✅
 
-One agent can receive a goal, reason about it using a local LLM, select and execute
-a real OS capability, and make measurable progress — fully autonomously.
-The infrastructure is complete. The execution loop works. Real tasks are next.
+All 12 phases complete. Acceptance test passed: three agents autonomously completed
+different goals, live capability synthesis deployed, failure recovery with follow-on
+goals confirmed, multi-agent shared goal coordination via quorum verified.
+Deploy with Docker. Point at Ollama. Give agents goals. Walk away.
 
 ---
 
@@ -329,7 +330,7 @@ Two agents, one shared goal requiring collaboration:
 
 ---
 
-## Phase 12: hollowOS v4.0.0
+## Phase 12: hollowOS v4.0.0 ✅ COMPLETE
 
 **The end goal is real.**
 
