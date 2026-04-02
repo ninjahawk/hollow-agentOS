@@ -1,5 +1,5 @@
 """
-Autonomy Loop — AgentOS v3.19.0.
+Autonomy Loop — AgentOS v3.20.0.
 
 Multi-step planning: before executing, Ollama generates a complete plan.
 Each step's result is substituted into the next step's params ({result} placeholder).
@@ -18,6 +18,12 @@ import uuid
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional, Tuple, List
+
+try:
+    from agents.resource_manager import ResourceManager as _ResourceManager
+    _resource_manager = _ResourceManager()
+except Exception:
+    _resource_manager = None
 
 AUTONOMY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "autonomy"
 
@@ -331,6 +337,10 @@ class AutonomyLoop:
 
             # Propose follow-on goal based on what was just learned
             self._propose_followon_goal(agent_id, objective, summary)
+
+            # Resource self-management: prune/compact if over limits
+            if _resource_manager is not None:
+                _resource_manager.auto_manage(agent_id)
         except Exception:
             pass  # Synthesis failure must never break goal completion
 
