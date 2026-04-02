@@ -1,5 +1,5 @@
 """
-Autonomy Daemon — AgentOS v3.13.1.
+Autonomy Daemon — AgentOS v3.21.0.
 
 Background process that runs the goal pursuit loop on registered agents.
 This is the missing piece that makes agents actually autonomous: without
@@ -173,6 +173,41 @@ def run_cycle(loop, agent_id: str) -> dict:
         return {"agent_id": agent_id, "ok": False, "error": str(e)}
 
 
+# ── Stability Metrics ──────────────────────────────────────────────────────
+
+class DaemonMetrics:
+    """Running counters for stability monitoring."""
+    def __init__(self):
+        self.started_at = time.time()
+        self.cycles = 0
+        self.goals_completed = 0
+        self.goals_failed = 0
+        self.errors = 0
+        self.stalled_agents: dict = {}   # agent_id → consecutive_no_progress count
+        self.skipped_agents: set = set() # agents cooling off after stall
+
+    def record_outcome(self, agent_id: str, progress: float, prev_progress: float):
+        if progress >= 1.0:
+            self.goals_completed += 1
+        if progress == prev_progress and progress < 1.0:
+            self.stalled_agents[agent_id] = self.stalled_agents.get(agent_id, 0) + 1
+        else:
+            self.stalled_agents[agent_id] = 0
+            self.skipped_agents.discard(agent_id)
+
+    def is_stalled(self, agent_id: str) -> bool:
+        return self.stalled_agents.get(agent_id, 0) >= 5
+
+    def summary(self) -> str:
+        uptime = int(time.time() - self.started_at)
+        h, m = divmod(uptime // 60, 60)
+        return (
+            f"uptime={h}h{m}m cycles={self.cycles} "
+            f"completed={self.goals_completed} failed={self.goals_failed} "
+            f"errors={self.errors}"
+        )
+
+
 def main():
     log.info("Autonomy daemon starting (heartbeat=%ds, max_steps=%d)",
              HEARTBEAT, MAX_STEPS_PER_AGENT)
@@ -202,37 +237,74 @@ def main():
         log.error("Failed to build autonomy stack: %s", e)
         sys.exit(1)
 
+    metrics = DaemonMetrics()
     log.info("Daemon ready. Entering main loop.")
 
     while _running[0]:
         cycle_start = time.time()
+        metrics.cycles += 1
 
         agents = _agents_with_goals()
-        if agents:
-            log.info("Cycle start: %d agent(s) with active goals", len(agents))
-            for agent_id in agents:
+        active = [a for a in agents if a not in metrics.skipped_agents]
+
+        if active:
+            log.info("Cycle %d: %d agent(s) (%d skipped/cooling)",
+                     metrics.cycles, len(active), len(metrics.skipped_agents))
+            for agent_id in active:
                 if not _running[0]:
                     break
+
+                # Stall detection: skip agents making zero progress repeatedly
+                if metrics.is_stalled(agent_id):
+                    metrics.skipped_agents.add(agent_id)
+                    log.warning("  %s stalled (5+ cycles no progress), cooling off for 10 cycles",
+                                agent_id)
+                    continue
+
+                try:
+                    from agents.persistent_goal import PersistentGoalEngine
+                    ge = PersistentGoalEngine()
+                    prev_goals = ge.list_active(agent_id, limit=1)
+                    prev_progress = prev_goals[0].metrics.get("progress", 0.0) if prev_goals else 0.0
+                except Exception:
+                    prev_progress = 0.0
+
                 outcome = run_cycle(loop, agent_id)
+
                 if outcome["ok"]:
+                    progress = outcome.get("progress", 0.0)
+                    metrics.record_outcome(agent_id, progress, prev_progress)
                     log.info(
                         "  %s → goal=%s progress=%.2f steps=%d",
                         agent_id,
                         outcome.get("goal_id", "none"),
-                        outcome.get("progress", 0),
+                        progress,
                         outcome.get("steps", 0),
                     )
                 else:
+                    metrics.errors += 1
                     log.warning("  %s → error: %s", agent_id, outcome.get("error"))
+
         else:
-            log.debug("No agents with active goals this cycle")
+            # Drain skipped agents set gradually (re-enable after 10 cycles)
+            if metrics.cycles % 10 == 0 and metrics.skipped_agents:
+                released = list(metrics.skipped_agents)[:2]
+                for a in released:
+                    metrics.skipped_agents.discard(a)
+                    metrics.stalled_agents[a] = 0
+                log.info("Released %d cooled-off agent(s) back into rotation", len(released))
+            log.debug("No active agents this cycle")
+
+        # Periodic status report every 10 cycles
+        if metrics.cycles % 10 == 0:
+            log.info("[METRICS] %s", metrics.summary())
 
         elapsed = time.time() - cycle_start
         sleep_time = max(0, HEARTBEAT - elapsed)
         if _running[0]:
             time.sleep(sleep_time)
 
-    log.info("Daemon stopped.")
+    log.info("Daemon stopped. Final: %s", metrics.summary())
 
 
 if __name__ == "__main__":
