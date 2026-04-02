@@ -1,36 +1,30 @@
 #!/usr/bin/env python3
 """
-hollowOS live monitor — watch agents think in real time.
-
-Usage:
-  python3 monitor.py              # inside container
-  wsl -e python3 /agentOS/monitor.py
+hollowOS live monitor
+Usage: wsl -e python3 /agentOS/monitor.py
 """
 
 import re
 import json
 import time
+import threading
 from pathlib import Path
-from collections import deque, defaultdict
+from collections import deque
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Log, DataTable
+from textual.widgets import Header, Footer, Static, Log, Label
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.reactive import reactive
-from textual import work
-from rich.text import Text
-from rich.table import Table
-from rich import box
 
-# ── Paths ──────────────────────────────────────────────────────────────────
+# ── Paths ───────────────────────────────────────────────────────────────────
 DAEMON_LOG   = Path("/agentOS/logs/daemon.log")
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
 CONFIG_PATH  = Path("/agentOS/config.json")
 
-# ── State ──────────────────────────────────────────────────────────────────
-THOUGHTS_OFFSET = 0   # byte offset so we only read new lines
+# ── Shared state ────────────────────────────────────────────────────────────
+THOUGHTS_OFFSET = 0
 AGENT_STATE: dict = {}
-CYCLE = 0
+CYCLE = reactive(0)
 MODEL = "unknown"
 
 
@@ -43,14 +37,13 @@ def _load_config():
 
 
 def _parse_daemon_log():
-    global CYCLE, AGENT_STATE
+    global CYCLE
     if not DAEMON_LOG.exists():
         return
     try:
-        lines = DAEMON_LOG.read_text(errors="replace").splitlines()[-300:]
+        lines = DAEMON_LOG.read_text(errors="replace").splitlines()[-400:]
     except Exception:
         return
-    seen_this_cycle: dict = {}
     for line in lines:
         m = re.search(r"Cycle (\d+):", line)
         if m:
@@ -60,18 +53,14 @@ def _parse_daemon_log():
         )
         if m:
             agent_id, goal_id, progress, steps = m.groups()
-            seen_this_cycle[agent_id] = {
+            AGENT_STATE[agent_id] = {
                 "progress": float(progress),
                 "goal": goal_id,
                 "steps": int(steps),
-                "last_seen": time.time(),
             }
-    if seen_this_cycle:
-        AGENT_STATE.update(seen_this_cycle)
 
 
 def _read_new_thoughts() -> list[str]:
-    """Return new lines from thoughts.log since last read."""
     global THOUGHTS_OFFSET
     if not THOUGHTS_LOG.exists():
         return []
@@ -79,9 +68,8 @@ def _read_new_thoughts() -> list[str]:
         with open(THOUGHTS_LOG, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
-            if THOUGHTS_OFFSET == 0 and size > 4000:
-                # On first open, start from last 4KB
-                THOUGHTS_OFFSET = max(0, size - 4000)
+            if THOUGHTS_OFFSET == 0 and size > 6000:
+                THOUGHTS_OFFSET = max(0, size - 6000)
             f.seek(THOUGHTS_OFFSET)
             raw = f.read()
             THOUGHTS_OFFSET = size
@@ -90,222 +78,232 @@ def _read_new_thoughts() -> list[str]:
         return []
 
 
-# ── CSS ────────────────────────────────────────────────────────────────────
+def _build_summary() -> str:
+    """Generate a plain-text summary of current system state."""
+    if not AGENT_STATE:
+        return "waiting for agents…"
+
+    total   = len(AGENT_STATE)
+    done    = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
+    active  = sum(1 for s in AGENT_STATE.values() if 0 < s["progress"] < 1.0)
+    stalled = total - done - active
+
+    lines = []
+    lines.append(f"{total} agents  ·  {done} done  ·  {active} running  ·  {stalled} idle")
+
+    # top movers
+    in_progress = [
+        (aid, s) for aid, s in AGENT_STATE.items()
+        if 0 < s["progress"] < 1.0
+    ]
+    in_progress.sort(key=lambda x: -x[1]["progress"])
+    if in_progress:
+        top = in_progress[:3]
+        parts = [f"{aid.split('-')[0]} {s['progress']:.0%}" for aid, s in top]
+        lines.append("leading:  " + "   ".join(parts))
+
+    if done:
+        completed = [aid for aid, s in AGENT_STATE.items() if s["progress"] >= 1.0]
+        lines.append("done:  " + "  ".join(c.split("-")[0] for c in completed[:4]))
+
+    return "\n".join(lines)
+
+
+# ── CSS ─────────────────────────────────────────────────────────────────────
 CSS = """
 Screen {
-    background: #0d0d0d;
+    background: #111111;
+    color: #cccccc;
 }
 
-#title-bar {
+#header-bar {
     height: 1;
-    background: #1a1a2e;
-    color: #7c85f5;
-    text-align: center;
-    text-style: bold;
+    background: #111111;
+    color: #555555;
     padding: 0 2;
+    border-bottom: solid #222222;
 }
 
 #main {
     height: 1fr;
 }
 
-#left-panel {
-    width: 34;
-    border: solid #2a2a3e;
-    background: #0f0f1a;
-    padding: 0 1;
+#left {
+    width: 26;
+    border-right: solid #222222;
+    padding: 1 2;
+    background: #111111;
 }
 
-#left-title {
-    height: 1;
-    color: #5a5a8a;
+#section-label {
+    color: #444444;
     text-style: bold;
-    padding: 0 0 1 0;
-    text-align: center;
+    margin-bottom: 1;
 }
 
-#agent-table {
+#agent-list {
     height: 1fr;
-    overflow-y: auto;
 }
 
-#right-panel {
-    border: solid #2a2a3e;
-    background: #080810;
-    padding: 0 1;
+#summary-divider {
+    color: #222222;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
-#right-title {
-    height: 1;
-    color: #5a5a8a;
+#summary-text {
+    color: #555555;
+    height: auto;
+}
+
+#right {
+    padding: 1 2;
+    background: #111111;
+}
+
+#thoughts-label {
+    color: #444444;
     text-style: bold;
-    padding: 0 0 1 0;
+    margin-bottom: 1;
 }
 
-#thoughts-log {
+#thoughts {
     height: 1fr;
+    background: #111111;
     scrollbar-size: 1 1;
-    scrollbar-color: #2a2a3e;
-    background: #080810;
+    scrollbar-color: #222222 #111111;
 }
 
-#status-bar {
+#footer-bar {
     height: 1;
-    background: #1a1a2e;
-    color: #5a5a8a;
+    background: #111111;
+    color: #333333;
     padding: 0 2;
+    border-top: solid #222222;
 }
 """
 
 
-# ── Widgets ────────────────────────────────────────────────────────────────
-class AgentTable(Static):
-    """Renders the agent list with progress bars."""
+# ── Widgets ──────────────────────────────────────────────────────────────────
+class AgentList(Static):
+    def on_mount(self) -> None:
+        self.set_interval(1.5, self._refresh)
 
-    def render_agents(self) -> Text:
-        lines = Text()
-        agents = sorted(
-            AGENT_STATE.items(), key=lambda x: -x[1]["progress"]
-        )
-        if not agents:
-            lines.append("  waiting for agents…\n", style="dim")
-            return lines
+    def _refresh(self) -> None:
+        self.update(self._render())
 
+    def _render(self) -> str:
+        if not AGENT_STATE:
+            return "[dim]waiting…[/dim]"
+
+        agents = sorted(AGENT_STATE.items(), key=lambda x: -x[1]["progress"])
+        out = []
         for agent_id, state in agents:
             prog = state["progress"]
-            filled = int(prog * 12)
-            empty  = 12 - filled
 
-            # Name — strip common prefix, keep last 16 chars
-            name = agent_id
-            if len(name) > 18:
-                name = name[-18:]
+            # shorten name: strip long hex suffixes
+            parts = agent_id.split("-")
+            # drop last part if it looks like a hex suffix (6+ hex chars)
+            if parts and re.match(r"^[0-9a-f]{6,}$", parts[-1]):
+                parts = parts[:-1]
+            name = "-".join(parts)
+            if len(name) > 16:
+                name = name[:16]
 
-            # Color by progress
+            pct = f"{prog:.0%}"
+
             if prog >= 1.0:
-                name_style = "bold green"
-                bar_style  = "green"
-                pct_style  = "green"
+                out.append(f"[green]{name:<16}  {pct:>4}[/green]")
             elif prog > 0.5:
-                name_style = "bold cyan"
-                bar_style  = "cyan"
-                pct_style  = "cyan"
+                out.append(f"[white]{name:<16}[/white]  [cyan]{pct:>4}[/cyan]")
             elif prog > 0:
-                name_style = "white"
-                bar_style  = "yellow"
-                pct_style  = "yellow"
+                out.append(f"[dim white]{name:<16}  {pct:>4}[/dim white]")
             else:
-                name_style = "dim"
-                bar_style  = "dim"
-                pct_style  = "dim"
+                out.append(f"[dim]{name:<16}   —[/dim]")
 
-            bar = Text()
-            bar.append("█" * filled, style=bar_style)
-            bar.append("░" * empty,  style="dim")
+        return "\n".join(out)
 
-            line = Text()
-            line.append(f" {'●' if prog > 0 else '○'} ", style=bar_style)
-            line.append(f"{name:<18}", style=name_style)
-            line.append("  ")
-            line.append(bar)
-            line.append(f"  {prog:>4.0%}\n", style=pct_style)
-            lines.append_text(line)
+    def render(self) -> str:
+        return self._render()
 
-        return lines
+
+class SummaryText(Static):
+    def on_mount(self) -> None:
+        self.set_interval(3.0, self._refresh)
+
+    def _refresh(self) -> None:
+        self.update(f"[dim]{_build_summary()}[/dim]")
+
+    def render(self) -> str:
+        return f"[dim]{_build_summary()}[/dim]"
+
+
+class HeaderBar(Static):
+    def on_mount(self) -> None:
+        self.set_interval(2.0, self._refresh)
+
+    def _refresh(self) -> None:
+        self.update(self._render())
+
+    def _render(self) -> str:
+        total = len(AGENT_STATE)
+        return (
+            f"[bold #7c7cf5]hollowOS[/bold #7c7cf5]"
+            f"  [dim]·[/dim]  {MODEL}"
+            f"  [dim]·[/dim]  cycle [white]{CYCLE}[/white]"
+            f"  [dim]·[/dim]  [dim]{total} agents[/dim]"
+            f"  [dim]·[/dim]  [dim]q  quit[/dim]"
+        )
+
+    def render(self) -> str:
+        return self._render()
+
+
+class ThoughtsPane(ScrollableContainer):
+    def compose(self) -> ComposeResult:
+        yield Log(highlight=False, auto_scroll=True, max_lines=600, id="log")
 
     def on_mount(self) -> None:
-        self.set_interval(1.0, self.refresh_table)
+        self.set_interval(0.4, self._poll)
 
-    def refresh_table(self) -> None:
-        self.update(self.render_agents())
-
-    def render(self):
-        return self.render_agents()
-
-
-class StatusBar(Static):
-    def on_mount(self) -> None:
-        self.set_interval(1.0, self.refresh_status)
-
-    def refresh_status(self) -> None:
-        self.update(self.render_status())
-
-    def render_status(self) -> Text:
-        active = sum(1 for s in AGENT_STATE.values() if s["progress"] > 0)
-        done   = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
-        total  = len(AGENT_STATE)
-        t = Text()
-        t.append(f" ◉ hollowOS", style="bold #7c85f5")
-        t.append(f"  │  ", style="dim")
-        t.append(f"cycle {CYCLE}", style="white")
-        t.append(f"  │  ", style="dim")
-        t.append(f"{total} agents", style="cyan")
-        t.append(f"  │  ", style="dim")
-        t.append(f"{done} complete  {active} active", style="green" if done else "white")
-        t.append(f"  │  ", style="dim")
-        t.append(f"model: {MODEL}", style="#7c85f5")
-        t.append(f"  │  ", style="dim")
-        t.append(f"heartbeat: 6s", style="dim")
-        return t
-
-    def render(self):
-        return self.render_status()
-
-
-class ThoughtsLog(ScrollableContainer):
-    """Scrollable thoughts pane — auto-scrolls to bottom."""
-
-    def on_mount(self) -> None:
-        self._log = Log(highlight=False, markup=False, auto_scroll=True)
-        self.mount(self._log)
-        self.set_interval(0.5, self.poll_thoughts)
-
-    def poll_thoughts(self) -> None:
+    def _poll(self) -> None:
         lines = _read_new_thoughts()
+        log = self.query_one("#log", Log)
         for line in lines:
             if line.strip():
-                self._log.write_line(line)
+                log.write_line(line)
 
 
-# ── App ────────────────────────────────────────────────────────────────────
+# ── App ───────────────────────────────────────────────────────────────────────
 class HollowMonitor(App):
     CSS = CSS
-    BINDINGS = [
-        ("q", "quit", "Quit"),
-        ("c", "clear_thoughts", "Clear"),
-    ]
+    BINDINGS = [("q", "quit", "quit")]
 
     def compose(self) -> ComposeResult:
-        yield Static(
-            " ◉  h o l l o w O S  —  autonomous agent runtime ",
-            id="title-bar",
-        )
+        yield HeaderBar(id="header-bar")
         with Horizontal(id="main"):
-            with Vertical(id="left-panel"):
-                yield Static(" AGENTS", id="left-title")
-                yield AgentTable(id="agent-table")
-            with Vertical(id="right-panel"):
-                yield Static(" LIVE THOUGHTS", id="right-title")
-                yield ThoughtsLog(id="thoughts-log")
-        yield StatusBar(id="status-bar")
+            with Vertical(id="left"):
+                yield Static("AGENTS", id="section-label")
+                yield AgentList(id="agent-list")
+                yield Static("─" * 22, id="summary-divider")
+                yield Static("SUMMARY", id="section-label")
+                yield SummaryText(id="summary-text")
+            with Vertical(id="right"):
+                yield Static("THOUGHTS", id="thoughts-label")
+                yield ThoughtsPane(id="thoughts")
+        yield Static(
+            "[dim]  hollowOS autonomous runtime  ·  agents think, you watch[/dim]",
+            id="footer-bar",
+        )
 
     def on_mount(self) -> None:
         _load_config()
-        self.set_interval(2.0, self.poll_daemon)
-
-    def poll_daemon(self) -> None:
         _parse_daemon_log()
+        self.set_interval(2.0, self._poll_daemon)
 
-    def action_clear_thoughts(self) -> None:
-        log_widget = self.query_one("#thoughts-log ThoughtsLog Log")
-        try:
-            log_widget.clear()
-        except Exception:
-            pass
+    def _poll_daemon(self) -> None:
+        _parse_daemon_log()
 
 
 if __name__ == "__main__":
-    _load_config()
-    _parse_daemon_log()
-    app = HollowMonitor()
-    app.run()
+    HollowMonitor().run()
