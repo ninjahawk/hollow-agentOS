@@ -135,7 +135,7 @@ def memory_set(key: str = "", value=None) -> dict:
 def memory_get(key: str = "") -> dict:
     """Retrieve a previously stored memory value by key."""
     if not key:
-        return {"error": "no key provided", "value": None}
+        return {"error": "no key provided", "ok": False, "value": None}
     result = _call("get", "/memory/project")
     return {"key": key, "value": result.get(key)}
 
