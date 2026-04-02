@@ -1,5 +1,5 @@
 """
-Autonomy Loop — AgentOS v3.15.0.
+Autonomy Loop — AgentOS v3.16.0.
 
 Multi-step planning: before executing, Ollama generates a complete plan.
 Each step's result is substituted into the next step's params ({result} placeholder).
@@ -118,7 +118,7 @@ class AutonomyLoop:
         # Progress
         progress_delta = 0.1 if status == "success" else 0.0
         metrics = dict(active_goal.metrics) if active_goal.metrics else {}
-        metrics["progress"] = metrics.get("progress", 0.0) + progress_delta
+        metrics["progress"] = min(1.0, metrics.get("progress", 0.0) + progress_delta)
         metrics["steps_completed"] = metrics.get("steps_completed", 0) + 1
         self._goal_engine.update_progress(agent_id, goal_id, metrics)
 
@@ -206,6 +206,7 @@ class AutonomyLoop:
             current = self._goal_engine.get(agent_id, goal_id)
             if current and current.metrics.get("progress", 0.0) >= 1.0:
                 self._goal_engine.complete(agent_id, goal_id)
+                self._synthesize_completion(agent_id, goal.objective, steps_executed)
                 return (goal_id, 1.0, steps_executed)
 
             if not success:
@@ -213,6 +214,8 @@ class AutonomyLoop:
 
         final = self._goal_engine.get(agent_id, goal_id)
         progress = final.metrics.get("progress", 0.0) if final else 0.0
+        if progress >= 0.5:
+            self._synthesize_completion(agent_id, goal.objective, steps_executed)
         return (goal_id, progress, steps_executed)
 
     # ── Introspection ──────────────────────────────────────────────────────
@@ -242,6 +245,44 @@ class AutonomyLoop:
         return sum(1 for s in chain if s.step_status == "completed") / len(chain)
 
     # ── Internal ───────────────────────────────────────────────────────────
+
+
+    def _synthesize_completion(self, agent_id: str, objective: str, steps: int) -> None:
+        """
+        After a goal completes, extract what was learned and store in semantic memory.
+        Makes past successful plans discoverable for future similar goals.
+        """
+        if not self._semantic_memory or not self._execution_engine:
+            return
+        try:
+            # Gather what capabilities were used and what they produced
+            chain = self.get_execution_chain(agent_id, limit=steps + 2)
+            completed = [s for s in chain if s.step_status == "completed"]
+            if not completed:
+                return
+
+            cap_sequence = " → ".join(s.capability_id for s in reversed(completed) if s.capability_id)
+            
+            # Find any meaningful output (LLM response or saved keys)
+            artifact = ""
+            for s in completed:
+                r = s.execution_result or {}
+                if r.get("response"):
+                    artifact = r["response"][:300]
+                    break
+                elif r.get("key"):
+                    artifact = f"saved to memory key='{r['key']}'"
+                    break
+
+            summary = (
+                f"Goal completed: '{objective}'. "
+                f"Capability sequence: {cap_sequence}. "
+                f"Result: {artifact or 'no artifact captured'}. "
+                f"Steps: {steps}."
+            )
+            self._semantic_memory.store(agent_id, summary)
+        except Exception:
+            pass  # Synthesis failure must never break goal completion
 
     def _record_step(self, agent_id: str, step: AutonomyStep) -> None:
         with self._lock:
