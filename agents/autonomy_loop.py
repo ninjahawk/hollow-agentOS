@@ -29,14 +29,46 @@ AUTONOMY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "aut
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
 
 
+_C = {
+    'rs': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
+    'gray': '\033[90m', 'red': '\033[91m', 'green': '\033[92m',
+    'yellow': '\033[93m', 'blue': '\033[94m', 'cyan': '\033[96m', 'white': '\033[97m',
+}
+
 def _thought(agent_id: str, msg: str) -> None:
-    """Append a thought/action line to the live thoughts log."""
+    """Append a formatted, colorized thought line to the live thoughts log."""
     try:
         ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] [{agent_id}] {msg}\n"
+        aid = agent_id[-15:] if len(agent_id) > 15 else agent_id
+        ts_s  = f"{_C['gray']}{ts}{_C['rs']}"
+        aid_c = f"{_C['cyan']}{aid:<15}{_C['rs']}"
+        aid_d = f"{_C['dim']}{aid:<15}{_C['rs']}"
+        blank = " " * 8  # timestamp width
+        m = msg.strip()
+
+        if m.startswith("RUN:"):
+            parts = m[4:].split("|", 1)
+            cap   = parts[0].strip()
+            prm   = parts[1].replace("params:", "").strip()[:70] if len(parts) > 1 else ""
+            out = f"{ts_s}  {aid_c}  {_C['white']}▶  {cap:<18}{_C['rs']}  {_C['dim']}{prm}{_C['rs']}"
+        elif m.startswith("OK:"):
+            parts = m[3:].split("|", 1)
+            cap   = parts[0].strip()
+            res   = parts[1].strip()[:80] if len(parts) > 1 else ""
+            out = f"{blank}  {aid_d}  {_C['green']}✓  {cap:<18}{_C['rs']}  {_C['dim']}{res}{_C['rs']}"
+        elif m.startswith("FAIL:"):
+            parts = m[5:].split("|", 1)
+            cap   = parts[0].strip()
+            err   = parts[1].strip() if len(parts) > 1 else ""
+            # trim to first meaningful line, skip traceback
+            err   = (err.split("\\n")[0] if "\\n" in err else err)[:80]
+            out = f"{blank}  {aid_d}  {_C['red']}✗  {cap:<18}{_C['rs']}  {_C['dim']}{err}{_C['rs']}"
+        else:
+            out = f"{ts_s}  {_C['dim']}{aid:<15}  {m}{_C['rs']}"
+
         THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(THOUGHTS_LOG, "a") as f:
-            f.write(line)
+            f.write(out + "\n")
     except Exception:
         pass
 
