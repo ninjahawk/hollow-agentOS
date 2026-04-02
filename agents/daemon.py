@@ -35,7 +35,7 @@ from pathlib import Path
 
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
-HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "30"))   # seconds between cycles
+HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
 MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "5"))
 
 logging.basicConfig(
