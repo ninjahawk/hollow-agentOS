@@ -130,7 +130,12 @@ class ExecutionEngine:
             # In production: handle subprocess, containers, remote calls, etc.
             result = self._call_with_timeout(impl, params, timeout)
             context.result = result if isinstance(result, dict) else {"output": result}
-            context.status = "success"
+            # Treat ok=False as failure even if no exception was raised
+            if isinstance(context.result, dict) and context.result.get("ok") is False:
+                context.status = "failed"
+                context.error = context.result.get("error", "capability returned ok=False")
+            else:
+                context.status = "success"
         except TimeoutError:
             context.status = "timeout"
             context.error = f"Execution exceeded {timeout}ms timeout"
