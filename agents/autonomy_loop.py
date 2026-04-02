@@ -1,5 +1,5 @@
 """
-Autonomy Loop — AgentOS v3.18.0.
+Autonomy Loop — AgentOS v3.19.0.
 
 Multi-step planning: before executing, Ollama generates a complete plan.
 Each step's result is substituted into the next step's params ({result} placeholder).
@@ -261,7 +261,7 @@ class AutonomyLoop:
 
         final = self._goal_engine.get(agent_id, goal_id)
         progress = final.metrics.get("progress", 0.0) if final else 0.0
-        if progress >= 0.5:
+        if progress >= 0.3:
             self._synthesize_completion(agent_id, goal.objective, steps_executed)
         return (goal_id, progress, steps_executed)
 
@@ -328,8 +328,73 @@ class AutonomyLoop:
                 f"Steps: {steps}."
             )
             self._semantic_memory.store(agent_id, summary)
+
+            # Propose follow-on goal based on what was just learned
+            self._propose_followon_goal(agent_id, objective, summary)
         except Exception:
             pass  # Synthesis failure must never break goal completion
+
+    def _propose_followon_goal(self, agent_id: str, objective: str, synthesis: str) -> Optional[str]:
+        """
+        After a goal completes, ask Ollama what the agent should work on next.
+        Returns the new goal_id if a follow-on goal was created, else None.
+
+        Follow-on goals are only created when:
+          - A goal_engine is available
+          - Ollama returns a concrete, actionable goal (not a repeat of objective)
+          - The suggestion is not too similar to the just-completed objective
+        """
+        if not self._goal_engine or not self._reasoning_layer:
+            return None
+        try:
+            import httpx, os
+            from pathlib import Path
+
+            cfg_path = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+            cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+            prompt = (
+                f"An AI agent just completed this goal: '{objective}'.\n"
+                f"Completion summary: {synthesis[:300]}\n\n"
+                f"Propose ONE concrete follow-on goal that builds on what was learned.\n"
+                f"Rules:\n"
+                f"- Must be different from the completed goal\n"
+                f"- Must be achievable with: shell_exec, ollama_chat, fs_read, fs_write, "
+                f"semantic_search, memory_set, memory_get\n"
+                f"- Be specific and actionable, under 100 chars\n"
+                f'Respond ONLY with JSON: {{"goal": "<one sentence goal or null if nothing useful>"}}'
+            )
+
+            resp = httpx.post(
+                f"{ollama_host}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            raw = resp.json().get("response", "").strip()
+            data = json.loads(raw)
+            new_goal = data.get("goal", "").strip()
+
+            # Reject if null, empty, or too similar to original
+            if not new_goal or new_goal.lower() in ("null", "none", ""):
+                return None
+            if new_goal.lower() == objective.lower():
+                return None
+            if len(new_goal) < 10 or len(new_goal) > 200:
+                return None
+
+            goal_id = self._goal_engine.create(agent_id, new_goal)
+            if self._semantic_memory:
+                self._semantic_memory.store(
+                    agent_id,
+                    f"Self-directed: proposed follow-on goal '{new_goal}' after completing '{objective}'"
+                )
+            return goal_id
+
+        except Exception:
+            return None  # Follow-on proposal must never break anything
 
     def _record_step(self, agent_id: str, step: AutonomyStep) -> None:
         with self._lock:
