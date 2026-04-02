@@ -1,5 +1,5 @@
 """
-Autonomy Loop — AgentOS v3.17.0.
+Autonomy Loop — AgentOS v3.18.0.
 
 Multi-step planning: before executing, Ollama generates a complete plan.
 Each step's result is substituted into the next step's params ({result} placeholder).
@@ -161,12 +161,14 @@ class AutonomyLoop:
         # Generate plan
         plan = self._reasoning_layer.plan(agent_id, goal.objective) if self._reasoning_layer else []
         if not plan:
-            # Fallback: unplanned execution
             plan = [{"capability_id": None, "params": {}, "rationale": "fallback"}]
-
-        # Cap at max_steps
         plan = plan[:max_steps]
         plan_index = 0
+
+        # Error recovery state
+        failure_counts: dict = {}      # cap_id → total failure count this goal run
+        consecutive_failures: int = 0  # reset on any success
+        blacklisted: list = []         # caps declared impossible this run
 
         while steps_executed < max_steps:
             if plan_index < len(plan):
@@ -191,16 +193,64 @@ class AutonomyLoop:
 
             if success and result:
                 context = result
-            elif not success and plan_index < len(plan):
-                # Step failed — replan remaining steps with what we know
-                remaining_objective = (
-                    f"{goal.objective} "
-                    f"(already tried {cap_id}, continue from step {plan_index})"
-                )
-                new_plan = self._reasoning_layer.plan(agent_id, remaining_objective)
-                if new_plan:
-                    plan = plan[:plan_index] + new_plan
-                plan_index = plan_index  # stay at same index, new plan takes over
+                consecutive_failures = 0
+            elif not success:
+                # ── Failure classification ──────────────────────────────────
+                consecutive_failures += 1
+                if cap_id:
+                    failure_counts[cap_id] = failure_counts.get(cap_id, 0) + 1
+
+                fail_count = failure_counts.get(cap_id, 1) if cap_id else 1
+
+                if consecutive_failures >= 4:
+                    # IMPOSSIBLE: stuck in failure loop — abandon goal
+                    explanation = (
+                        f"Goal '{goal.objective}' abandoned after "
+                        f"{consecutive_failures} consecutive failures. "
+                        f"Last failing capability: {cap_id}. "
+                        f"Failure counts: {failure_counts}."
+                    )
+                    if self._semantic_memory:
+                        self._semantic_memory.store(agent_id, f"FAILED: {explanation}")
+                    if self._goal_engine:
+                        metrics = dict(goal.metrics) if goal.metrics else {}
+                        metrics["failure_reason"] = explanation
+                        self._goal_engine.update_progress(agent_id, goal_id, metrics)
+                    break
+
+                elif fail_count >= 3 and cap_id and cap_id not in blacklisted:
+                    # IMPOSSIBLE capability: blacklist it, force replan without it
+                    blacklisted.append(cap_id)
+                    blocked_msg = (
+                        f"{goal.objective} "
+                        f"(do NOT use {', '.join(blacklisted)} — tried {fail_count}x and failed, "
+                        f"use a different approach)"
+                    )
+                    new_plan = self._reasoning_layer.plan(agent_id, blocked_msg) if self._reasoning_layer else []
+                    if new_plan:
+                        plan = plan[:plan_index] + new_plan
+
+                elif fail_count >= 2:
+                    # BLOCKED: replan with context about what failed
+                    remaining_objective = (
+                        f"{goal.objective} "
+                        f"(step {plan_index}: {cap_id} failed {fail_count}x, try a different capability)"
+                    )
+                    new_plan = self._reasoning_layer.plan(agent_id, remaining_objective) if self._reasoning_layer else []
+                    if new_plan:
+                        plan = plan[:plan_index] + new_plan
+
+                else:
+                    # TRANSIENT: first failure of this cap — replan normally
+                    remaining_objective = (
+                        f"{goal.objective} "
+                        f"(already tried {cap_id}, continue from step {plan_index})"
+                    )
+                    new_plan = self._reasoning_layer.plan(agent_id, remaining_objective) if self._reasoning_layer else []
+                    if new_plan:
+                        plan = plan[:plan_index] + new_plan
+
+                time.sleep(0.1)
 
             # Check completion
             current = self._goal_engine.get(agent_id, goal_id)
@@ -208,9 +258,6 @@ class AutonomyLoop:
                 self._goal_engine.complete(agent_id, goal_id)
                 self._synthesize_completion(agent_id, goal.objective, steps_executed)
                 return (goal_id, 1.0, steps_executed)
-
-            if not success:
-                time.sleep(0.1)
 
         final = self._goal_engine.get(agent_id, goal_id)
         progress = final.metrics.get("progress", 0.0) if final else 0.0
