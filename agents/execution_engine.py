@@ -156,10 +156,18 @@ class ExecutionEngine:
         import inspect
         if params:
             sig = inspect.signature(func)
-            accepted = set(sig.parameters.keys())
-            # Pass only params the function actually accepts — Ollama may hallucinate extras
-            filtered = {k: v for k, v in params.items() if k in accepted}
-            result = func(**filtered)
+            # If function uses **kwargs, it accepts everything — pass through unfiltered
+            has_var_keyword = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in sig.parameters.values()
+            )
+            if has_var_keyword:
+                result = func(**params)
+            else:
+                accepted = set(sig.parameters.keys())
+                # Pass only params the function accepts — Ollama may hallucinate extras
+                filtered = {k: v for k, v in params.items() if k in accepted}
+                result = func(**filtered)
         else:
             result = func()
         return result
