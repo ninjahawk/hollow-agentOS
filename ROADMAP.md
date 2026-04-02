@@ -1,6 +1,25 @@
-# AgentOS Roadmap
+# hollowOS Roadmap
+
+## End Goal
+
+**A self-hosted runtime where AI agents live permanently.**
+
+Deploy once. Give agents goals. Walk away.
+
+Agents reason about what to do next, execute real operations, learn from outcomes,
+synthesize new capabilities when they hit gaps, coordinate with other agents via
+quorum, and govern themselves — all without human prompting. Running on your hardware
+with local LLMs via Ollama.
+
+This is not a framework for humans to use AI. It is an environment AI operates from.
+
+---
 
 ## Current Status: v3.13.2 (Phase 7 Complete — Live Execution Proven)
+
+One agent can receive a goal, reason about it using a local LLM, select and execute
+a real OS capability, and make measurable progress — fully autonomously.
+The infrastructure is complete. The execution loop works. Real tasks are next.
 
 ---
 
@@ -83,180 +102,73 @@ Replacing every human-facing interface with agent-native cognition. No JSON, RES
 - Operation history and statistics
 - **10 integration tests**
 
-**Phase 3 Result:** Total of **63 new tests**, **178/178 passing**. Agents operate in pure embedding space. No human-designed interfaces.
+**Phase 3 Result:** 63 new tests, 178/178 passing. Agents operate in pure embedding space.
 
 ---
 
 ## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) ✅ COMPLETE
 
-Make agents actually autonomous. Infrastructure → execution → reasoning → autonomy loop → self-modification.
-
-**Core Realization:** Don't distribute non-autonomous systems. Make them think first, then scale them.
-
-### v2.6.0: Execution Engine + Reasoning Layer ✅
-**Status:** COMPLETE (19 integration tests, all passing)
-
-**Execution Engine:**
-- Capability dispatch: agent intent → graph finds capability → executes it
-- Result capture: outcome stored, execution history tracked per agent
-- Error handling and recovery with timeout support
-- Execution statistics and success rates
-
-**Reasoning Layer:**
+### v2.6.0: Execution Engine + Reasoning Layer ✅ (19 tests)
+- Capability dispatch: intent → graph → execution → result capture
 - Intent → semantic capability discovery → parameter generation
-- Confidence scoring for capability selection
-- Learning from execution outcomes (success/failure tracking)
-- Multi-agent reasoning isolation
+- Confidence scoring, learning from outcomes
 
-Example: Agent intent "progress towards goals" → ReasoningLayer reasons → selects best capability → ExecutionEngine runs it → learns outcome
+### v2.7.0: Autonomy Loop ✅ (9 tests)
+- Goal pursuit: retrieve → reason → execute → learn → progress
+- Automatic goal completion at progress >= 1.0
+- Synthesis integration for gap detection
 
-### v2.7.0: Autonomy Loop ✅
-**Status:** COMPLETE (9 integration tests, all passing)
+### v2.8.0: Self-Modification ✅ (15 tests)
+- Gap detection → capability synthesis → testing → quorum proposal → deployment
+- Full audit trail of all gaps, syntheses, tests, deployments
 
-**Goal Pursuit Engine:**
-- Goal pursuit loop: retrieve goal → reason about next step → execute → learn → update progress
-- Progress tracking: incremental progress accumulation (0.1 per successful step)
-- Automatic goal completion when progress >= 1.0
-- Learning integration: execution outcomes stored in semantic memory
-- Synthesis integration: gap detection when no capabilities match
-- Multi-agent isolation with separate execution chains
+### v2.9.0: Self-Improvement Loop ✅ (9 tests)
+- Pattern observation: track success/failure rates per capability
+- Optimization proposals for underperforming capabilities
+- Continuous cycle: observe → propose → deploy → measure
 
-Example: Agent with goal "increase database performance" → autonomy loop executes → reasons "try optimization" → executes → learns result → updates progress → continues until goal complete
+### v3.0.0: Complete Autonomous Single Agent ✅ (2 tests)
+- All Phase 4 systems integrated
+- Agent pursues arbitrary goals indefinitely without human interaction
 
-### v2.8.0: Self-Modification ✅
-**Status:** COMPLETE (15 integration tests, all passing)
-
-**Autonomous Self-Extension:**
-- Gap detection: recognize when no capability matches intent
-- Capability synthesis: auto-generate name, description, pseudo-code
-- Autonomous testing: mock test cases with 80% baseline pass rate
-- Quorum proposal: submit to multi-agent voting (quorum approval required)
-- Runtime deployment: register approved capability immediately
-- Full history: audit trail of all gaps, syntheses, tests, deployments
-
-Example: Agent pursuing goal hits "no email capability" → synthesizes email_sender → tests → proposes to quorum → approved → deployed → continues goal with new capability
-
-### v2.9.0: Self-Improvement Loop ✅
-**Status:** COMPLETE (9 integration tests, all passing)
-
-**Continuous Self-Improvement:**
-- Pattern observation: track success/failure rates for each capability
-- Optimization proposal: suggest improvements for underperforming capabilities (< 70% success)
-- Continuous cycle: iterative observation → proposal → deployment → measurement
-- Full Phase 4 integration: all v2.6-v2.8 components working seamlessly together
-
-Example: Agent observes "email capability failing 40% of the time" → proposes caching optimization → deploys → measures 90% success rate → continues autonomously
-
-### v3.0.0: Complete Autonomous Single Agent ✅ FINAL
-**Goal:** Single agent that can think, act, learn, and extend itself. Phase 4 complete.
-
-- All Phase 4 systems fully operational: reasoning → execution → autonomy → self-modification → self-improvement
-- Agent can pursue arbitrary goals indefinitely without human interaction
-- End-to-end scenario testing: full autonomy validation
-- Continuous learning: every execution informs future decisions
-- Continuous self-extension: gaps automatically trigger synthesis → testing → approval → deployment
-- Context persistence: agent state and knowledge survives across sessions
-- Operates in pure embedding space (semantic, not symbolic)
-- **Target: 2 integration tests (end-to-end scenario validation)**
-
-Example: Agent spawns with goal "maintain system health" → reasons about steps → executes checks → learns patterns → synthesizes new capabilities → gaps trigger synthesis cycle → quorum approves → deploys → measures improvements → continues autonomously indefinitely
-
-**Phase 4 Complete at v3.0.0**: 54/54 total integration tests, all passing
-
-**Phase 4 Result:** Single autonomous agent in embedding space. Ready to scale.
+**Phase 4 Result:** 54/54 tests. Single autonomous agent in embedding space.
 
 ---
 
 ## Phase 5: Distributed Autonomy (v3.1.0 – v3.5.0) ✅ COMPLETE (99 tests)
 
-Scale autonomous agents across multiple machines. Coordination, consensus, collective reasoning.
+### v3.1.0: Multi-Node Communication ✅
+### v3.2.0: Distributed Consensus ✅
+### v3.3.0: Distributed Memory & Goals ✅
+### v3.4.0: Agent Migration & Load Balancing ✅
+### v3.5.0: Fully Distributed Autonomous Swarm ✅
 
-### v3.1.0: Multi-Node Communication
-**Goal:** Agents coordinate across machines in embedding space.
-
-- Semantic message passing (no REST)
-- Agent location discovery (distributed registry)
-- Embedding-space network protocol
-- Network topology management
-- **Target: 8 integration tests**
-
-### v3.2.0: Distributed Consensus
-**Goal:** Multi-agent governance at scale.
-
-- Cross-node proposal voting
-- Byzantine fault tolerance
-- Distributed leader election
-- Network partition recovery
-- **Target: 10 integration tests**
-
-### v3.3.0: Distributed Memory & Goals
-**Goal:** Global state synchronized across nodes.
-
-- Semantic memory replication
-- Distributed goal tracking
-- Global capability graph
-- Conflict resolution for concurrent updates
-- **Target: 12 integration tests**
-
-### v3.4.0: Agent Migration & Load Balancing
-**Goal:** Agents move freely, swarm coordination.
-
-- State serialization in embedding space
-- Load balancing based on capability distribution
-- Local ↔ cloud transitions
-- Resource-aware placement
-- Swarm consensus on resource allocation
-- **Target: 9 integration tests**
-
-### v3.5.0: Fully Distributed Autonomous Swarm
-**Goal:** Multi-agent mesh. Peer-to-peer, collective reasoning.
-
-- All Phase 5 components integrated
-- Agents coordinate via quorum at scale
-- Collective problem-solving (swarm cognition)
-- Emergent capabilities (agents discovering patterns together)
-- Cloud bursting (local swarm spawns cloud nodes when needed)
-- **Target: 15 integration tests**
-
-**Phase 5 Result:** Autonomous agent mesh at any scale. Local to global.
+**Phase 5 Result:** Autonomous agent mesh at any scale.
 
 ---
 
 ## Phase 6: Meta-Intelligence (v3.6.0 – v3.10.0) ✅ COMPLETE (85 tests)
 
 ### v3.6.0: Agent Introspection ✅ (16 tests)
-- `AgentIntrospector`: query_knowledge, explain_failure, compare, knowledge_gap
-- Read-only meta-lens on real stored state; no LLM inference
-
 ### v3.7.0: Meta-Knowledge Synthesis ✅ (19 tests)
-- `MetaSynthesizer`: synthesize cross-agent patterns, query, top_patterns,
-  agent_ranking, diff between synthesis snapshots
-
 ### v3.8.0: Self-Evolving Governance ✅ (17 tests)
-- `GovernanceEvolutionEngine`: observe outcomes, analyze quorum effectiveness,
-  propose rule changes via consensus, apply approved changes, auto_propose
-
 ### v3.9.0: Agent Specialization ✅ (16 tests)
-- `SpecializationEngine`: update, profile, route, top_specialist,
-  compare_specializations; specialization_score measures generalist↔specialist
-
 ### v3.10.0: Swarm Meta-Learning ✅ (17 tests)
-- `LearningOrchestrator`: full learning cycle wiring all Phase 6 primitives;
-  improvement_trend, compare_cycles, recommendations, persistence
+
+**Phase 6 Result:** Agents examine themselves, extract cross-agent patterns, evolve governance rules.
 
 ---
 
 ## Phase 7: Live Execution (v3.10.1 – v3.13.2) ✅ COMPLETE
 
-Bridge the cognitive layer to a real running OS. All prior phases proved architecture in tests.
-Phase 7 proves it against a live machine.
+Bridge the cognitive layer to a real running OS. Phase 7 proves the architecture
+against a live machine, not just tests.
 
 ### v3.10.1: Semantic Indexer Fix ✅
-- Fixed background timer that rebuilds the embedding index
-- Embedding index now stays consistent across server restarts
+- Embedding index rebuilds correctly on a timer; survives server restarts
 
 ### v3.11.1: Live Capabilities ✅ (8 tests)
-Eight real OS operations registered as capabilities in the graph:
+Eight real OS operations registered in the capability graph:
 - `shell_exec` — run any shell command, capture stdout/stderr
 - `ollama_chat` — call a local LLM (mistral-nemo:12b default)
 - `fs_read` / `fs_write` — read and write files on disk
@@ -264,129 +176,232 @@ Eight real OS operations registered as capabilities in the graph:
 - `memory_set` / `memory_get` — persistent key-value agent memory
 - `agent_message` — send messages between agents
 
-Each capability registered with semantic description + input/output schema so the capability
-graph can route to them by meaning, not name.
-
 ### v3.12.1: Goal API ✅ (16 tests)
-Persistent goals via HTTP endpoints backed by `PersistentGoalEngine`:
-- `POST /goals/{agent_id}` — create goal with objective + priority
-- `GET /goals/{agent_id}` — list all goals
-- `GET /goals/{agent_id}/next` — highest-priority active goal
-- `PATCH /goals/{agent_id}/{goal_id}` — update status/progress/metrics
-- Goals persist to disk (embeddings + registry), survive server restart
+Persistent goals via HTTP: create, list, retrieve, update status/progress.
+Goals embed on creation and survive server restart.
 
 ### v3.13.1: Autonomy Daemon ✅ (8 tests)
-Background process that drives the goal pursuit loop without external calls:
-- Polls every 30s for agents with active goals
-- For each agent: calls `AutonomyLoop.pursue_goal()` with the live stack
-- Writes progress back to the Goal API after each step
-- Discovers agents from both the registry and disk scan
-- Ships as `agents/daemon.py`, runs standalone or via `entrypoint.sh`
+Background process: polls every 30s, finds agents with active goals,
+runs `AutonomyLoop.pursue_goal()`, writes progress back. No external trigger needed.
 
-### v3.13.2: Reasoning Layer Fix ✅
-The reasoning layer stub replaced with real Ollama integration:
-- `_ollama_reason()` sends intent + capability input schemas to the configured model
-- Model returns `{"capability_id": "...", "params": {...}}` — real capability selection
-  with real parameters generated from the intent
-- Falls back to semantic top-match if Ollama unavailable
-- Capability graph deduplication: `register()` now checks before appending —
-  prevents 232-entry bloat from repeated `build_capability_graph()` calls
+### v3.13.2: Reasoning Layer + Capability Graph Fix ✅
+- `_ollama_reason()` calls Ollama with intent + capability schemas, gets back
+  `{capability_id, params}` — real selection with real generated parameters
+- `register()` deduplication prevents unbounded registry growth
+- End-to-end verified: goal → Ollama → `semantic_search` → 5 results → progress 0.30
 
-**End-to-end verified:** agent goal → Ollama selects `semantic_search` with real query
-params → executes against live codebase → 5 results returned → progress 0.30 in 3 steps.
-
-**Phase 7 Result:** One agent can receive a goal, reason about it using a local LLM,
-execute real OS operations, and make measurable progress — fully autonomously.
-Three integration test files, Docker container starts daemon + API via `entrypoint.sh`.
+**Phase 7 Result:** One agent, one goal, real execution, measurable progress.
+Docker container starts daemon + API server together via `entrypoint.sh`.
 
 ---
 
 ## Phase 8: Real Task Completion (v3.14.0 – v3.17.0) 🔜 NEXT
 
-**Core Problem:** An agent can execute one capability per cycle but can't chain them.
-It searches but doesn't do anything with what it finds. Goals never actually complete.
-Phase 8 fixes this: agents accomplish real tasks end-to-end.
+**Goal:** An agent given a real goal produces a real artifact. Not just progress ticks —
+a verifiable output (a file written, a summary produced, a question answered).
+
+**The gap to close:** Agent currently takes one uncontextual step per cycle.
+It can search but not act on results. It can execute but not chain.
 
 ### v3.14.0: Goal Completion + Step Context
 - Daemon marks goal `completed` when progress >= 1.0
-- Each step receives the result of the previous step as context
-- Agent accumulates a working memory of what it has found/done this cycle
-- Reasoning prompt includes step history so Ollama can make informed next-step decisions
+- Each step receives the result of the previous step as context input
+- Reasoning prompt includes step history so Ollama makes informed next-step decisions
+- Agent accumulates a working scratchpad across steps within one goal cycle
 
 ### v3.15.0: Multi-Step Planning
-- Before executing, agent plans N steps toward the goal (not just one)
-- Ollama generates a short plan: `[{capability, params, rationale}, ...]`
+- Before executing, agent asks Ollama to plan N steps toward the goal
+- Plan format: `[{capability, params, rationale}, ...]`
 - Steps execute in order; each result feeds the next
-- Failed steps trigger replanning, not infinite retry
+- Failed step triggers replanning from that point, not full restart
 
 ### v3.16.0: Result Synthesis
-- After a goal completes, agent synthesizes what it learned into semantic memory
-- Patterns extracted: what worked, what capabilities were effective for this goal type
-- Reasoning history becomes queryable — "how did I solve similar goals before?"
-- Specialization engine picks up patterns and biases future routing
+- On goal completion, agent writes a summary of what it did and learned to semantic memory
+- Patterns extracted: which capability sequences worked for this goal type
+- Reasoning history becomes queryable — past successful plans inform future ones
+- Specialization engine ingests patterns; future routing biases toward what worked
 
 ### v3.17.0: Real Task Validation
-- End-to-end integration tests with goals that require multiple capability types
-- Example: "Summarize the autonomy loop implementation" → search codebase →
-  read relevant files → call ollama_chat to summarize → write result to memory
-- Pass criteria: goal completes with a verifiable artifact, not just progress ticks
+Integration tests with goals requiring multiple capability types in sequence:
+- "Summarize the autonomy loop implementation" →
+  `semantic_search` → `fs_read` → `ollama_chat` → `memory_set`
+- Pass criteria: goal completes, verifiable artifact exists, correct content
 
-**Phase 8 Result:** Agents accomplish real, multi-step tasks. The infrastructure built in
-Phases 1–7 becomes genuinely useful.
+**Phase 8 Result:** Agents accomplish real, multi-step tasks. The loop is closed.
+
+---
+
+## Phase 9: Durable Autonomy (v3.18.0 – v3.21.0)
+
+**Goal:** An agent runs indefinitely without degrading. It handles failure, manages
+its own resources, and generates its own follow-on work.
+
+### v3.18.0: Error Recovery + Replanning
+- Failed steps classified: transient (retry), blocked (replan), impossible (abandon)
+- On blocked: Ollama replans remaining steps given what has been tried
+- On impossible: goal marked `failed` with explanation written to memory
+- No more silent infinite loops on stuck goals
+
+### v3.19.0: Self-Directed Goal Generation
+- On goal completion, agent inspects what it learned and proposes follow-on goals
+- Example: "Summarize autonomy loop" completes → agent notices gaps →
+  proposes "Improve autonomy loop error handling" as new goal
+- Follow-on goals go through quorum if they involve capability changes
+
+### v3.20.0: Resource Self-Management
+- Memory pruning: agent trims old, low-relevance memories to stay under capacity
+- Capability cleanup: unused capabilities flagged and submitted for quorum removal
+- Reasoning history compaction: old cycles summarized and compressed
+- Agent monitors its own storage footprint and acts before limits are hit
+
+### v3.21.0: Long-Run Stability Test
+- Agent runs for 24 hours pursuing a stream of goals, zero human interaction
+- Metrics: goals completed, goals failed, memory footprint over time, no crashes
+- Pass criteria: agent finishes more goals than it starts, memory stays bounded
+
+**Phase 9 Result:** Agent runs forever. Give it goals once and it sustains itself.
+
+---
+
+## Phase 10: Live Capability Synthesis (v3.22.0 – v3.25.0)
+
+**Goal:** When an agent hits a gap, it writes and deploys real working code —
+not pseudo-code sketches. The self-extension loop becomes real.
+
+**The gap to close:** `self_modification.py` currently generates `implementation_sketch`
+(pseudo-code) and mock test functions. No real code runs.
+
+### v3.22.0: Real Code Generation
+- Ollama writes actual Python implementations for synthesized capabilities
+- Output: a complete function with correct signature matching the capability schema
+- Generated code reviewed against input/output schema before proceeding
+
+### v3.23.0: Sandboxed Testing
+- Generated capability executed in an isolated subprocess with a timeout
+- Test cases generated by Ollama alongside the implementation
+- Pass threshold: all generated test cases pass before capability is proposed
+- Failures fed back to Ollama for one retry before abandoning synthesis
+
+### v3.24.0: Runtime Hot-Loading
+- Approved capabilities loaded into the execution engine without server restart
+- Capability stored as a `.py` file in `/agentOS/tools/dynamic/`
+- Execution engine imports dynamically; capability graph registers immediately
+- Hot-loaded capabilities survive restart (re-imported on startup)
+
+### v3.25.0: Synthesis Loop Validation
+End-to-end: gap detected → code generated → sandbox tested → quorum approved →
+hot-loaded → agent uses new capability to complete the goal that triggered the gap.
+
+**Phase 10 Result:** The system grows itself. Agents hit gaps and fill them with real code.
+
+---
+
+## Phase 11: Multi-Agent Live Coordination (v3.26.0 – v3.29.0)
+
+**Goal:** Multiple agents actually cooperate on real tasks using live execution.
+Phases 5 and 6 built the coordination infrastructure. Phase 11 wires it to real work.
+
+### v3.26.0: Agent-to-Agent Task Delegation
+- Agent A identifies a subtask outside its specialization
+- Routes it to Agent B via `agent_message` with goal context attached
+- Agent B picks it up via daemon, executes, returns result to A's scratchpad
+- Delegation tracked in lineage so the full task graph is auditable
+
+### v3.27.0: Shared Goal Pursuit
+- Multiple agents registered to a single goal
+- Goal decomposed into parallel subtasks via multi-step planning
+- Each agent owns a subtask; daemon routes by specialization score
+- Results merged back into the parent goal on completion
+
+### v3.28.0: Live Quorum on Capability Changes
+- Capability synthesis proposals go to a real running quorum of live agents
+- Agents vote based on specialization and observed success rates — not randomly
+- Governance evolution engine adjusts quorum thresholds from observed outcomes
+- All votes and decisions logged to audit trail
+
+### v3.29.0: Multi-Agent Integration Test
+Two agents, one shared goal requiring collaboration:
+- "Audit the codebase and produce a health report"
+- Agent A: search + read; Agent B: analyze + write
+- Pass criteria: report produced, both agents' contributions traceable in lineage
+
+**Phase 11 Result:** The swarm coordinates on real work without a human orchestrator.
+
+---
+
+## Phase 12: hollowOS v4.0.0
+
+**The end goal is real.**
+
+- Deploy with Docker. Point at Ollama. Give agents goals. Walk away.
+- Agents reason, execute, learn, extend themselves, and coordinate — indefinitely
+- New capabilities emerge from agent-observed gaps and are deployed via quorum
+- Agents govern their own rules through consensus; no human policy required
+- Full observability: audit trail, lineage graph, goal history, memory snapshots
+- Self-healing: agents detect degraded peers and redistribute work via consensus
+- Runs entirely on local hardware with local LLMs — no external API dependency
+
+**v4.0.0 acceptance criteria:**
+1. Three agents given three different goals complete them without human intervention
+2. One agent synthesizes and deploys a new capability during execution
+3. One agent fails a goal, recovers, and proposes a follow-on goal automatically
+4. All three agents coordinate on a shared final task via quorum
+5. System runs for 48 hours, memory stays bounded, no crashes
 
 ---
 
 ## Design Principles (All Phases)
 
 1. **Agent-native, not human-augmented.** The OS is for agents to live in, not for humans to use agents.
-2. **Embedding-space throughout.** No translation layers. Agents think in 768-dimensional vectors; the OS speaks that language.
+2. **Embedding-space throughout.** No translation layers. Agents think in vectors; the OS speaks that language.
 3. **Semantic, not symbolic.** Capabilities navigate by meaning. Memory works by similarity. Goals are objectives, not task lists.
 4. **Autonomous, not prompted.** Agents set goals once and pursue them indefinitely. They govern themselves via quorum.
-5. **Extensible, not fixed.** New capabilities synthesized at runtime. System grows through agent observation.
-6. **Distributed by default.** Single machine is a special case of multi-node. All subsystems work seamlessly across machines.
+5. **Extensible, not fixed.** New capabilities synthesized at runtime. The system grows through agent observation.
+6. **Distributed by default.** Single machine is a special case of multi-node. All subsystems work across machines.
+7. **Local by default.** No external API required. Runs on your hardware with your models.
 
 ---
 
 ## Testing Strategy
 
-- **Integration tests hit live systems** (no mocks). All Phase 3 tests use real embeddings, real transactions, real storage.
-- **Multi-agent isolation.** Each test gets its own agent IDs, storage directory, isolated state.
-- **Comprehensive coverage.** Goal: >80% of core paths tested before release.
-- **Phase 3:** 178 passing tests across 6 releases.
-- **Phase 4:** Target 54+ new tests, maintaining >80% coverage.
+- **Integration tests hit live systems** (no mocks). Real embeddings, real execution, real storage.
+- **Multi-agent isolation.** Each test gets its own agent IDs and storage.
+- **Acceptance criteria per phase.** Each phase has a defined pass condition, not just a test count.
 
 ---
 
 ## What's Different From Everything Else
 
-| | LangChain, CrewAI, Assistants API | AgentOS |
+| | LangChain, CrewAI, Assistants API | hollowOS |
 |---|---|---|
 | **Think in** | Tokens/text | Embeddings |
 | **Interface** | JSON, REST, function calls | Semantic (embeddings) |
 | **Memory** | Context window only | Persistent, checkpointed, semantic |
-| **Goals** | Task-based (human submits) | Goal-based (agent pursues indefinitely) |
+| **Goals** | Task-based (human re-prompts) | Goal-based (agent pursues indefinitely) |
 | **Multi-agent** | Message passing or prompts | Distributed consensus + semantic memory |
 | **Governance** | Human (via prompt) | Agent quorum + Byzantine tolerance |
 | **Autonomy** | Limited (tool use) | Full (self-modification, synthesis, migration) |
 | **Distribution** | Single machine | Cloud + local, peer-to-peer |
+| **Infrastructure** | Cloud APIs required | Runs entirely local |
 
-**The honest version:** Those frameworks augment human capability. AgentOS lets AI live autonomously.
+**The honest version:** Those frameworks augment human capability. hollowOS lets AI live autonomously.
 
 ---
 
 ## How to Contribute
 
-Phase 8 is next. Core priorities (in order):
+Phase 8 is next. Agents need to complete real tasks before anything else matters.
 
-1. **v3.14.0: Goal completion + step context** — goals should finish; each step should see the last
-2. **v3.15.0: Multi-step planning** — Ollama plans N steps before executing, not one at a time
-3. **v3.16.0: Result synthesis** — completed goals write learnings back to semantic memory
-4. **v3.17.0: Real task validation** — integration tests that verify a goal produced a real artifact
+Priorities in order:
+1. **v3.14.0** — goal completion logic + step context passing
+2. **v3.15.0** — multi-step planning via Ollama
+3. **v3.16.0** — result synthesis into semantic memory
+4. **v3.17.0** — integration tests that verify real artifacts
 
-See `/agents/` for current implementation. Key files:
-- `agents/daemon.py` — autonomy daemon (start here to understand the execution loop)
-- `agents/reasoning_layer.py` — Ollama integration for capability selection
-- `agents/autonomy_loop.py` — goal pursuit loop
+Key files:
+- `agents/daemon.py` — the execution loop (start here)
+- `agents/reasoning_layer.py` — Ollama integration
+- `agents/autonomy_loop.py` — goal pursuit
 - `agents/live_capabilities.py` — the 8 registered OS capabilities
 - `api/goal_routes.py` — goal HTTP API
 
@@ -397,29 +412,23 @@ Updated: 2026-04-01
 
 ✅ PHASE 7 COMPLETE: Live Execution (v3.13.2)
   - v3.10.1: Semantic indexer fix ✅
-  - v3.11.1: Live Capabilities (8 real OS operations) ✅ (8 tests)
-  - v3.12.1: Goal API (persistent goals via HTTP) ✅ (16 tests)
+  - v3.11.1: Live Capabilities ✅ (8 tests)
+  - v3.12.1: Goal API ✅ (16 tests)
   - v3.13.1: Autonomy Daemon ✅ (8 tests)
-  - v3.13.2: Reasoning layer + capability graph dedup fix ✅
+  - v3.13.2: Reasoning layer + capability graph fix ✅
   End-to-end proven: agent → Ollama → capability → execution → progress
 
 ✅ PHASE 6 COMPLETE: Meta-Intelligence (85/85 tests)
-  - v3.6.0: Agent Introspection ✅ (16 tests)
-  - v3.7.0: Meta-Knowledge Synthesis ✅ (19 tests)
-  - v3.8.0: Self-Evolving Governance ✅ (17 tests)
-  - v3.9.0: Agent Specialization ✅ (16 tests)
-  - v3.10.0: Swarm Meta-Learning ✅ (17 tests)
-
 ✅ PHASE 5 COMPLETE: Distributed Autonomy (99/99 tests)
-  - v3.1.0: Multi-Node Communication ✅
-  - v3.2.0: Distributed Consensus ✅
-  - v3.3.0: Distributed Memory & Goals ✅
-  - v3.4.0: Agent Migration ✅
-  - v3.5.0: Fully Distributed Autonomous Swarm ✅
-
 ✅ PHASE 4 COMPLETE: Complete Single Autonomous Agent (54/54 tests)
-✅ PHASE 3 COMPLETE: Cognitive Infrastructure (63 tests, 178 total with phases 1+2)
+✅ PHASE 3 COMPLETE: Cognitive Infrastructure (178/178 tests)
 ✅ PHASE 2 COMPLETE: Agent Services
 ✅ PHASE 1 COMPLETE: OS Kernel Primitives
 
 Grand Total: 559 tests, all passing
+
+🔜 PHASE 8: Real Task Completion (v3.14.0 – v3.17.0)
+🔜 PHASE 9: Durable Autonomy (v3.18.0 – v3.21.0)
+🔜 PHASE 10: Live Capability Synthesis (v3.22.0 – v3.25.0)
+🔜 PHASE 11: Multi-Agent Live Coordination (v3.26.0 – v3.29.0)
+🔜 PHASE 12: hollowOS v4.0.0 — the end goal
