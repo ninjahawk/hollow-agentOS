@@ -93,7 +93,7 @@ class ReasoningLayer:
         # Step 1: Find candidate capabilities via semantic search
         candidates = []
         if self._capability_graph:
-            results = self._capability_graph.find(intent, top_k=5, similarity_threshold=0.3)
+            results = self._capability_graph.find(intent, top_k=5, similarity_threshold=0.2)
             candidates = [cap.capability_id for cap, _ in results]
 
         if not candidates:
@@ -216,10 +216,12 @@ class ReasoningLayer:
                 f"Goal: {objective}\n\n"
                 f"Available capabilities:\n{caps_text}\n\n"
                 f"Rules:\n"
-                f"- Start with semantic_search or fs_read to gather information\n"
+                f"- Start with semantic_search or shell_exec to gather information\n"
                 f"- Use ollama_chat to analyze or summarize gathered data\n"
-                f"- End with memory_set or fs_write to save the result\n"
-                f"- For params that depend on a previous step's output, use {{result}} as placeholder\n"
+                f"- REQUIRED LAST STEP: memory_set or fs_write to save the result\n"
+                f"- IMPORTANT: for params that depend on a previous step output, use EXACTLY the string {{result}} as the entire value\n"
+                f'  Example: {{"prompt": "Analyze this: {{result}}"}}, {{"value": "{{result}}"}}, {{"content": "{{result}}"}}\n'
+                f"- Do NOT use nested objects or arrays as placeholder values\n"
                 f"- Generate specific real values for params that don't depend on previous steps\n\n"
                 f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
             )

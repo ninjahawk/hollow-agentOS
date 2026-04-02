@@ -44,21 +44,48 @@ class AutonomyStep:
     timestamp: float = field(default_factory=time.time)
 
 
+def _result_to_text(result: dict) -> str:
+    """Extract readable text from an execution result dict."""
+    if not result:
+        return ""
+    for key in ("response", "content", "stdout", "results", "value"):
+        val = result.get(key)
+        if val:
+            if isinstance(val, list):
+                parts = []
+                for item in val[:5]:
+                    if isinstance(item, dict):
+                        parts.append(item.get("preview", str(item))[:200])
+                    else:
+                        parts.append(str(item)[:200])
+                return "\n".join(parts)
+            return str(val)[:600]
+    return json.dumps(result)[:400]
+
+
 def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     """
     Replace {result} placeholders in params with the previous result.
-    Also fixes invalid param values (False, None, empty) by substituting context.
+    Also appends context to key params (prompt/content/query/value) and
+    replaces any dict/empty param values with the result text.
     """
     if not previous_result:
         return params
-    result_str = json.dumps(previous_result)[:500]
+    result_str = json.dumps(previous_result)[:600]
+    result_text = _result_to_text(previous_result)
     out = {}
     for k, v in params.items():
         if isinstance(v, str) and "{result}" in v:
-            out[k] = v.replace("{result}", result_str)
+            out[k] = v.replace("{result}", result_text)
+        elif isinstance(v, str) and v and k in ("prompt", "content", "query", "value"):
+            # Append context to these key params so LLM/search gets real data
+            out[k] = v.rstrip() + "\n\n" + result_text if result_text else v
+        elif isinstance(v, dict):
+            # Ollama sometimes returns {"result_from": 1} — replace with actual text
+            out[k] = result_text
         elif not v and v != 0:
             # param is empty/False/None — substitute previous result
-            out[k] = result_str
+            out[k] = result_text
         else:
             out[k] = v
     return out
@@ -121,10 +148,30 @@ class AutonomyLoop:
                 f"Goal '{active_goal.objective}' step {cap_id}: {json.dumps(result)[:200]}"
             )
 
-        # Progress
-        progress_delta = 0.1 if status == "success" else 0.0
+        # Progress — only count a step if it does something new
         metrics = dict(active_goal.metrics) if active_goal.metrics else {}
-        metrics["progress"] = min(1.0, metrics.get("progress", 0.0) + progress_delta)
+        progress_delta = 0.0
+        if status == "success":
+            prev_cap = metrics.get("last_cap")
+            if cap_id != prev_cap:
+                # Meaningful progress: different capability than last step
+                progress_delta = 0.15 if cap_id in ("memory_set", "fs_write") else 0.1
+            else:
+                # Repeated same capability — marginal credit
+                progress_delta = 0.02
+            metrics["last_cap"] = cap_id
+
+            # Track whether an output step (memory_set/fs_write) has succeeded
+            if cap_id in ("memory_set", "fs_write"):
+                metrics["has_output"] = True
+
+        current_progress = metrics.get("progress", 0.0)
+        # Cap at 0.9 until at least one output step (memory_set/fs_write) completes
+        if not metrics.get("has_output"):
+            new_progress = min(0.9, current_progress + progress_delta)
+        else:
+            new_progress = min(1.0, current_progress + progress_delta)
+        metrics["progress"] = new_progress
         metrics["steps_completed"] = metrics.get("steps_completed", 0) + 1
         self._goal_engine.update_progress(agent_id, goal_id, metrics)
 
@@ -335,8 +382,15 @@ class AutonomyLoop:
             )
             self._semantic_memory.store(agent_id, summary)
 
-            # Propose follow-on goal based on what was just learned
-            self._propose_followon_goal(agent_id, objective, summary)
+            # Propose follow-on goal only if a real artifact was produced
+            has_artifact = any(
+                s.capability_id in ("memory_set", "fs_write")
+                and s.step_status == "completed"
+                and (s.execution_result or {}).get("ok")
+                for s in completed
+            )
+            if has_artifact:
+                self._propose_followon_goal(agent_id, objective, summary)
 
             # Resource self-management: prune/compact if over limits
             if _resource_manager is not None:
