@@ -1,5 +1,5 @@
 """
-Autonomy Loop — AgentOS v3.16.0.
+Autonomy Loop — AgentOS v3.17.0.
 
 Multi-step planning: before executing, Ollama generates a complete plan.
 Each step's result is substituted into the next step's params ({result} placeholder).
@@ -294,3 +294,77 @@ class AutonomyLoop:
                 if chain_file.exists()
                 else json.dumps(asdict(step)) + "\n"
             )
+
+    def validate_goal_artifact(self, agent_id: str, goal_id: str) -> dict:
+        """
+        After a goal completes, verify that it produced a real artifact.
+
+        Scans the execution chain for completed steps and checks:
+          - memory_set: verifies the key exists in the live AgentOS memory
+          - fs_write: verifies the file was written to disk
+          - ollama_chat: verifies a non-empty response was produced
+          - shell_exec: verifies exit_code == 0
+
+        Returns:
+          {"validated": bool, "artifact_type": str, "artifact_value": str, "checks": list}
+        """
+        chain = self.get_execution_chain(agent_id)
+        # Filter to steps for this goal
+        steps = [s for s in chain if s.goal_id == goal_id and s.step_status == "completed"]
+        if not steps:
+            return {"validated": False, "artifact_type": None, "artifact_value": None,
+                    "checks": ["no completed steps found"]}
+
+        checks = []
+        for step in reversed(steps):
+            r = step.execution_result or {}
+            cap = step.capability_id or ""
+
+            if cap == "memory_set" and r.get("ok") and r.get("key"):
+                # Verify the key exists by calling memory_get
+                if self._execution_engine:
+                    result, status = self._execution_engine.execute(
+                        agent_id, "memory_get", {"key": r["key"]}
+                    )
+                    if status == "success" and result.get("value"):
+                        checks.append(f"memory key '{r['key']}' verified present")
+                        return {
+                            "validated": True,
+                            "artifact_type": "memory",
+                            "artifact_value": str(result["value"])[:200],
+                            "checks": checks,
+                        }
+                    checks.append(f"memory key '{r['key']}' not found after write")
+
+            elif cap == "fs_write" and r.get("ok") and r.get("path"):
+                import os
+                if os.path.exists(r["path"]) and os.path.getsize(r["path"]) > 0:
+                    checks.append(f"file '{r['path']}' exists with content")
+                    return {
+                        "validated": True,
+                        "artifact_type": "file",
+                        "artifact_value": r["path"],
+                        "checks": checks,
+                    }
+                checks.append(f"file '{r['path']}' missing or empty")
+
+            elif cap == "ollama_chat" and r.get("response"):
+                checks.append("ollama_chat produced non-empty response")
+                return {
+                    "validated": True,
+                    "artifact_type": "llm_response",
+                    "artifact_value": r["response"][:200],
+                    "checks": checks,
+                }
+
+            elif cap == "shell_exec" and r.get("exit_code") == 0 and r.get("stdout", "").strip():
+                checks.append("shell_exec produced output")
+                return {
+                    "validated": True,
+                    "artifact_type": "shell_output",
+                    "artifact_value": r["stdout"][:200],
+                    "checks": checks,
+                }
+
+        checks.append("no verifiable artifact found in execution chain")
+        return {"validated": False, "artifact_type": None, "artifact_value": None, "checks": checks}
