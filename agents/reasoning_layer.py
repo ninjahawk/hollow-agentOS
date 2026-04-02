@@ -42,14 +42,36 @@ REASONING_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "re
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
 
 
+_C = {
+    'rs': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
+    'gray': '\033[90m', 'red': '\033[91m', 'green': '\033[92m',
+    'yellow': '\033[93m', 'blue': '\033[94m', 'cyan': '\033[96m', 'white': '\033[97m',
+}
+
 def _thought(agent_id: str, msg: str) -> None:
-    """Append a thought/action line to the live thoughts log."""
+    """Append a formatted, colorized thought line to the live thoughts log."""
     try:
         ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] [{agent_id}] {msg}\n"
+        aid = agent_id[-15:] if len(agent_id) > 15 else agent_id
+        ts_s  = f"{_C['gray']}{ts}{_C['rs']}"
+        aid_c = f"{_C['cyan']}{aid:<15}{_C['rs']}"
+        blank = " " * 8
+
+        m = msg.strip()
+        if m.startswith("GOAL:"):
+            goal = m[5:].strip()[:90]
+            out = f"{ts_s}  {_C['bold']}{_C['yellow']}{aid:<15}  ◎  {goal}{_C['rs']}"
+        elif m.startswith("PLAN:"):
+            plan = m[5:].strip()
+            out = f"{blank}  {_C['dim']}{aid:<15}  {_C['blue']}↳  {plan}{_C['rs']}"
+        elif m.startswith("step "):
+            out = f"{blank}  {_C['dim']}{aid:<15}     {m}{_C['rs']}"
+        else:
+            out = f"{ts_s}  {_C['dim']}{aid:<15}  {m}{_C['rs']}"
+
         THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(THOUGHTS_LOG, "a") as f:
-            f.write(line)
+            f.write(out + "\n")
     except Exception:
         pass
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
