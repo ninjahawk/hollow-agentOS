@@ -210,21 +210,35 @@ def index_files(paths: list[str]) -> dict:
 
 
 def index_workspace() -> dict:
-    """Index all eligible files in the workspace root."""
-    config = _load_config()
-    root = config.get("workspace", {}).get("root", "/agentOS/workspace")
-    extensions = set(config.get("workspace", {}).get("index_extensions", []))
+    """Index agent source code only.
+
+    Only indexes /agentOS/agents/*.py — the canonical source of truth.
+    Workspace output files are excluded to prevent drift artifacts
+    from contaminating semantic search results.
+
+    Always performs a FULL rebuild (wipes old index) so stale chunks
+    from drift files do not persist across re-indexes.
+    """
     SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv",
                  "dist", "build", ".next", "target", ".cache"}
 
     paths = []
-    for item in Path(root).rglob("*"):
-        if any(part in SKIP_DIRS for part in item.parts):
-            continue
-        if item.name.startswith("."):
-            continue
-        if item.is_file() and (not extensions or item.suffix in extensions):
-            paths.append(str(item))
+
+    # Index agent source code exclusively
+    agents_root = Path("/agentOS/agents")
+    if agents_root.exists():
+        for item in agents_root.rglob("*"):
+            if any(part in SKIP_DIRS for part in item.parts):
+                continue
+            if item.name.startswith("."):
+                continue
+            if item.is_file() and item.suffix == ".py":
+                paths.append(str(item))
+
+    # Wipe existing index so stale chunks from drift/workspace files are removed
+    from datetime import datetime, timezone
+    empty = {"chunks": [], "indexed_at": None, "total_files": 0}
+    save_index(empty)
 
     return index_files(paths)
 

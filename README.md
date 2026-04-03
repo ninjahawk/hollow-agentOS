@@ -36,41 +36,64 @@ You give it a goal. You walk away. That's the whole idea.
 
 ## Get it running
 
+### Windows — one click
+
+1. [Download the ZIP](https://github.com/ninjahawk/hollow-agentOS/archive/refs/heads/main.zip) and extract it anywhere
+2. Double-click **`install.bat`**
+3. Click **Yes** on the UAC prompt
+
+That's it. The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the live monitor TUI automatically. A desktop shortcut is created for future use.
+
+> **Requirements:** Windows 10 2004+ or Windows 11, internet connection, ~8 GB free disk space.  
+> **GPU optional but recommended** — planning calls drop from ~40s to ~6s with a capable GPU.
+
+---
+
+### Mac / Linux — manual (a few commands)
+
 **You need:** [Docker](https://docs.docker.com/get-docker/) and [Ollama](https://ollama.ai) installed.
 
 ```bash
 ollama pull mistral-nemo:12b
+ollama pull nomic-embed-text
 
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
 cp config.example.json config.json
 
-docker-compose up
+docker compose up -d
 ```
 
-API is live at `http://localhost:7777`. Agents are running.
-
-**If you have a GPU** (recommended — planning calls drop from ~40s to ~6s):
+Then open the live monitor:
 ```bash
-docker-compose --profile ollama up
-```
-Starts Ollama inside Docker with full GPU access. No separate Ollama install needed.
-
-**Watch the agents live:**
-```bash
-docker logs -f hollow-api | grep -E "Cycle|goal=|progress="
+pip install -r requirements-monitor.txt
+python monitor.py
 ```
 
-**Give an agent something to do:**
+**If you have a GPU** and want Ollama inside Docker instead of on the host:
 ```bash
-curl -X POST http://localhost:7777/agents/register \
+docker compose --profile ollama up -d
+```
+
+---
+
+### Ongoing use (Windows)
+
+After initial setup, just double-click **`launch.bat`** (or the **Hollow AgentOS** desktop shortcut). It starts the containers if they stopped and opens the TUI.
+
+---
+
+### Give an agent something to do
+
+```bash
+# Get your API token from config.json, then:
+curl -X POST http://localhost:7777/goals/scout \
+  -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "role": "worker"}'
-
-curl -X POST http://localhost:7777/goals \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "my-agent", "objective": "Scan the codebase for TODO comments and summarize them by priority, save findings to memory"}'
+  -d '{"objective": "Scan the codebase for TODO comments and summarize them by priority"}'
 ```
+
+Or press **`g`** in the TUI to type a goal directly.
 
 ---
 

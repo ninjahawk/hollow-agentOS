@@ -4,6 +4,7 @@ HOLLOW live monitor
 Usage: wsl hollow
 """
 
+import os
 import re
 import json
 import time
@@ -16,9 +17,45 @@ from textual.app import App, ComposeResult, Binding
 from textual.widgets import Static, RichLog, Input, Label
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 
-DAEMON_LOG   = Path("/agentOS/logs/daemon.log")
-THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
-CONFIG_PATH  = Path("/agentOS/config.json")
+def _resolve_hollow_dir() -> Path:
+    # 1. Explicit env var (set by launch.bat or user)
+    env = os.environ.get("HOLLOW_DIR")
+    if env:
+        p = Path(env)
+        if (p / "config.json").exists():
+            return p
+
+    # 2. Same directory as this script — works wherever the repo is cloned
+    script_dir = Path(__file__).resolve().parent
+    if (script_dir / "config.json").exists():
+        return script_dir
+
+    # 3. Common install locations (Windows, WSL, Linux/Mac)
+    home = Path.home()
+    candidates = [
+        home / "hollow",
+        home / "Desktop" / "hollow",
+        Path("/opt/hollow"),
+        Path("/hollow"),
+    ]
+    # WSL: also try /mnt/c/Users/<name>/... paths
+    try:
+        for drive in Path("/mnt").iterdir():
+            candidates.append(drive / "Users" / home.name / "hollow")
+            candidates.append(drive / "Users" / home.name / "Desktop" / "hollow")
+    except Exception:
+        pass
+    for c in candidates:
+        if (c / "config.json").exists():
+            return c
+
+    # 4. Fall back to script directory even without config
+    return script_dir
+
+_HOLLOW_DIR  = _resolve_hollow_dir()
+DAEMON_LOG   = _HOLLOW_DIR / "logs" / "daemon.log"
+THOUGHTS_LOG = _HOLLOW_DIR / "logs" / "thoughts.log"
+CONFIG_PATH  = _HOLLOW_DIR / "config.json"
 API_BASE     = "http://localhost:7777"
 
 THOUGHTS_OFFSET = 0
@@ -29,13 +66,36 @@ ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 # ── Fun agent names ───────────────────────────────────────────────────────────
 _name_cache: dict[str, str] = {}
-_IDENTITY_NAMES_FILE = Path("/agentOS/memory/identity/names.json")
+_registry_name_cache: dict[str, str] = {}
+_IDENTITY_NAMES_FILE = _HOLLOW_DIR / "memory" / "identity" / "names.json"
+
+
+def _load_registry_names() -> None:
+    """Fetch agent names from the registry API and cache them."""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
+        token = cfg.get("api", {}).get("token", "")
+        r = httpx.get(f"{API_BASE}/agents", headers={"Authorization": f"Bearer {token}"}, timeout=5)
+        if r.status_code == 200:
+            for a in r.json().get("agents", []):
+                aid = a.get("agent_id", "")
+                name = a.get("name", "")
+                if aid and name:
+                    _registry_name_cache[aid] = name
+    except Exception:
+        pass
+
 
 def _fun_name(agent_id: str) -> str:
-    """Return the agent's persistent identity name, falling back to a short ID."""
+    """Return the agent's registered name, falling back to identity store, then short ID."""
     if agent_id in _name_cache:
         return _name_cache[agent_id]
-    # Try identity store first
+    # Check registry name cache first
+    if agent_id in _registry_name_cache:
+        name = _registry_name_cache[agent_id]
+        _name_cache[agent_id] = name
+        return name
+    # Try identity store
     try:
         if _IDENTITY_NAMES_FILE.exists():
             mapping = json.loads(_IDENTITY_NAMES_FILE.read_text())
@@ -190,7 +250,7 @@ def _parse_daemon_log():
             pass
 
     # Scan goals directory — only include agents that have at least one active goal
-    goals_root = Path("/agentOS/memory/goals")
+    goals_root = _HOLLOW_DIR / "memory" / "goals"
     if goals_root.exists():
         for agent_dir in goals_root.iterdir():
             aid = agent_dir.name
@@ -480,7 +540,7 @@ def _build_agent_detail(agent_id: str) -> str:
     lines = []
 
     # ── Identity ──────────────────────────────────────────────────────────────
-    identity_path = Path(f"/agentOS/memory/identity/{agent_id}/profile.json")
+    identity_path = _HOLLOW_DIR / "memory" / "identity" / agent_id / "profile.json"
     name = _fun_name(agent_id)
     if identity_path.exists():
         try:
@@ -513,7 +573,7 @@ def _build_agent_detail(agent_id: str) -> str:
     # ── Completed goals ───────────────────────────────────────────────────────
     lines.append("")
     lines.append("[dim]─── completed goals ───────────────────────────────[/dim]")
-    reg = Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+    reg = _HOLLOW_DIR / "memory" / "goals" / agent_id / "registry.jsonl"
     if reg.exists():
         try:
             done = []
@@ -560,12 +620,14 @@ def _build_agent_detail(agent_id: str) -> str:
 
     # ── Workspace files ───────────────────────────────────────────────────────
     lines.append("")
-    lines.append("[dim]─── workspace files (all agents, recent first) ───[/dim]")
-    ws = Path("/agentOS/workspace")
+    lines.append("[dim]─── workspace files (agent subdir, recent first) ─[/dim]")
+    ws = _HOLLOW_DIR / "workspace" / agent_id
+    if not ws.exists():
+        ws = _HOLLOW_DIR / "workspace"  # fall back to shared root
     if ws.exists():
         try:
             files = sorted(
-                [f for f in ws.iterdir() if f.is_file()],
+                [f for f in ws.rglob("*") if f.is_file()],
                 key=lambda f: f.stat().st_mtime, reverse=True
             )[:20]
             if files:
@@ -709,8 +771,10 @@ class HollowMonitor(App):
 
     def on_mount(self):
         _load_config()
+        _load_registry_names()
         _parse_daemon_log()
         self.set_interval(2.0, _parse_daemon_log)
+        self.set_interval(15.0, _load_registry_names)
         self._update_footer()
         self.set_interval(10.0, self._update_footer)
 
@@ -801,21 +865,25 @@ class HollowMonitor(App):
 
     def action_push_files(self):
         footer = self.query_one("#footer", Static)
-        footer.update("[dim]  syncing to desktop…[/dim]")
-        def _sync():
-            import subprocess
-            result = subprocess.run(
-                ["rsync", "-a", "--delete",
-                 "--exclude=__pycache__", "--exclude=*.pyc",
-                 "/agentOS/workspace/",
-                 "/mnt/c/Users/jedin/Desktop/hollow-workspace/"],
-                capture_output=True,
-            )
-            status = "✓ synced to Desktop/hollow-workspace" if result.returncode == 0 else "✗ sync failed"
+        footer.update("[dim]  opening workspace…[/dim]")
+        def _open():
+            import subprocess, sys
+            ws = _HOLLOW_DIR / "workspace"
+            ws.mkdir(parents=True, exist_ok=True)
+            try:
+                if sys.platform == "win32":
+                    subprocess.Popen(["explorer", str(ws)])
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", str(ws)])
+                else:
+                    subprocess.Popen(["xdg-open", str(ws)])
+                status = f"✓ opened {ws}"
+            except Exception as e:
+                status = f"✗ could not open workspace: {e}"
             self.call_from_thread(lambda: footer.update(f"[dim]  {status}[/dim]"))
             time.sleep(3)
             self.call_from_thread(self._update_footer)
-        threading.Thread(target=_sync, daemon=True).start()
+        threading.Thread(target=_open, daemon=True).start()
 
     # ── input submitted ───────────────────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted):

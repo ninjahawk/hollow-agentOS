@@ -2,28 +2,37 @@ version: "3.9"
 
 # Hollow AgentOS — full stack
 #
-# Default (no GPU / no Ollama):
-#   docker-compose up
+# Default — pulls pre-built image from GHCR, no build step required:
+#   docker compose up -d
 #
-# With local Ollama inference (requires NVIDIA GPU + nvidia-container-toolkit):
-#   docker-compose --profile ollama up
+# Build from source (contributors):
+#   docker compose up -d --build
 #
-# Dashboard: http://localhost:7778
-# API:       http://localhost:7777
-# API docs:  http://localhost:7777/docs
+# With Ollama inside Docker (NVIDIA GPU + nvidia-container-toolkit):
+#   docker compose --profile ollama up -d
+#
+# Dashboard:  http://localhost:7778
+# API:        http://localhost:7777
+# API docs:   http://localhost:7777/docs
 
 services:
   api:
-    build: .
+    image: ghcr.io/ninjahawk/hollow-agentos:latest
+    build:
+      context: .
+      # 'image' above is used as-is when pulled from GHCR.
+      # 'build' kicks in only when you run --build or docker compose build.
     container_name: hollow-api
     ports:
       - "7777:7777"
     volumes:
-      - hollow-memory:/agentOS/memory
-      - hollow-workspace:/agentOS/workspace
+      - ./memory:/agentOS/memory
+      - ./workspace:/agentOS/workspace
       - ./config.json:/agentOS/config.json:ro
+      - ./logs:/agentOS/logs
     environment:
       - PYTHONUNBUFFERED=1
+      - OLLAMA_HOST=http://host.docker.internal:11434
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7777/health"]
@@ -62,6 +71,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  hollow-memory:
-  hollow-workspace:
   ollama-models:

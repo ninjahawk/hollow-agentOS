@@ -281,19 +281,59 @@ class ReasoningLayer:
             except Exception:
                 pass
 
+            # Split out memory context if appended to objective
+            goal_text = objective
+            memory_section = ""
+            if "\n\nRelevant past experience" in objective:
+                parts = objective.split("\n\nRelevant past experience", 1)
+                goal_text = parts[0]
+                memory_section = "\n\nRelevant past experience" + parts[1] + "\n"
+
+            # Build real file context so planner doesn't hallucinate paths
+            real_files_section = ""
+            try:
+                import subprocess as _sp
+                from pathlib import Path as _Path
+                # Per-agent workspace files
+                agent_ws = _Path(f"/agentOS/workspace/{agent_id}")
+                agent_files = []
+                if agent_ws.exists():
+                    agent_files = [str(agent_ws / f.name)
+                                   for f in agent_ws.iterdir() if f.is_file()][:10]
+                # Key source files always available
+                src_r = _sp.run(
+                    ["find", "/agentOS/agents", "-name", "*.py",
+                     "-not", "-path", "*/__pycache__/*"],
+                    capture_output=True, text=True, timeout=3
+                )
+                src_files = src_r.stdout.strip().splitlines()[:12]
+                all_files = agent_files + src_files
+                if all_files:
+                    real_files_section = (
+                        "\nFiles that actually exist (use these paths exactly):\n"
+                        + "\n".join(f"  {f}" for f in all_files) + "\n"
+                    )
+            except Exception:
+                pass
+
             prompt = (
                 f"{identity_preamble}"
-                f"Plan 2-3 steps for an AI agent to accomplish this goal.\n"
-                f"Goal: {objective}\n\n"
+                f"Plan 2-4 steps for an AI agent to accomplish this goal.\n"
+                f"Goal: {goal_text}\n"
+                f"{memory_section}"
+                f"{real_files_section}\n"
                 f"Available capabilities:\n{caps_text}\n\n"
                 f"Rules:\n"
-                f"- Start with semantic_search or shell_exec to gather information\n"
-                f"- Use ollama_chat to analyze or summarize gathered data\n"
-                f"- REQUIRED LAST STEP: memory_set or fs_write to save the result\n"
+                f"- Use shell_exec to discover files before reading them if unsure they exist\n"
+                f"- Use fs_read or shell_exec to read actual file contents — do NOT invent content\n"
+                f"- Use ollama_chat to analyze or summarize real data from previous steps\n"
+                f"- Save results with fs_write (to /agentOS/workspace/{agent_id}/) or memory_set IF the goal requires output\n"
+                f"- NOT every goal needs fs_write — if the goal is analysis/search, memory_set is fine\n"
+                f"- shell_exec params.command MUST be a real shell command. NEVER put English sentences or bare filenames in command.\n"
                 f"- IMPORTANT: for params that depend on a previous step output, use EXACTLY the string {{result}} as the entire value\n"
                 f'  Example: {{"prompt": "Analyze this: {{result}}"}}, {{"value": "{{result}}"}}, {{"content": "{{result}}"}}\n'
                 f"- Do NOT use nested objects or arrays as placeholder values\n"
-                f"- Generate specific real values for params that don't depend on previous steps\n\n"
+                f"- NEVER reference file paths that are not listed above unless using shell_exec to discover them first\n\n"
                 f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
             )
 

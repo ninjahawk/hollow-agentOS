@@ -89,6 +89,43 @@ class AutonomyStep:
     timestamp: float = field(default_factory=time.time)
 
 
+_PROSE_STARTERS = frozenset([
+    "based", "the", "to", "this", "in", "using", "you", "here", "note",
+    "please", "first", "then", "next", "finally", "step", "as", "since",
+    "when", "if", "for", "because", "however", "additionally", "also",
+    "important", "make", "we", "i", "it", "now", "after", "before",
+])
+
+
+def _is_shell_prose(cmd: str) -> bool:
+    """Return True if cmd looks like LLM prose rather than a real shell command."""
+    if not cmd:
+        return False
+    cmd = cmd.strip()
+    if not cmd:
+        return False
+    # Unsubstituted placeholder — never a valid command
+    if "{result}" in cmd or "{code_path}" in cmd or "{placeholder}" in cmd:
+        return True
+    # Clearly valid: starts with /, ./, $, (, [, {, `, digit, or lowercase letter
+    if cmd[0] in '/.($[{`\\' or cmd[0].islower() or cmd[0].isdigit():
+        # But reject bare filenames used as commands (e.g. "script.py", "file.sh")
+        first = cmd.split()[0]
+        if (first.endswith(('.py', '.sh', '.js', '.rb', '.pl'))
+                and not first.startswith(('/', './', '../'))):
+            return True
+        return False
+    # ENV=VALUE pattern (e.g. PYTHONPATH=/agentOS python3 ...) — valid
+    if cmd.split()[0].endswith('=') or '=' in cmd.split()[0]:
+        return False
+    # Suspiciously long
+    if len(cmd) > 500:
+        return True
+    # Starts with uppercase — check first word against known prose starters
+    first_word = cmd.split()[0].lower().rstrip(':,.')
+    return first_word in _PROSE_STARTERS
+
+
 def _result_to_text(result: dict) -> str:
     """Extract readable text from an execution result dict."""
     if not result:
@@ -126,8 +163,24 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
             # Append context to these key params so LLM/search gets real data
             out[k] = v.rstrip() + "\n\n" + result_text if result_text else v
         elif isinstance(v, dict):
-            # Ollama sometimes returns {"result_from": 1} — replace with actual text
-            out[k] = result_text
+            # Ollama sometimes returns {"result": null, "top_k": 5} instead of "{result}".
+            # Substitute the result text into any "result" or "query" key inside the dict,
+            # and carry remaining keys (like top_k) through unchanged.
+            inner = dict(v)
+            substituted = False
+            for inner_k in ("result", "query", "prompt", "content", "value"):
+                if inner_k in inner:
+                    inner[inner_k] = result_text
+                    substituted = True
+                    break
+            if substituted and k in ("query", "prompt", "content", "value"):
+                # Flatten: the outer param should be the text, not a dict
+                out[k] = result_text
+            elif substituted:
+                out[k] = inner
+            else:
+                # No recognizable placeholder key — replace whole dict with result text
+                out[k] = result_text
         elif not v and v != 0:
             # param is empty/False/None — substitute previous result
             out[k] = result_text
@@ -182,6 +235,16 @@ class AutonomyLoop:
             cap_id, params, _, reasoning_text = self._reasoning_layer.reason(agent_id, intent)
             if not cap_id:
                 return (goal_id, False, None)
+
+        # Validate shell commands — reject prose before it hits the OS
+        if cap_id == "shell_exec":
+            cmd = params.get("command", "")
+            if _is_shell_prose(cmd):
+                _thought(agent_id, f"  FAIL: shell_exec | rejected prose as command: {cmd[:80]}")
+                return (goal_id, False, {
+                    "error": "rejected: ollama returned prose instead of a shell command",
+                    "command_preview": cmd[:120],
+                })
 
         # Execute
         _thought(agent_id, f"  RUN: {cap_id} | params: {json.dumps(params)[:120]}")
@@ -259,8 +322,24 @@ class AutonomyLoop:
         steps_executed = 0
         context = None
 
+        # Retrieve relevant past experiences and inject into planning context
+        memory_context = ""
+        if self._semantic_memory:
+            try:
+                memories = self._semantic_memory.search(agent_id, goal.objective, top_k=3)
+                relevant = [m.thought for m in memories
+                            if m.thought not in ("[DELETED]", "") ][:3]
+                if relevant:
+                    memory_context = (
+                        "\n\nRelevant past experience (use this to avoid repeating "
+                        "mistakes and build on prior work):\n"
+                        + "\n".join(f"- {s[:150]}" for s in relevant)
+                    )
+            except Exception:
+                pass
+
         # Generate plan
-        plan = self._reasoning_layer.plan(agent_id, goal.objective) if self._reasoning_layer else []
+        plan = self._reasoning_layer.plan(agent_id, goal.objective + memory_context) if self._reasoning_layer else []
         if not plan:
             plan = [{"capability_id": None, "params": {}, "rationale": "fallback"}]
         plan = plan[:max_steps]
@@ -304,7 +383,7 @@ class AutonomyLoop:
                 fail_count = failure_counts.get(cap_id, 1) if cap_id else 1
 
                 if consecutive_failures >= 4:
-                    # IMPOSSIBLE: stuck in failure loop — abandon goal
+                    # IMPOSSIBLE: stuck in failure loop — abandon goal permanently
                     explanation = (
                         f"Goal '{goal.objective}' abandoned after "
                         f"{consecutive_failures} consecutive failures. "
@@ -317,7 +396,9 @@ class AutonomyLoop:
                         metrics = dict(goal.metrics) if goal.metrics else {}
                         metrics["failure_reason"] = explanation
                         self._goal_engine.update_progress(agent_id, goal_id, metrics)
-                    break
+                        self._goal_engine.abandon(agent_id, goal_id)
+                    _thought(agent_id, f"  FAIL: abandon | {explanation[:120]}")
+                    return (goal_id, 0.0, steps_executed)
 
                 elif fail_count >= 3 and cap_id and cap_id not in blacklisted:
                     # IMPOSSIBLE capability: blacklist it, force replan without it
@@ -353,17 +434,29 @@ class AutonomyLoop:
 
                 time.sleep(0.1)
 
-            # Check completion
+            # Check completion — require a validated artifact before marking done
             current = self._goal_engine.get(agent_id, goal_id)
             if current and current.metrics.get("progress", 0.0) >= 1.0:
-                self._goal_engine.complete(agent_id, goal_id)
-                self._synthesize_completion(agent_id, goal.objective, steps_executed)
-                return (goal_id, 1.0, steps_executed)
+                validation = self.validate_goal_artifact(agent_id, goal_id)
+                if validation.get("validated"):
+                    _thought(agent_id, f"  artifact ok | {validation.get('artifact_type','')} {validation.get('artifact_value','')[:60]}")
+                    self._goal_engine.complete(agent_id, goal_id)
+                    self._synthesize_completion(agent_id, goal.objective, steps_executed)
+                    return (goal_id, 1.0, steps_executed)
+                else:
+                    # Progress reached 1.0 but no real artifact — reset to 0.85 and keep going
+                    _thought(agent_id, f"  artifact MISSING | checks={validation.get('checks',[])} — resetting progress")
+                    metrics = dict(current.metrics)
+                    metrics["progress"] = 0.85
+                    metrics["has_output"] = False  # force re-earning output gate
+                    self._goal_engine.update_progress(agent_id, goal_id, metrics)
 
         final = self._goal_engine.get(agent_id, goal_id)
         progress = final.metrics.get("progress", 0.0) if final else 0.0
-        if progress >= 0.3:
-            self._synthesize_completion(agent_id, goal.objective, steps_executed)
+        # Only synthesize and propose follow-ons for goals that actually completed
+        # (progress reached 1.0 via the completion check above). Partial runs are
+        # not stored as "successes" — that contaminates semantic memory with
+        # incomplete or failed work.
         return (goal_id, progress, steps_executed)
 
     # ── Introspection ──────────────────────────────────────────────────────
@@ -482,16 +575,70 @@ class AutonomyLoop:
                 pass
             done_list = "\n".join(f"- {g}" for g in recent_done) if recent_done else "(none)"
 
+            # Build list of agent-specific workspace files for grounding
+            # Use per-agent subdirectory to avoid cross-agent drift contamination
+            workspace_files: list = []
+            agent_ws = Path(f"/agentOS/workspace/{agent_id}")
+            shared_ws = Path("/agentOS/workspace")
+            try:
+                if agent_ws.exists():
+                    workspace_files = [str(agent_ws / f.name)
+                                       for f in agent_ws.iterdir() if f.is_file()][:15]
+                else:
+                    # Fall back to shared workspace but only show files this agent wrote
+                    # (determined by checking execution chain)
+                    pass
+            except Exception:
+                pass
+
+            # Also include real source files that exist
+            source_files: list = []
+            try:
+                import subprocess
+                r = subprocess.run(
+                    ["find", "/agentOS/agents", "-name", "*.py", "-not", "-path", "*/__pycache__/*"],
+                    capture_output=True, text=True, timeout=5
+                )
+                source_files = r.stdout.strip().splitlines()[:15]
+            except Exception:
+                pass
+
+            ws_list = ", ".join(workspace_files) if workspace_files else "(none yet — agent has not written any files)"
+            src_list = ", ".join(source_files[:10]) if source_files else "(unavailable)"
+
+            # Extract the root objective (strip any retry annotations)
+            root_objective = objective.split(" (already tried")[0].split(" (step ")[0].strip()
+
+            # Recover stored root objective if this is a chained follow-on
+            # This prevents multi-hop drift where follow-on #2 anchors to follow-on #1
+            try:
+                mem_key = f"agent_{agent_id}_root_objective"
+                _mem_path = Path("/agentOS/memory/project.json")
+                if _mem_path.exists():
+                    _proj = json.loads(_mem_path.read_text())
+                    _stored_root = _proj.get(mem_key, "")
+                    if _stored_root and len(_stored_root) > 10:
+                        root_objective = _stored_root
+            except Exception:
+                pass
+
             prompt = (
-                f"An AI agent just completed this goal: '{objective}'.\n"
+                f"An AI agent just completed a goal related to: '{root_objective}'.\n"
                 f"Completion summary: {synthesis[:300]}\n\n"
                 f"Recently completed goals (DO NOT repeat):\n{done_list}\n\n"
-                f"Propose ONE new concrete goal that is clearly different from all of the above.\n"
+                f"Agent's own workspace files: {ws_list}\n"
+                f"Real source files available: {src_list}\n\n"
+                f"Propose ONE new concrete goal that:\n"
+                f"1. Continues or builds on the agent's original purpose: '{root_objective}'\n"
+                f"2. Is clearly different from all recently completed goals\n"
+                f"3. References only files that ACTUALLY EXIST (listed above) or uses shell_exec to discover them\n"
                 f"Rules:\n"
                 f"- Must NOT resemble any previously completed goal\n"
                 f"- Must be achievable with: shell_exec, ollama_chat, fs_read, fs_write, "
                 f"semantic_search, memory_set, memory_get\n"
-                f"- Be specific and actionable, under 100 chars\n"
+                f"- NEVER invent file paths — only reference files listed above or discovered via shell_exec\n"
+                f"- Write output to /agentOS/workspace/{agent_id}/ not the shared workspace root\n"
+                f"- Be specific and actionable, under 150 chars\n"
                 f'Respond ONLY with JSON: {{"goal": "<goal or null>"}}'
             )
 
@@ -516,7 +663,7 @@ class AutonomyLoop:
             data = json.loads(raw)
             new_goal = data.get("goal", "").strip()
 
-            # Reject if null, empty, identical to prior goals
+            # Reject if null, empty, or invalid
             if not new_goal or new_goal.lower() in ("null", "none", ""):
                 return None
             if new_goal.lower() == objective.lower():
@@ -525,13 +672,36 @@ class AutonomyLoop:
                 return None
             if any(new_goal.lower() == g.lower() for g in recent_done):
                 return None
+            # Reject if goal references a file path that doesn't exist and wasn't
+            # written by this agent (catches hallucinated paths)
+            import re as _re
+            invented_paths = _re.findall(r'/agentOS/\S+\.\w+', new_goal)
+            for p in invented_paths:
+                if not Path(p).exists() and "/workspace/" not in p and "/agents/" not in p:
+                    return None  # invented path outside known-valid directories
+
+            # Ensure per-agent workspace dir exists so future steps write there
+            try:
+                Path(f"/agentOS/workspace/{agent_id}").mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
 
             goal_id = self._goal_engine.create(agent_id, new_goal)
             if self._semantic_memory:
                 self._semantic_memory.store(
                     agent_id,
-                    f"Self-directed: proposed follow-on goal '{new_goal}' after completing '{objective}'"
+                    f"FOLLOWON_ROOT:{root_objective} | goal: {new_goal}"
                 )
+            # Store root objective in project memory so daemon can enforce topic continuity
+            try:
+                mem_key = f"agent_{agent_id}_root_objective"
+                from pathlib import Path as _P2
+                mem_path = _P2(f"/agentOS/memory/project.json")
+                _proj = json.loads(mem_path.read_text()) if mem_path.exists() else {}
+                _proj[mem_key] = root_objective
+                mem_path.write_text(json.dumps(_proj))
+            except Exception:
+                pass
             return goal_id
 
         except Exception:

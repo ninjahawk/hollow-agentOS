@@ -141,8 +141,11 @@ def memory_get(key: str = "") -> dict:
 
 
 def agent_message(to_id: str = "", content: str = "",
-                  msg_type: str = "text") -> dict:
+                  msg_type: str = "text", to: str = "") -> dict:
     """Send a message to another agent."""
+    # Accept 'to' as alias for 'to_id' — planners often generate the shorter name
+    if not to_id and to:
+        to_id = to
     if not to_id or not content:
         return {"error": "to_id and content required", "ok": False}
     result = _call("post", "/messages", json={
