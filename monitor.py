@@ -683,7 +683,7 @@ class HollowMonitor(App):
         Binding("g",      "goal_single",   "set agent goal",   priority=True),
         Binding("G",      "goal_group",    "set group goal",   priority=True),
         Binding("p",      "push_files",    "sync to desktop",  priority=True),
-        Binding("enter",  "inspect_agent", "inspect agent",    priority=True),
+        Binding("enter",  "inspect_agent", "inspect agent"),
         Binding("escape", "cancel_goal",   "cancel",           priority=True),
         Binding("up",     "agent_up",      "prev agent",       priority=True),
         Binding("down",   "agent_down",    "next agent",       priority=True),
