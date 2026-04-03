@@ -51,6 +51,27 @@ try:
 except ImportError:
     EMBEDDING_MODEL_AVAILABLE = False
 
+# Module-level singleton — one embedder shared across all agent instances
+_EMBEDDER_SINGLETON = None
+_EMBEDDER_LOCK = None
+
+def _get_shared_embedder():
+    import threading
+    global _EMBEDDER_SINGLETON, _EMBEDDER_LOCK
+    if _EMBEDDER_LOCK is None:
+        _EMBEDDER_LOCK = threading.Lock()
+    if _EMBEDDER_SINGLETON is None:
+        with _EMBEDDER_LOCK:
+            if _EMBEDDER_SINGLETON is None:
+                try:
+                    _EMBEDDER_SINGLETON = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5")
+                except Exception:
+                    try:
+                        _EMBEDDER_SINGLETON = SentenceTransformer("all-MiniLM-L6-v2")
+                    except Exception:
+                        pass
+    return _EMBEDDER_SINGLETON
+
 SEMANTIC_MEMORY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "semantic"
 DEFAULT_VECTOR_DIM = 768
 DEFAULT_CAPACITY_MB = 512
@@ -84,15 +105,7 @@ class SemanticMemory:
         """Load the embedding model. nomic-embed-text if available (fast, 768d), else None."""
         if not EMBEDDING_MODEL_AVAILABLE:
             return
-        try:
-            # nomic-embed-text: fast, 768-dimensional, excellent quality
-            # Falls back to all-MiniLM-L6-v2 if nomic not available
-            self._embedder = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5")
-        except Exception:
-            try:
-                self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            except Exception:
-                pass
+        self._embedder = _get_shared_embedder()
 
     def _embed(self, text: str) -> Optional[np.ndarray]:
         """Convert text to 768-dimensional embedding. Returns None if embedder unavailable."""

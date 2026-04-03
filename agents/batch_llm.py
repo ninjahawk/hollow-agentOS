@@ -43,6 +43,14 @@ def _model_id() -> str:
         return DEFAULT_MODEL
 
 
+def _enabled() -> bool:
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+        return cfg.get("batch_llm", {}).get("enabled", True)
+    except Exception:
+        return True
+
+
 # ── Server ───────────────────────────────────────────────────────────────────
 
 class BatchLLMServer:
@@ -211,6 +219,8 @@ _server_lock = threading.Lock()
 
 
 def get_server() -> BatchLLMServer:
+    if not _enabled():
+        raise RuntimeError("BatchLLM disabled in config")
     global _server
     if _server is None:
         with _server_lock:
