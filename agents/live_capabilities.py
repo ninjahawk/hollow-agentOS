@@ -49,7 +49,7 @@ def _token() -> str:
 def _call(method: str, path: str, **kwargs) -> dict:
     import httpx
     headers = {"Authorization": f"Bearer {_token()}"}
-    with httpx.Client(timeout=30) as client:
+    with httpx.Client(timeout=180) as client:
         resp = getattr(client, method)(f"{API_BASE}{path}", headers=headers, **kwargs)
         resp.raise_for_status()
         return resp.json()
