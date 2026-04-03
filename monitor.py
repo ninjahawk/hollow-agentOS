@@ -163,6 +163,8 @@ def _load_config():
 
 def _parse_daemon_log():
     global CYCLE
+    new_state: dict = {}
+
     # Pull cycle number from daemon log
     if DAEMON_LOG.exists():
         try:
@@ -173,14 +175,14 @@ def _parse_daemon_log():
                     CYCLE = int(m.group(1))
                 m = re.search(r"INFO\s+(\S+) → goal=\S+ progress=([\d.]+) steps=(\d+)", line)
                 if m:
-                    AGENT_STATE[m.group(1)] = {
+                    new_state[m.group(1)] = {
                         "progress": float(m.group(2)),
                         "steps": int(m.group(3)),
                     }
         except Exception:
             pass
 
-    # Also scan goals directory directly so agents don't fall off as log rotates
+    # Scan goals directory — only include agents that have at least one active goal
     goals_root = Path("/agentOS/memory/goals")
     if goals_root.exists():
         for agent_dir in goals_root.iterdir():
@@ -191,17 +193,18 @@ def _parse_daemon_log():
             try:
                 lines = reg.read_text().strip().splitlines()
                 active = [json.loads(l) for l in lines if '"active"' in l]
-                completed = [json.loads(l) for l in lines if '"completed"' in l]
                 if active:
                     best = max(active, key=lambda g: g.get("metrics", {}).get("progress", 0))
                     prog = best.get("metrics", {}).get("progress", 0.0)
                     steps = best.get("metrics", {}).get("steps_completed", 0)
-                    if aid not in AGENT_STATE:
-                        AGENT_STATE[aid] = {"progress": prog, "steps": steps}
-                elif completed and aid not in AGENT_STATE:
-                    AGENT_STATE[aid] = {"progress": 1.0, "steps": 0}
+                    if aid not in new_state:
+                        new_state[aid] = {"progress": prog, "steps": steps}
             except Exception:
                 pass
+
+    # Replace state wholesale so finished agents drop off
+    AGENT_STATE.clear()
+    AGENT_STATE.update(new_state)
 
 def _read_new_thoughts() -> list[str]:
     global THOUGHTS_OFFSET

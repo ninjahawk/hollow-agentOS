@@ -467,34 +467,53 @@ class AutonomyLoop:
             model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
             ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
+            # Load recently completed goals to avoid repetition
+            recent_done: list = []
+            try:
+                reg_path = Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+                if reg_path.exists():
+                    reg_lines = reg_path.read_text().strip().splitlines()
+                    recent_done = [
+                        json.loads(l).get("objective", "")
+                        for l in reg_lines
+                        if '"completed"' in l
+                    ][-10:]
+            except Exception:
+                pass
+            done_list = "\n".join(f"- {g}" for g in recent_done) if recent_done else "(none)"
+
             prompt = (
                 f"An AI agent just completed this goal: '{objective}'.\n"
                 f"Completion summary: {synthesis[:300]}\n\n"
-                f"Propose ONE concrete follow-on goal that builds on what was learned.\n"
+                f"Recently completed goals (DO NOT repeat):\n{done_list}\n\n"
+                f"Propose ONE new concrete goal that is clearly different from all of the above.\n"
                 f"Rules:\n"
-                f"- Must be different from the completed goal\n"
+                f"- Must NOT resemble any previously completed goal\n"
                 f"- Must be achievable with: shell_exec, ollama_chat, fs_read, fs_write, "
                 f"semantic_search, memory_set, memory_get\n"
                 f"- Be specific and actionable, under 100 chars\n"
-                f'Respond ONLY with JSON: {{"goal": "<one sentence goal or null if nothing useful>"}}'
+                f'Respond ONLY with JSON: {{"goal": "<goal or null>"}}'
             )
 
             resp = httpx.post(
                 f"{ollama_host}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
-                timeout=30,
+                json={"model": model, "prompt": prompt, "stream": False,
+                      "format": "json", "think": False},
+                timeout=90,
             )
             resp.raise_for_status()
             raw = resp.json().get("response", "").strip()
             data = json.loads(raw)
             new_goal = data.get("goal", "").strip()
 
-            # Reject if null, empty, or too similar to original
+            # Reject if null, empty, identical to prior goals
             if not new_goal or new_goal.lower() in ("null", "none", ""):
                 return None
             if new_goal.lower() == objective.lower():
                 return None
             if len(new_goal) < 10 or len(new_goal) > 200:
+                return None
+            if any(new_goal.lower() == g.lower() for g in recent_done):
                 return None
 
             goal_id = self._goal_engine.create(agent_id, new_goal)

@@ -855,7 +855,7 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
                     headers={"Retry-After": str(_math.ceil(rl.wait_ms / 1000))},
                 )
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "messages": req.messages, "stream": False}
+    payload: dict = {"model": model, "messages": req.messages, "stream": False, "think": False}
     if req.temperature is not None or req.max_tokens is not None:
         payload["options"] = {}
         if req.temperature is not None:
@@ -898,7 +898,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
     _verify_any_token(authorization)
     _require_ollama()
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "prompt": req.prompt, "stream": False}
+    payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False}
     if req.temperature is not None:
         payload["options"] = {"temperature": req.temperature}
 
