@@ -178,7 +178,17 @@ class ReasoningLayer:
                 cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
             caps_text = "\n".join(cap_lines)
 
+            # Load agent identity preamble
+            identity_preamble = ""
+            try:
+                from agents.agent_identity import AgentIdentity
+                ident = AgentIdentity.load_or_create(agent_id)
+                identity_preamble = ident.preamble() + "\n\n"
+            except Exception:
+                pass
+
             prompt = (
+                f"{identity_preamble}"
                 f"Select the best capability for this agent intent and generate real params.\n"
                 f"Intent: {intent}\n\n"
                 f"Capabilities:\n{caps_text}\n\n"
@@ -246,7 +256,17 @@ class ReasoningLayer:
                 cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
             caps_text = "\n".join(cap_lines)
 
+            # Load agent identity preamble if available
+            identity_preamble = ""
+            try:
+                from agents.agent_identity import AgentIdentity
+                ident = AgentIdentity.load_or_create(agent_id)
+                identity_preamble = ident.preamble() + "\n\n"
+            except Exception:
+                pass
+
             prompt = (
+                f"{identity_preamble}"
                 f"Plan 3-5 steps for an AI agent to accomplish this goal.\n"
                 f"Goal: {objective}\n\n"
                 f"Available capabilities:\n{caps_text}\n\n"

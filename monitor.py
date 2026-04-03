@@ -28,20 +28,27 @@ MODEL = "unknown"
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 # ── Fun agent names ───────────────────────────────────────────────────────────
-_NAMES = [
-    "Bob", "Alice", "Holly", "Bucky", "Turbo", "Chaos", "Sparky",
-    "Mango", "Rex", "Pickle", "Toast", "Waffles", "Noodle", "Blaze",
-    "Cosmo", "Rusty", "Duke", "Skip", "Penny", "Ziggy", "Fudge",
-    "Beans", "Gizmo", "Clunk", "Wobble",
-]
-
 _name_cache: dict[str, str] = {}
+_IDENTITY_NAMES_FILE = Path("/agentOS/memory/identity/names.json")
 
 def _fun_name(agent_id: str) -> str:
-    if agent_id not in _name_cache:
-        h = sum(ord(c) * (i + 1) for i, c in enumerate(agent_id)) % len(_NAMES)
-        _name_cache[agent_id] = _NAMES[h]
-    return _name_cache[agent_id]
+    """Return the agent's persistent identity name, falling back to a short ID."""
+    if agent_id in _name_cache:
+        return _name_cache[agent_id]
+    # Try identity store first
+    try:
+        if _IDENTITY_NAMES_FILE.exists():
+            mapping = json.loads(_IDENTITY_NAMES_FILE.read_text())
+            for name, aid in mapping.items():
+                if aid == agent_id:
+                    _name_cache[agent_id] = name
+                    return name
+    except Exception:
+        pass
+    # Fallback: short readable ID
+    name = agent_id[:8] if len(agent_id) >= 8 else agent_id
+    _name_cache[agent_id] = name
+    return name
 
 
 # ── Rotating phrase banks ─────────────────────────────────────────────────────
