@@ -113,6 +113,32 @@ class ReasoningLayer:
         except Exception:
             return "mistral-nemo:12b"
 
+    def _generate(self, prompt: str) -> str:
+        """
+        Generate a response: try BatchLLM first (all agents fire together),
+        fall back to Ollama if batch_llm is unavailable or fails.
+        """
+        # Try batch LLM (transformers, true parallel GPU inference)
+        try:
+            from agents.batch_llm import get_server
+            server = get_server()
+            if server.ready:
+                return server.generate(prompt)
+        except Exception:
+            pass
+
+        # Fallback: Ollama
+        import httpx
+        model = self._ollama_model()
+        resp = httpx.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False,
+                  "format": "json", "think": False},
+            timeout=OLLAMA_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "").strip()
+
     # ── API ────────────────────────────────────────────────────────────────
 
     def reason(self, agent_id: str, intent: str) -> Tuple[Optional[str], dict, float, str]:
@@ -164,8 +190,6 @@ class ReasoningLayer:
         Falls back to semantic top-match + empty params on any failure.
         """
         try:
-            import httpx
-
             # Build capability list with description + param format
             cap_lines = []
             for cap_id in candidates[:5]:
@@ -198,15 +222,7 @@ class ReasoningLayer:
                 f'Respond ONLY with JSON: {{"capability_id":"<id>","params":{{<params>}}}}'
             )
 
-            model = self._ollama_model()
-            resp = httpx.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "format": "json", "think": False},
-                timeout=OLLAMA_TIMEOUT,
-            )
-            resp.raise_for_status()
-
-            raw = resp.json().get("response", "").strip()
+            raw = self._generate(prompt)
             result = json.loads(raw)
 
             cap_id = result.get("capability_id", "")
@@ -217,7 +233,7 @@ class ReasoningLayer:
             if not isinstance(params, dict):
                 params = {}
 
-            return (cap_id, params, 0.90, f"ollama:{model} selected {cap_id}")
+            return (cap_id, params, 0.90, f"batch_llm selected {cap_id}")
 
         except Exception as e:
             # Semantic top-match, no params — better than nothing
@@ -281,15 +297,7 @@ class ReasoningLayer:
                 f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
             )
 
-            model = self._ollama_model()
-            resp = httpx.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "format": "json", "think": False},
-                timeout=OLLAMA_TIMEOUT,
-            )
-            resp.raise_for_status()
-
-            raw = resp.json().get("response", "").strip()
+            raw = self._generate(prompt)
             result = json.loads(raw)
             steps = result.get("steps", [])
 

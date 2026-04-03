@@ -37,8 +37,8 @@ CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
 MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "3"))
-MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "12"))  # cap concurrent agents
-PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "2"))         # match OLLAMA_NUM_PARALLEL
+MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "20"))  # cap concurrent agents
+PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "12"))        # batch LLM: all agents fire together
 
 logging.basicConfig(
     level=logging.INFO,

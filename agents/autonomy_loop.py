@@ -495,14 +495,24 @@ class AutonomyLoop:
                 f'Respond ONLY with JSON: {{"goal": "<goal or null>"}}'
             )
 
-            resp = httpx.post(
-                f"{ollama_host}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False,
-                      "format": "json", "think": False},
-                timeout=90,
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "").strip()
+            # Try batch LLM first (parallel GPU), fall back to Ollama
+            raw = None
+            try:
+                from agents.batch_llm import get_server as _bllm
+                _srv = _bllm()
+                if _srv.ready:
+                    raw = _srv.generate(prompt)
+            except Exception:
+                pass
+            if raw is None:
+                resp = httpx.post(
+                    f"{ollama_host}/api/generate",
+                    json={"model": model, "prompt": prompt, "stream": False,
+                          "format": "json", "think": False},
+                    timeout=90,
+                )
+                resp.raise_for_status()
+                raw = resp.json().get("response", "").strip()
             data = json.loads(raw)
             new_goal = data.get("goal", "").strip()
 
