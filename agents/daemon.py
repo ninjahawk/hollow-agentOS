@@ -214,6 +214,51 @@ class DaemonMetrics:
         )
 
 
+
+def _assign_idle_goal(agent_id: str) -> None:
+    """
+    When an agent finishes all its goals, give it a fresh self-directed one.
+    Picks from a rotating list of exploratory prompts so agents diverge.
+    """
+    import random
+    try:
+        from agents.persistent_goal import PersistentGoalEngine
+        ge = PersistentGoalEngine()
+        if ge.list_active(agent_id, limit=1):
+            return  # already has a goal, follow-on logic handled it
+
+        # Load recently completed objectives to avoid repeats
+        reg_path = __import__("pathlib").Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+        recent = []
+        if reg_path.exists():
+            import json as _json
+            for line in reg_path.read_text().strip().splitlines()[-20:]:
+                try:
+                    g = _json.loads(line)
+                    if g.get("status") == "completed":
+                        recent.append(g.get("objective","").lower()[:60])
+                except Exception:
+                    pass
+
+        explorations = [
+            "Search the agentOS codebase for something you find interesting, then write a short analysis to /agentOS/workspace/",
+            "Pick a topic you haven't explored yet and write a research summary to /agentOS/workspace/",
+            "Examine the files in /agentOS/workspace/ and find a way to build on or improve one of them",
+            "Think of a question about AI, science, or technology and research it using ollama_chat, save findings to /agentOS/workspace/",
+            "Review /agentOS/agents/ for a module you haven't looked at and write a summary of what it does",
+            "Propose and execute a small experiment: write the hypothesis, method, and result to /agentOS/workspace/",
+            "Find the most recent file in /agentOS/workspace/ and write a follow-up or deeper dive on that topic",
+        ]
+
+        # Filter out anything too similar to recent goals
+        candidates = [e for e in explorations if not any(r in e.lower() for r in recent)]
+        goal = random.choice(candidates if candidates else explorations)
+        ge.create(agent_id, goal, priority=3)
+        log.info("  %s has no goals — assigned exploratory task", agent_id)
+    except Exception as e:
+        log.debug("_assign_idle_goal failed for %s: %s", agent_id, e)
+
+
 def main():
     log.info("Autonomy daemon starting (heartbeat=%ds, max_steps=%d)",
              HEARTBEAT, MAX_STEPS_PER_AGENT)
@@ -287,6 +332,9 @@ def main():
                         progress,
                         outcome.get("steps", 0),
                     )
+                    # If agent just finished and has no goals left, give it something new
+                    if progress >= 1.0:
+                        _assign_idle_goal(agent_id)
                 else:
                     metrics.errors += 1
                     log.warning("  %s → error: %s", agent_id, outcome.get("error"))
