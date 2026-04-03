@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
 HOLLOW live monitor
-Usage: wsl -e python3 /agentOS/monitor.py
+Usage: wsl hollow
 """
 
 import re
 import json
 import time
-import random
+import threading
+import httpx
 from pathlib import Path
 
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.widgets import Static, RichLog
+from textual.widgets import Static, RichLog, Input, Label
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 
 DAEMON_LOG   = Path("/agentOS/logs/daemon.log")
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
 CONFIG_PATH  = Path("/agentOS/config.json")
+API_BASE     = "http://localhost:7777"
 
 THOUGHTS_OFFSET = 0
 AGENT_STATE: dict = {}
@@ -196,6 +198,41 @@ def _read_new_thoughts() -> list[str]:
         return []
 
 
+# ── Goal API helpers ──────────────────────────────────────────────────────────
+def _post_goal(agent_id: str, objective: str, priority: int = 8) -> bool:
+    try:
+        r = httpx.post(
+            f"{API_BASE}/goals/{agent_id}",
+            json={"objective": objective, "priority": priority},
+            timeout=5,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def _set_individual_goal(agent_id: str, objective: str) -> str:
+    ok = _post_goal(agent_id, objective)
+    name = _fun_name(agent_id)
+    return f"✓ {name} has a new goal" if ok else f"✗ failed to reach API"
+
+def _set_group_goal(objective: str) -> str:
+    agents = sorted(AGENT_STATE.keys())
+    if not agents:
+        return "✗ no agents found"
+    # First agent coordinates; rest get the same goal so they all work on it
+    coordinator = agents[0]
+    coord_obj = (
+        f"SHARED GOAL — coordinate with all agents to accomplish: {objective}. "
+        f"Decompose into subtasks, delegate, and track progress."
+    )
+    _post_goal(coordinator, coord_obj, priority=10)
+    for aid in agents[1:]:
+        _post_goal(aid, objective, priority=9)
+    names = [_fun_name(a) for a in agents[:4]]
+    extra = f" + {len(agents)-4} more" if len(agents) > 4 else ""
+    return f"✓ assigned to {', '.join(names)}{extra}"
+
+
 def _humanize(raw: str) -> str | None:
     line = _strip(raw)
     if not line:
@@ -214,32 +251,24 @@ def _humanize(raw: str) -> str | None:
     name = _fun_name(agent_id)
     ts_s = ts if ts else "        "
 
-    # ── skip these ────────────────────────────────────────────────────────
     if rest.startswith("↳") or re.match(r"step \d+:", rest):
         return None
 
-    # ── GOAL ──────────────────────────────────────────────────────────────
     if rest.startswith("◎"):
         goal = rest[1:].strip()
         verb = _pick(_GOAL_VERBS, f"verb-{name}")
-        short_goal = goal[:70]
         return (
             f"[dim]{ts_s}[/dim]  [bold white]{name:<10}[/bold white]"
-            f"  [white]{verb} {short_goal}[/white]"
+            f"  [white]{verb} {goal[:70]}[/white]"
         )
 
-    # ── RUN ───────────────────────────────────────────────────────────────
     if rest.startswith("▶"):
         parts = rest[1:].strip().split(None, 1)
         cap   = parts[0] if parts else ""
         param = parts[1] if len(parts) > 1 else ""
         phrase, style = _run_phrase(cap, param, name)
-        return (
-            f"[dim]                    [/dim]"
-            f"  [dim]└[/dim]  [{style}]{phrase}[/{style}]"
-        )
+        return f"[dim]                    [/dim]  [dim]└[/dim]  [{style}]{phrase}[/{style}]"
 
-    # ── OK ────────────────────────────────────────────────────────────────
     if rest.startswith("✓"):
         parts  = rest[1:].strip().split(None, 1)
         cap    = parts[0] if parts else ""
@@ -248,23 +277,13 @@ def _humanize(raw: str) -> str | None:
         if line_ is None:
             return None
         phrase, style = line_
-        return (
-            f"[dim]                    [/dim]"
-            f"  [dim]└[/dim]  [green]✓[/green]  [{style}]{phrase}[/{style}]"
-        )
+        return f"[dim]                    [/dim]  [dim]└[/dim]  [green]✓[/green]  [{style}]{phrase}[/{style}]"
 
-    # ── FAIL ──────────────────────────────────────────────────────────────
     if rest.startswith("✗"):
         parts = rest[1:].strip().split(None, 1)
         err   = parts[1].strip() if len(parts) > 1 else ""
-        if "timed out" in err:
-            msg = _pick(_FAIL_TIMEOUT, f"timeout-{name}")
-        else:
-            msg = _pick(_FAIL_GENERIC, f"fail-{name}")
-        return (
-            f"[dim]                    [/dim]"
-            f"  [dim]└  [red]{msg}[/red][/dim]"
-        )
+        msg = _pick(_FAIL_TIMEOUT, f"timeout-{name}") if "timed out" in err else _pick(_FAIL_GENERIC, f"fail-{name}")
+        return f"[dim]                    [/dim]  [dim]└  [red]{msg}[/red][/dim]"
 
     return None
 
@@ -304,30 +323,26 @@ def _ok_phrase(cap: str, result: str, name: str) -> tuple[str, str] | None:
         if not c or c.startswith("{") or len(c) < 8:
             return _pick(_SHELL_OK, f"searchok-{name}"), "dim"
         lines = [l.strip() for l in c.splitlines() if l.strip()]
-        preview = lines[0][:75] if lines else c[:75]
-        return f'found: {preview}', "dim white"
+        return f'found: {lines[0][:75] if lines else c[:75]}', "dim white"
     if cap == "shell_exec":
         try:
             d = json.loads(result)
             out = d.get("stdout", "").strip()
             if out:
-                first = out.splitlines()[0][:75]
                 comment = _pick(_SHELL_OK, f"shellok-{name}")
-                return f"{comment} → {first}", "dim white"
+                return f"{comment} → {out.splitlines()[0][:75]}", "dim white"
         except Exception:
             pass
         return None
     if cap == "ollama_chat":
         c = result.strip()
         try:
-            d = json.loads(c)
-            c = d.get("response", c)
+            c = json.loads(c).get("response", c)
         except Exception:
             pass
         c = c.strip().strip('"')
         if len(c) > 20 and not c.startswith("{"):
-            comment = _pick(_THINK_OK, f"thinkdone-{name}")
-            return f'{comment} — "{c[:70]}"', "dim white"
+            return f'{_pick(_THINK_OK, f"thinkdone-{name}")} — "{c[:70]}"', "dim white"
         return _pick(_THINK_OK, f"thinkdone-{name}"), "dim"
     if cap in ("fs_read", "memory_get"):
         c = result.strip()
@@ -370,6 +385,34 @@ Screen { background: #0a0a0a; color: #aaaaaa; }
     scrollbar-color: #1c1c1c #0a0a0a;
 }
 
+#goal-bar {
+    height: 3;
+    background: #0a0a0a;
+    border-top: solid #333333;
+    padding: 0 1;
+    display: none;
+}
+
+#goal-bar.visible { display: block; }
+
+#goal-label {
+    color: #555555;
+    width: 28;
+    content-align: left middle;
+    height: 3;
+    padding: 1 1;
+}
+
+#goal-input {
+    background: #0a0a0a;
+    border: none;
+    height: 1;
+    margin: 1 0;
+    color: white;
+}
+
+#goal-input:focus { border: none; }
+
 #footer {
     height: 1;
     background: #0a0a0a;
@@ -390,32 +433,51 @@ class TitleBar(Static):
         done  = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
         self.update(
             f"[reverse bold] HOLLOW [/reverse bold]"
-            f"  [dim]{MODEL}  ·  cycle {CYCLE}  ·  {total} agents  ·  {done} done  ·  q quit[/dim]"
+            f"  [dim]{MODEL}  ·  cycle {CYCLE}  ·  {total} agents  ·  {done} done"
+            f"  ·  [white]g[/white] goal  [white]G[/white] group goal  [white]q[/white] quit[/dim]"
         )
 
 class AgentList(Static):
+    selected: int = 0
+
     def on_mount(self):
         self._tick()
         self.set_interval(2.0, self._tick)
+
     def _tick(self):
         if not AGENT_STATE:
             self.update("[dim]waiting…[/dim]")
             return
         agents = sorted(AGENT_STATE.items(), key=lambda x: -x[1]["progress"])
         out = []
-        for aid, s in agents:
+        for i, (aid, s) in enumerate(agents):
             prog = s["progress"]
             name = _fun_name(aid)
             pct  = "done" if prog >= 1.0 else f"{prog:.0%}"
+            cursor = "[reverse]" if i == self.selected else ""
+            end    = "[/reverse]" if i == self.selected else ""
             if prog >= 1.0:
-                out.append(f"[green]{name:<10} {pct}[/green]")
+                out.append(f"{cursor}[green]{name:<10} {pct}[/green]{end}")
             elif prog > 0.5:
-                out.append(f"[white]{name:<10}[/white] [dim cyan]{pct}[/dim cyan]")
+                out.append(f"{cursor}[white]{name:<10}[/white] [dim cyan]{pct}[/dim cyan]{end}")
             elif prog > 0:
-                out.append(f"[dim]{name:<10} {pct}[/dim]")
+                out.append(f"{cursor}[dim]{name:<10} {pct}[/dim]{end}")
             else:
-                out.append(f"[dim]{name:<10}  —[/dim]")
+                out.append(f"{cursor}[dim]{name:<10}  —[/dim]{end}")
         self.update("\n".join(out))
+
+    def selected_agent_id(self) -> str | None:
+        agents = sorted(AGENT_STATE.keys(), key=lambda a: -AGENT_STATE[a]["progress"])
+        if not agents:
+            return None
+        return agents[min(self.selected, len(agents) - 1)]
+
+    def move(self, delta: int):
+        count = len(AGENT_STATE)
+        if count:
+            self.selected = (self.selected + delta) % count
+            self._tick()
+
 
 class ActivityLog(ScrollableContainer):
     def compose(self):
@@ -435,9 +497,19 @@ class ActivityLog(ScrollableContainer):
                 except Exception:
                     pass
 
+
 class HollowMonitor(App):
     CSS = CSS
-    BINDINGS = [("q", "quit", "quit")]
+    BINDINGS = [
+        ("q",      "quit",       "quit"),
+        ("g",      "goal_single","set agent goal"),
+        ("G",      "goal_group", "set group goal"),
+        ("escape", "cancel_goal","cancel"),
+        ("up",     "agent_up",   "prev agent"),
+        ("down",   "agent_down", "next agent"),
+    ]
+
+    _goal_mode: str = ""   # "single" | "group" | ""
 
     def compose(self):
         yield TitleBar(id="title")
@@ -448,12 +520,92 @@ class HollowMonitor(App):
             with Vertical(id="right"):
                 yield Static("ACTIVITY", id="act-title")
                 yield ActivityLog(id="act-log")
-        yield Static("[dim]  HOLLOW  ·  autonomous agent runtime[/dim]", id="footer")
+        with Horizontal(id="goal-bar"):
+            yield Label("", id="goal-label")
+            yield Input(placeholder="type goal, press enter…", id="goal-input")
+        yield Static(
+            "[dim]  HOLLOW  ·  autonomous agent runtime[/dim]",
+            id="footer",
+        )
 
     def on_mount(self):
         _load_config()
         _parse_daemon_log()
         self.set_interval(2.0, _parse_daemon_log)
+
+    # ── goal bar open/close ───────────────────────────────────────────────
+    def _open_goal_bar(self, mode: str, label: str):
+        self._goal_mode = mode
+        bar   = self.query_one("#goal-bar")
+        lbl   = self.query_one("#goal-label", Label)
+        inp   = self.query_one("#goal-input", Input)
+        lbl.update(label)
+        inp.value = ""
+        bar.add_class("visible")
+        inp.focus()
+
+    def _close_goal_bar(self, status: str = ""):
+        self._goal_mode = ""
+        bar = self.query_one("#goal-bar")
+        bar.remove_class("visible")
+        footer = self.query_one("#footer", Static)
+        if status:
+            footer.update(f"[dim]  {status}[/dim]")
+            self.set_timer(3.0, lambda: footer.update("[dim]  HOLLOW  ·  autonomous agent runtime[/dim]"))
+        self.query_one("#act-log").focus()
+
+    # ── keybindings ───────────────────────────────────────────────────────
+    def action_goal_single(self):
+        agent_id = self.query_one("#agent-list", AgentList).selected_agent_id()
+        if not agent_id:
+            return
+        name = _fun_name(agent_id)
+        self._open_goal_bar("single", f"  goal for {name}  ")
+
+    def action_goal_group(self):
+        self._open_goal_bar("group", f"  group goal  ")
+
+    def action_cancel_goal(self):
+        if self._goal_mode:
+            self._close_goal_bar()
+
+    def action_agent_up(self):
+        self.query_one("#agent-list", AgentList).move(-1)
+
+    def action_agent_down(self):
+        self.query_one("#agent-list", AgentList).move(1)
+
+    # ── input submitted ───────────────────────────────────────────────────
+    def on_input_submitted(self, event: Input.Submitted):
+        objective = event.value.strip()
+        if not objective or not self._goal_mode:
+            self._close_goal_bar()
+            return
+
+        mode = self._goal_mode
+        self._close_goal_bar("sending…")
+
+        def _send():
+            if mode == "single":
+                agent_id = self.query_one("#agent-list", AgentList).selected_agent_id()
+                if agent_id:
+                    status = _set_individual_goal(agent_id, objective)
+                else:
+                    status = "✗ no agent selected"
+            else:
+                status = _set_group_goal(objective)
+            self.call_from_thread(
+                lambda: self.query_one("#footer", Static).update(f"[dim]  {status}[/dim]")
+            )
+            time.sleep(4)
+            self.call_from_thread(
+                lambda: self.query_one("#footer", Static).update(
+                    "[dim]  HOLLOW  ·  autonomous agent runtime[/dim]"
+                )
+            )
+
+        threading.Thread(target=_send, daemon=True).start()
+
 
 if __name__ == "__main__":
     HollowMonitor().run()
