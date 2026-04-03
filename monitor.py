@@ -50,6 +50,10 @@ _SEARCH = [
     'on the trail of "{q}"',
     'sifting the archives for "{q}"',
     'desperately seeking "{q}"',
+    'got a hunch about "{q}"',
+    'sniffing around for "{q}"',
+    'asking the void about "{q}"',
+    'sending a search party for "{q}"',
 ]
 _THINK = [
     "consulting the oracle…",
@@ -62,6 +66,13 @@ _THINK = [
     "definitely not napping…",
     "processing. very hard.",
     "doing smart things, probably…",
+    "summoning forbidden knowledge…",
+    "arguing with itself internally…",
+    "let me think… no wait… ok yes…",
+    "pretending to be smarter than it is…",
+    "this might take a moment. or several.",
+    "the gears are turning. slowly.",
+    "cooking up something. hopefully edible.",
 ]
 _THINK_OK = [
     "had some thoughts about this",
@@ -69,6 +80,11 @@ _THINK_OK = [
     "big brain moment achieved",
     "finished pondering",
     "thoughts: acquired",
+    "nailed it, allegedly",
+    "came to a conclusion. a real one.",
+    "brain did a thing",
+    "output obtained. quality unknown.",
+    "the noodle delivered",
 ]
 _SHELL_OK = [
     "reviewed more lines of code",
@@ -76,12 +92,21 @@ _SHELL_OK = [
     "the shell complied, for once",
     "command survived",
     "asked the computer, got an answer",
+    "computer said yes",
+    "more code inspected. still no treasure.",
+    "filesystem poked. it didn't poke back.",
+    "ran that. it worked. shocking.",
+    "shell: surprisingly cooperative today",
 ]
 _SAVE = [
     "filed that away",
     "committing this to memory",
     "scribbling notes…",
     "saving, just in case",
+    "tucking that into the brain",
+    "noted. very officially.",
+    "wrote that down so i won't forget",
+    "lodged in the memory banks",
 ]
 _FAIL_TIMEOUT = [
     "took way too long — moving on",
@@ -90,6 +115,10 @@ _FAIL_TIMEOUT = [
     "still waiting… just kidding, giving up",
     "that was optimistic of me",
     "patience: expired",
+    "waited forever. got nothing.",
+    "the brain ghosted me",
+    "it's not you, it's the timeout",
+    "officially giving up on that one",
 ]
 _FAIL_GENERIC = [
     "hit a snag — retrying next round",
@@ -98,10 +127,18 @@ _FAIL_GENERIC = [
     "crashed gracefully",
     "didn't pan out — onto the next thing",
     "the void stared back",
+    "spectacular failure, 0/10",
+    "that went sideways",
+    "nope. absolutely not. moving on.",
+    "filed under: problems for future me",
+    "blew up. noted for later.",
+    "tried that. computers said no.",
 ]
 _GOAL_VERBS = [
     "setting out to", "on a mission to", "determined to",
     "boldly attempting to", "going to try to", "enthusiastically starting to",
+    "absolutely certain it can", "taking a crack at",
+    "charging headfirst into", "not afraid to",
 ]
 
 _counters: dict[str, int] = {}
@@ -198,7 +235,7 @@ def _humanize(raw: str) -> str | None:
         param = parts[1] if len(parts) > 1 else ""
         phrase, style = _run_phrase(cap, param, name)
         return (
-            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"[dim]                    [/dim]"
             f"  [dim]└[/dim]  [{style}]{phrase}[/{style}]"
         )
 
@@ -212,7 +249,7 @@ def _humanize(raw: str) -> str | None:
             return None
         phrase, style = line_
         return (
-            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"[dim]                    [/dim]"
             f"  [dim]└[/dim]  [green]✓[/green]  [{style}]{phrase}[/{style}]"
         )
 
@@ -225,7 +262,7 @@ def _humanize(raw: str) -> str | None:
         else:
             msg = _pick(_FAIL_GENERIC, f"fail-{name}")
         return (
-            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"[dim]                    [/dim]"
             f"  [dim]└  [red]{msg}[/red][/dim]"
         )
 
