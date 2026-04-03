@@ -37,6 +37,7 @@ CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
 MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "5"))
+MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "12"))  # cap concurrent agents
 
 logging.basicConfig(
     level=logging.INFO,
@@ -152,7 +153,8 @@ def _agents_with_goals() -> list[str]:
         except Exception:
             pass
 
-    return with_goals
+    # Cap to avoid Ollama contention: keep highest-priority agents only
+    return with_goals[:MAX_ACTIVE_AGENTS]
 
 
 # --------------------------------------------------------------------------- #
