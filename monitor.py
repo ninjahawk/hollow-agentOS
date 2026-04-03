@@ -163,22 +163,45 @@ def _load_config():
 
 def _parse_daemon_log():
     global CYCLE
-    if not DAEMON_LOG.exists():
-        return
-    try:
-        lines = DAEMON_LOG.read_text(errors="replace").splitlines()[-400:]
-    except Exception:
-        return
-    for line in lines:
-        m = re.search(r"Cycle (\d+):", line)
-        if m:
-            CYCLE = int(m.group(1))
-        m = re.search(r"INFO\s+(\S+) → goal=\S+ progress=([\d.]+) steps=(\d+)", line)
-        if m:
-            AGENT_STATE[m.group(1)] = {
-                "progress": float(m.group(2)),
-                "steps": int(m.group(3)),
-            }
+    # Pull cycle number from daemon log
+    if DAEMON_LOG.exists():
+        try:
+            lines = DAEMON_LOG.read_text(errors="replace").splitlines()[-200:]
+            for line in lines:
+                m = re.search(r"Cycle (\d+):", line)
+                if m:
+                    CYCLE = int(m.group(1))
+                m = re.search(r"INFO\s+(\S+) → goal=\S+ progress=([\d.]+) steps=(\d+)", line)
+                if m:
+                    AGENT_STATE[m.group(1)] = {
+                        "progress": float(m.group(2)),
+                        "steps": int(m.group(3)),
+                    }
+        except Exception:
+            pass
+
+    # Also scan goals directory directly so agents don't fall off as log rotates
+    goals_root = Path("/agentOS/memory/goals")
+    if goals_root.exists():
+        for agent_dir in goals_root.iterdir():
+            aid = agent_dir.name
+            reg = agent_dir / "registry.jsonl"
+            if not reg.exists():
+                continue
+            try:
+                lines = reg.read_text().strip().splitlines()
+                active = [json.loads(l) for l in lines if '"active"' in l]
+                completed = [json.loads(l) for l in lines if '"completed"' in l]
+                if active:
+                    best = max(active, key=lambda g: g.get("metrics", {}).get("progress", 0))
+                    prog = best.get("metrics", {}).get("progress", 0.0)
+                    steps = best.get("metrics", {}).get("steps_completed", 0)
+                    if aid not in AGENT_STATE:
+                        AGENT_STATE[aid] = {"progress": prog, "steps": steps}
+                elif completed and aid not in AGENT_STATE:
+                    AGENT_STATE[aid] = {"progress": 1.0, "steps": 0}
+            except Exception:
+                pass
 
 def _read_new_thoughts() -> list[str]:
     global THOUGHTS_OFFSET
@@ -549,19 +572,25 @@ class HollowMonitor(App):
         with Horizontal(id="goal-bar"):
             yield Label("", id="goal-label")
             yield Input(placeholder="type goal, press enter…", id="goal-input")
-        yield Static(
-            "[dim]  [white]↑↓[/white] select  "
-            "[white]g[/white] goal  "
-            "[white]G[/white] group goal  "
-            "[white]p[/white] sync to desktop  "
-            "[white]q[/white] quit[/dim]",
-            id="footer",
-        )
+        yield Static("", id="footer")
 
     def on_mount(self):
         _load_config()
         _parse_daemon_log()
         self.set_interval(2.0, _parse_daemon_log)
+        self._update_footer()
+        self.set_interval(10.0, self._update_footer)
+
+    def _update_footer(self):
+        footer = self.query_one("#footer", Static)
+        footer.update(
+            f"[dim]  [white]↑↓[/white] select  "
+            f"[white]g[/white] goal  "
+            f"[white]G[/white] group goal  "
+            f"[white]p[/white] sync  "
+            f"[white]q[/white] quit"
+            f"  ·  model: [white]{MODEL}[/white][/dim]"
+        )
 
     # ── goal bar open/close ───────────────────────────────────────────────
     def _open_goal_bar(self, mode: str, label: str):
@@ -581,7 +610,7 @@ class HollowMonitor(App):
         footer = self.query_one("#footer", Static)
         if status:
             footer.update(f"[dim]  {status}[/dim]")
-            self.set_timer(3.0, lambda: footer.update("[dim]  HOLLOW  ·  autonomous agent runtime[/dim]"))
+            self.set_timer(3.0, self._update_footer)
         self.query_one("#act-log").focus()
 
     # ── keybindings ───────────────────────────────────────────────────────
@@ -620,13 +649,7 @@ class HollowMonitor(App):
             status = "✓ synced to Desktop/hollow-workspace" if result.returncode == 0 else "✗ sync failed"
             self.call_from_thread(lambda: footer.update(f"[dim]  {status}[/dim]"))
             time.sleep(3)
-            self.call_from_thread(lambda: footer.update(
-                "[dim]  [white]↑↓[/white] select  "
-                "[white]g[/white] goal  "
-                "[white]G[/white] group goal  "
-                "[white]p[/white] sync to desktop  "
-                "[white]q[/white] quit[/dim]"
-            ))
+            self.call_from_thread(self._update_footer)
         threading.Thread(target=_sync, daemon=True).start()
 
     # ── input submitted ───────────────────────────────────────────────────
@@ -652,11 +675,7 @@ class HollowMonitor(App):
                 lambda: self.query_one("#footer", Static).update(f"[dim]  {status}[/dim]")
             )
             time.sleep(4)
-            self.call_from_thread(
-                lambda: self.query_one("#footer", Static).update(
-                    "[dim]  HOLLOW  ·  autonomous agent runtime[/dim]"
-                )
-            )
+            self.call_from_thread(self._update_footer)
 
         threading.Thread(target=_send, daemon=True).start()
 
