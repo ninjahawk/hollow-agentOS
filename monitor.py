@@ -528,6 +528,7 @@ class HollowMonitor(App):
         ("q",      "quit",       "quit"),
         ("g",      "goal_single","set agent goal"),
         ("G",      "goal_group", "set group goal"),
+        ("p",      "push_files", "sync to desktop"),
         ("escape", "cancel_goal","cancel"),
         ("up",     "agent_up",   "prev agent"),
         ("down",   "agent_down", "next agent"),
@@ -549,7 +550,11 @@ class HollowMonitor(App):
             yield Label("", id="goal-label")
             yield Input(placeholder="type goal, press enter…", id="goal-input")
         yield Static(
-            "[dim]  HOLLOW  ·  autonomous agent runtime[/dim]",
+            "[dim]  [white]↑↓[/white] select  "
+            "[white]g[/white] goal  "
+            "[white]G[/white] group goal  "
+            "[white]p[/white] sync to desktop  "
+            "[white]q[/white] quit[/dim]",
             id="footer",
         )
 
@@ -599,6 +604,30 @@ class HollowMonitor(App):
 
     def action_agent_down(self):
         self.query_one("#agent-list", AgentList).move(1)
+
+    def action_push_files(self):
+        footer = self.query_one("#footer", Static)
+        footer.update("[dim]  syncing to desktop…[/dim]")
+        def _sync():
+            import subprocess
+            result = subprocess.run(
+                ["rsync", "-a", "--delete",
+                 "--exclude=__pycache__", "--exclude=*.pyc",
+                 "/agentOS/workspace/",
+                 "/mnt/c/Users/jedin/Desktop/hollow-workspace/"],
+                capture_output=True,
+            )
+            status = "✓ synced to Desktop/hollow-workspace" if result.returncode == 0 else "✗ sync failed"
+            self.call_from_thread(lambda: footer.update(f"[dim]  {status}[/dim]"))
+            time.sleep(3)
+            self.call_from_thread(lambda: footer.update(
+                "[dim]  [white]↑↓[/white] select  "
+                "[white]g[/white] goal  "
+                "[white]G[/white] group goal  "
+                "[white]p[/white] sync to desktop  "
+                "[white]q[/white] quit[/dim]"
+            ))
+        threading.Thread(target=_sync, daemon=True).start()
 
     # ── input submitted ───────────────────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted):
