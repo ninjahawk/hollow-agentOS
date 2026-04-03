@@ -12,7 +12,7 @@ import httpx
 from pathlib import Path
 
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, Binding
 from textual.widgets import Static, RichLog, Input, Label
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 
@@ -525,13 +525,13 @@ class ActivityLog(ScrollableContainer):
 class HollowMonitor(App):
     CSS = CSS
     BINDINGS = [
-        ("q",      "quit",       "quit"),
-        ("g",      "goal_single","set agent goal"),
-        ("G",      "goal_group", "set group goal"),
-        ("p",      "push_files", "sync to desktop"),
-        ("escape", "cancel_goal","cancel"),
-        ("up",     "agent_up",   "prev agent"),
-        ("down",   "agent_down", "next agent"),
+        Binding("q",      "quit",       "quit",             priority=True),
+        Binding("g",      "goal_single","set agent goal",   priority=True),
+        Binding("G",      "goal_group", "set group goal",   priority=True),
+        Binding("p",      "push_files", "sync to desktop",  priority=True),
+        Binding("escape", "cancel_goal","cancel",           priority=True),
+        Binding("up",     "agent_up",   "prev agent",       priority=True),
+        Binding("down",   "agent_down", "next agent",       priority=True),
     ]
 
     _goal_mode: str = ""   # "single" | "group" | ""
