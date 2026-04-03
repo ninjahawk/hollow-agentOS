@@ -7,6 +7,7 @@ Usage: wsl -e python3 /agentOS/monitor.py
 import re
 import json
 import time
+import random
 from pathlib import Path
 
 from rich.text import Text
@@ -22,11 +23,96 @@ THOUGHTS_OFFSET = 0
 AGENT_STATE: dict = {}
 CYCLE = 0
 MODEL = "unknown"
-AGENT_GOALS: dict = {}       # agent -> current goal text
-AGENT_LAST_ACTION: dict = {} # agent -> (action_str, timestamp)
-
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
+# ── Fun agent names ───────────────────────────────────────────────────────────
+_NAMES = [
+    "Bob", "Alice", "Holly", "Bucky", "Turbo", "Chaos", "Sparky",
+    "Mango", "Rex", "Pickle", "Toast", "Waffles", "Noodle", "Blaze",
+    "Cosmo", "Rusty", "Duke", "Skip", "Penny", "Ziggy", "Fudge",
+    "Beans", "Gizmo", "Clunk", "Wobble",
+]
+
+_name_cache: dict[str, str] = {}
+
+def _fun_name(agent_id: str) -> str:
+    if agent_id not in _name_cache:
+        h = sum(ord(c) * (i + 1) for i, c in enumerate(agent_id)) % len(_NAMES)
+        _name_cache[agent_id] = _NAMES[h]
+    return _name_cache[agent_id]
+
+
+# ── Rotating phrase banks ─────────────────────────────────────────────────────
+_SEARCH = [
+    'digging through memory for "{q}"',
+    'rummaging around for "{q}"',
+    'hunting down "{q}"',
+    'on the trail of "{q}"',
+    'sifting the archives for "{q}"',
+    'desperately seeking "{q}"',
+]
+_THINK = [
+    "consulting the oracle…",
+    "staring into the void…",
+    "having a big think…",
+    "asking the big brain nicely…",
+    "grinding through it…",
+    "chewing on this one…",
+    "running it through the noodle…",
+    "definitely not napping…",
+    "processing. very hard.",
+    "doing smart things, probably…",
+]
+_THINK_OK = [
+    "had some thoughts about this",
+    "the oracle has spoken",
+    "big brain moment achieved",
+    "finished pondering",
+    "thoughts: acquired",
+]
+_SHELL_OK = [
+    "reviewed more lines of code",
+    "poked the filesystem",
+    "the shell complied, for once",
+    "command survived",
+    "asked the computer, got an answer",
+]
+_SAVE = [
+    "filed that away",
+    "committing this to memory",
+    "scribbling notes…",
+    "saving, just in case",
+]
+_FAIL_TIMEOUT = [
+    "took way too long — moving on",
+    "the oracle fell asleep",
+    "timed out. classic.",
+    "still waiting… just kidding, giving up",
+    "that was optimistic of me",
+    "patience: expired",
+]
+_FAIL_GENERIC = [
+    "hit a snag — retrying next round",
+    "well that didn't work",
+    "error: skill issue (temporary)",
+    "crashed gracefully",
+    "didn't pan out — onto the next thing",
+    "the void stared back",
+]
+_GOAL_VERBS = [
+    "setting out to", "on a mission to", "determined to",
+    "boldly attempting to", "going to try to", "enthusiastically starting to",
+]
+
+_counters: dict[str, int] = {}
+
+def _pick(lst: list, key: str) -> str:
+    n = _counters.get(key, 0)
+    _counters[key] = n + 1
+    return lst[n % len(lst)]
+
+
+# ── Core logic ────────────────────────────────────────────────────────────────
 def _strip(s): return ANSI_RE.sub("", s).strip()
 
 def _load_config():
@@ -55,160 +141,6 @@ def _parse_daemon_log():
                 "steps": int(m.group(3)),
             }
 
-def _short(agent_id: str) -> str:
-    parts = agent_id.split("-")
-    if parts and re.match(r"^[0-9a-f]{6,}$", parts[-1]):
-        parts = parts[:-1]
-    return "-".join(parts)[:14]
-
-def _cap_verb(cap: str, param: str) -> tuple[str, str]:
-    """Returns (human phrase, style) for a capability + params."""
-    if cap == "semantic_search":
-        q = re.search(r'"query"\s*:\s*"([^"]{3,})"', param)
-        phrase = f'digging through memory for "{q.group(1)[:55]}"' if q else "searching memory…"
-        return phrase, "cyan"
-    if cap == "shell_exec":
-        cmd = re.search(r'"command"\s*:\s*"([^"]{1,60})"', param)
-        phrase = f'running → {cmd.group(1)}' if cmd else "running a shell command…"
-        return phrase, "yellow"
-    if cap == "ollama_chat":
-        return "thinking it over…", "magenta"
-    if cap == "memory_set":
-        k = re.search(r'"key"\s*:\s*"([^"]{1,40})"', param)
-        phrase = f'filing away "{k.group(1)}"' if k else "saving to memory…"
-        return phrase, "dim"
-    if cap == "memory_get":
-        k = re.search(r'"key"\s*:\s*"([^"]{1,40})"', param)
-        phrase = f'recalling "{k.group(1)}"' if k else "reading from memory…"
-        return phrase, "dim"
-    if cap == "fs_read":
-        p = re.search(r'"path"\s*:\s*"([^"]{1,60})"', param)
-        phrase = f'reading {p.group(1).split("/")[-1]}' if p else "reading a file…"
-        return phrase, "yellow"
-    if cap == "fs_write":
-        p = re.search(r'"path"\s*:\s*"([^"]{1,60})"', param)
-        phrase = f'writing {p.group(1).split("/")[-1]}' if p else "writing a file…"
-        return phrase, "yellow"
-    return f"{cap}…", "dim"
-
-def _cap_result(cap: str, result: str) -> str | None:
-    """Human-readable result string, or None to skip."""
-    if cap == "memory_set":
-        return None
-    if cap == "semantic_search":
-        c = result.strip()
-        if not c or c.startswith("{") or len(c) < 8:
-            return None
-        return c[:80]
-    if cap == "shell_exec":
-        try:
-            d = json.loads(result)
-            out = d.get("stdout", "").strip()
-            if out:
-                return out.splitlines()[0][:80]
-        except Exception:
-            pass
-        return None
-    if cap == "ollama_chat":
-        c = result.strip()
-        try:
-            d = json.loads(c)
-            c = d.get("response", c)
-        except Exception:
-            pass
-        c = c.strip().strip('"')
-        if len(c) > 15 and not c.startswith("{"):
-            return c[:85]
-        return None
-    if cap in ("fs_read", "memory_get"):
-        c = result.strip()
-        if c and not c.startswith("{") and len(c) > 5:
-            return c[:80]
-    return None
-
-def _humanize(raw: str) -> tuple[str, str] | None:
-    """Returns (markup_string, plain_for_alignment) or None to skip."""
-    line = _strip(raw)
-    if not line:
-        return None
-
-    # timestamp + agent + message
-    m = re.match(r"^(\d{2}:\d{2}:\d{2})\s{2}(\S+)\s{2,}(.+)$", line)
-    cont = re.match(r"^\s{6,}(\S+)\s{2,}(.+)$", line)
-
-    if m:
-        ts, agent, rest = m.group(1), m.group(2), m.group(3).strip()
-    elif cont:
-        ts, agent, rest = "", cont.group(1), cont.group(2).strip()
-    else:
-        return None
-
-    name = _short(agent)
-    ts_s = ts or "        "
-
-    # ── GOAL ─────────────────────────────────────────────────────────────
-    if rest.startswith("◎"):
-        goal = rest[1:].strip()[:85]
-        AGENT_GOALS[name] = goal
-        markup = (
-            f"[dim]{ts_s}[/dim]  [bold white]{name:<14}[/bold white]"
-            f"  [white]{goal}[/white]"
-        )
-        return markup, "goal"
-
-    # skip step definitions and plan lines
-    if rest.startswith("↳") or re.match(r"step \d+:", rest):
-        return None
-
-    # ── RUN ──────────────────────────────────────────────────────────────
-    if rest.startswith("▶"):
-        parts = rest[1:].strip().split(None, 1)
-        cap   = parts[0] if parts else ""
-        param = parts[1] if len(parts) > 1 else ""
-        phrase, style = _cap_verb(cap, param)
-        AGENT_LAST_ACTION[name] = (phrase, time.time())
-        markup = (
-            f"[dim]        [/dim]  [dim]{name:<14}[/dim]"
-            f"  [dim]└[/dim]  [{style}]{phrase}[/{style}]"
-        )
-        return markup, "run"
-
-    # ── OK ───────────────────────────────────────────────────────────────
-    if rest.startswith("✓"):
-        parts  = rest[1:].strip().split(None, 1)
-        cap    = parts[0] if parts else ""
-        result = parts[1] if len(parts) > 1 else ""
-        res    = _cap_result(cap, result)
-        if res is None:
-            # silent success — don't clutter
-            return None
-        markup = (
-            f"[dim]        [/dim]  [dim]{name:<14}[/dim]"
-            f"  [dim]└[/dim]  [green]got it:[/green]  [dim]{res}[/dim]"
-        )
-        return markup, "ok"
-
-    # ── FAIL ─────────────────────────────────────────────────────────────
-    if rest.startswith("✗"):
-        parts = rest[1:].strip().split(None, 1)
-        cap   = parts[0] if parts else ""
-        err   = parts[1].strip() if len(parts) > 1 else ""
-        if "timed out" in err:
-            msg = "that took too long — moving on"
-        elif "no prompt" in err:
-            msg = "nothing to work with yet — will try again"
-        elif "no path" in err or "no key" in err:
-            msg = "couldn't find what it needed — retrying"
-        else:
-            msg = "hit a snag — will retry next cycle"
-        markup = (
-            f"[dim]        [/dim]  [dim]{name:<14}[/dim]"
-            f"  [dim]└[/dim]  [dim red]{msg}[/dim red]"
-        )
-        return markup, "fail"
-
-    return None
-
 def _read_new_thoughts() -> list[str]:
     global THOUGHTS_OFFSET
     if not THOUGHTS_LOG.exists():
@@ -226,67 +158,190 @@ def _read_new_thoughts() -> list[str]:
     except Exception:
         return []
 
-def _narrator_text() -> str:
-    done   = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
-    active = sum(1 for s in AGENT_STATE.values() if 0 < s["progress"] < 1.0)
-    total  = len(AGENT_STATE)
-    if not total:
-        return "waiting for agents…"
-    lines = [f"{total} agents  ·  {done} complete  ·  {active} working\n"]
-    shown = 0
-    for name, goal in list(AGENT_GOALS.items())[-7:]:
-        lines.append(f"[white]{name}[/white]")
-        lines.append(f"[dim]  {goal[:60]}[/dim]")
-        shown += 1
-    if not shown:
-        lines.append("[dim]waiting for first cycle…[/dim]")
-    return "\n".join(lines)
+
+def _humanize(raw: str) -> str | None:
+    line = _strip(raw)
+    if not line:
+        return None
+
+    m = re.match(r"^(\d{2}:\d{2}:\d{2})\s{2}(\S+)\s{2,}(.+)$", line)
+    c = re.match(r"^\s{6,}(\S+)\s{2,}(.+)$", line)
+
+    if m:
+        ts, agent_id, rest = m.group(1), m.group(2), m.group(3).strip()
+    elif c:
+        ts, agent_id, rest = "", c.group(1), c.group(2).strip()
+    else:
+        return None
+
+    name = _fun_name(agent_id)
+    ts_s = ts if ts else "        "
+
+    # ── skip these ────────────────────────────────────────────────────────
+    if rest.startswith("↳") or re.match(r"step \d+:", rest):
+        return None
+
+    # ── GOAL ──────────────────────────────────────────────────────────────
+    if rest.startswith("◎"):
+        goal = rest[1:].strip()
+        verb = _pick(_GOAL_VERBS, f"verb-{name}")
+        short_goal = goal[:70]
+        return (
+            f"[dim]{ts_s}[/dim]  [bold white]{name:<10}[/bold white]"
+            f"  [white]{verb} {short_goal}[/white]"
+        )
+
+    # ── RUN ───────────────────────────────────────────────────────────────
+    if rest.startswith("▶"):
+        parts = rest[1:].strip().split(None, 1)
+        cap   = parts[0] if parts else ""
+        param = parts[1] if len(parts) > 1 else ""
+        phrase, style = _run_phrase(cap, param, name)
+        return (
+            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"  [dim]└[/dim]  [{style}]{phrase}[/{style}]"
+        )
+
+    # ── OK ────────────────────────────────────────────────────────────────
+    if rest.startswith("✓"):
+        parts  = rest[1:].strip().split(None, 1)
+        cap    = parts[0] if parts else ""
+        result = parts[1] if len(parts) > 1 else ""
+        line_  = _ok_phrase(cap, result, name)
+        if line_ is None:
+            return None
+        phrase, style = line_
+        return (
+            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"  [dim]└[/dim]  [green]✓[/green]  [{style}]{phrase}[/{style}]"
+        )
+
+    # ── FAIL ──────────────────────────────────────────────────────────────
+    if rest.startswith("✗"):
+        parts = rest[1:].strip().split(None, 1)
+        err   = parts[1].strip() if len(parts) > 1 else ""
+        if "timed out" in err:
+            msg = _pick(_FAIL_TIMEOUT, f"timeout-{name}")
+        else:
+            msg = _pick(_FAIL_GENERIC, f"fail-{name}")
+        return (
+            f"[dim]        [/dim]  [dim]{name:<10}[/dim]"
+            f"  [dim]└  [red]{msg}[/red][/dim]"
+        )
+
+    return None
 
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
+def _run_phrase(cap: str, param: str, name: str) -> tuple[str, str]:
+    if cap == "semantic_search":
+        q = re.search(r'"query"\s*:\s*"([^"]{3,})"', param)
+        qstr = q.group(1)[:50] if q else "something"
+        return _pick(_SEARCH, f"search-{name}").replace("{q}", qstr), "cyan"
+    if cap == "shell_exec":
+        cmd = re.search(r'"command"\s*:\s*"([^"]{1,55})"', param)
+        return (f"running → {cmd.group(1)}" if cmd else "running a shell command…"), "yellow"
+    if cap == "ollama_chat":
+        return _pick(_THINK, f"think-{name}"), "magenta"
+    if cap == "memory_set":
+        k = re.search(r'"key"\s*:\s*"([^"]{1,35})"', param)
+        return (_pick(_SAVE, f"save-{name}") + (f' — "{k.group(1)}"' if k else "")), "dim"
+    if cap == "memory_get":
+        k = re.search(r'"key"\s*:\s*"([^"]{1,35})"', param)
+        return (f'recalling "{k.group(1)}"' if k else "digging through memory…"), "dim"
+    if cap == "fs_read":
+        p = re.search(r'"path"\s*:\s*"([^"]{1,60})"', param)
+        fname = p.group(1).split("/")[-1] if p else "a file"
+        return f"reading {fname}", "yellow"
+    if cap == "fs_write":
+        p = re.search(r'"path"\s*:\s*"([^"]{1,60})"', param)
+        fname = p.group(1).split("/")[-1] if p else "a file"
+        return f"writing {fname}", "yellow"
+    return f"{cap}…", "dim"
+
+
+def _ok_phrase(cap: str, result: str, name: str) -> tuple[str, str] | None:
+    if cap == "memory_set":
+        return None
+    if cap == "semantic_search":
+        c = result.strip()
+        if not c or c.startswith("{") or len(c) < 8:
+            return _pick(_SHELL_OK, f"searchok-{name}"), "dim"
+        lines = [l.strip() for l in c.splitlines() if l.strip()]
+        preview = lines[0][:75] if lines else c[:75]
+        return f'found: {preview}', "dim white"
+    if cap == "shell_exec":
+        try:
+            d = json.loads(result)
+            out = d.get("stdout", "").strip()
+            if out:
+                first = out.splitlines()[0][:75]
+                comment = _pick(_SHELL_OK, f"shellok-{name}")
+                return f"{comment} → {first}", "dim white"
+        except Exception:
+            pass
+        return None
+    if cap == "ollama_chat":
+        c = result.strip()
+        try:
+            d = json.loads(c)
+            c = d.get("response", c)
+        except Exception:
+            pass
+        c = c.strip().strip('"')
+        if len(c) > 20 and not c.startswith("{"):
+            comment = _pick(_THINK_OK, f"thinkdone-{name}")
+            return f'{comment} — "{c[:70]}"', "dim white"
+        return _pick(_THINK_OK, f"thinkdone-{name}"), "dim"
+    if cap in ("fs_read", "memory_get"):
+        c = result.strip()
+        if c and not c.startswith("{") and len(c) > 5:
+            return f"got: {c[:75]}", "dim white"
+    return None
+
+
+# ── CSS ───────────────────────────────────────────────────────────────────────
 CSS = """
-Screen { background: #0a0a0a; color: #c0c0c0; }
+Screen { background: #0a0a0a; color: #aaaaaa; }
 
 #title {
-    height: 1;
+    height: 3;
     background: #0a0a0a;
-    padding: 0 2;
-    border-bottom: solid #1a1a1a;
+    padding: 1 2;
+    border-bottom: solid #1c1c1c;
+    content-align: left middle;
 }
 
 #main { height: 1fr; }
 
 #left {
-    width: 24;
-    border-right: solid #1a1a1a;
+    width: 22;
+    border-right: solid #1c1c1c;
     padding: 1 1;
     background: #0a0a0a;
 }
 
-.sec { color: #2e2e2e; text-style: bold; margin-bottom: 1; }
+.sec { color: #333333; text-style: bold; margin-bottom: 1; }
+#agent-list { height: 1fr; }
 
-#agent-list   { height: 1fr; margin-bottom: 1; }
-#divider      { color: #1a1a1a; margin-bottom: 1; }
-#narrator-box { height: auto; max-height: 18; }
-
-#right        { padding: 1 1; background: #0a0a0a; }
-#act-title    { color: #2e2e2e; text-style: bold; margin-bottom: 1; }
+#right { padding: 1 1; background: #0a0a0a; }
+#act-title { color: #333333; text-style: bold; margin-bottom: 1; }
 
 #act-log {
     height: 1fr;
     background: #0a0a0a;
     scrollbar-size: 1 1;
-    scrollbar-color: #1a1a1a #0a0a0a;
+    scrollbar-color: #1c1c1c #0a0a0a;
 }
 
 #footer {
     height: 1;
     background: #0a0a0a;
-    color: #1e1e1e;
+    color: #222222;
     padding: 0 2;
-    border-top: solid #1a1a1a;
+    border-top: solid #1c1c1c;
 }
 """
+
 
 # ── Widgets ───────────────────────────────────────────────────────────────────
 class TitleBar(Static):
@@ -295,12 +350,10 @@ class TitleBar(Static):
         self.set_interval(3.0, self._tick)
     def _tick(self):
         total = len(AGENT_STATE)
+        done  = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
         self.update(
-            f"[bold #7c7cf5]HOLLOW[/bold #7c7cf5]"
-            f"  [dim]·[/dim]  [dim]{MODEL}[/dim]"
-            f"  [dim]·[/dim]  cycle [white]{CYCLE}[/white]"
-            f"  [dim]·[/dim]  [dim]{total} agents[/dim]"
-            f"  [dim]·  q quit[/dim]"
+            f"[reverse bold] HOLLOW [/reverse bold]"
+            f"  [dim]{MODEL}  ·  cycle {CYCLE}  ·  {total} agents  ·  {done} done  ·  q quit[/dim]"
         )
 
 class AgentList(Static):
@@ -315,28 +368,21 @@ class AgentList(Static):
         out = []
         for aid, s in agents:
             prog = s["progress"]
-            name = _short(aid)
+            name = _fun_name(aid)
             pct  = "done" if prog >= 1.0 else f"{prog:.0%}"
             if prog >= 1.0:
-                out.append(f"[green]{name:<15} {pct}[/green]")
+                out.append(f"[green]{name:<10} {pct}[/green]")
             elif prog > 0.5:
-                out.append(f"[white]{name:<15}[/white] [dim cyan]{pct}[/dim cyan]")
+                out.append(f"[white]{name:<10}[/white] [dim cyan]{pct}[/dim cyan]")
             elif prog > 0:
-                out.append(f"[dim]{name:<15} {pct}[/dim]")
+                out.append(f"[dim]{name:<10} {pct}[/dim]")
             else:
-                out.append(f"[dim]{name:<15}  —[/dim]")
+                out.append(f"[dim]{name:<10}  —[/dim]")
         self.update("\n".join(out))
-
-class NarratorBox(Static):
-    def on_mount(self):
-        self._tick()
-        self.set_interval(2.0, self._tick)
-    def _tick(self):
-        self.update(_narrator_text())
 
 class ActivityLog(ScrollableContainer):
     def compose(self):
-        yield RichLog(highlight=False, auto_scroll=True, max_lines=1000, id="log")
+        yield RichLog(highlight=False, auto_scroll=True, max_lines=1200, id="log")
     def on_mount(self):
         self.set_interval(0.5, self._poll)
     def _poll(self):
@@ -345,15 +391,13 @@ class ActivityLog(ScrollableContainer):
             return
         log = self.query_one("#log", RichLog)
         for raw in raw_lines:
-            result = _humanize(raw)
-            if result:
-                markup, _ = result
+            human = _humanize(raw)
+            if human:
                 try:
-                    log.write(Text.from_markup(markup))
+                    log.write(Text.from_markup(human))
                 except Exception:
                     pass
 
-# ── App ───────────────────────────────────────────────────────────────────────
 class HollowMonitor(App):
     CSS = CSS
     BINDINGS = [("q", "quit", "quit")]
@@ -364,9 +408,6 @@ class HollowMonitor(App):
             with Vertical(id="left"):
                 yield Static("AGENTS", classes="sec")
                 yield AgentList(id="agent-list")
-                yield Static("─" * 20, id="divider")
-                yield Static("WHAT'S HAPPENING", classes="sec")
-                yield NarratorBox(id="narrator-box")
             with Vertical(id="right"):
                 yield Static("ACTIVITY", id="act-title")
                 yield ActivityLog(id="act-log")
