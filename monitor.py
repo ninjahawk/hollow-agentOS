@@ -453,6 +453,16 @@ Screen { background: #0a0a0a; color: #aaaaaa; }
 
 #goal-input:focus { border: none; }
 
+#detail {
+    display: none;
+    background: #0a0a0a;
+    padding: 1 2;
+    overflow-y: auto;
+    scrollbar-size: 1 1;
+    scrollbar-color: #1c1c1c #0a0a0a;
+}
+#detail.visible { display: block; }
+
 #footer {
     height: 1;
     background: #0a0a0a;
@@ -461,6 +471,117 @@ Screen { background: #0a0a0a; color: #aaaaaa; }
     border-top: solid #1c1c1c;
 }
 """
+
+
+# ── Agent detail builder ──────────────────────────────────────────────────────
+
+def _build_agent_detail(agent_id: str) -> str:
+    """Return Rich markup string for the agent detail panel."""
+    lines = []
+
+    # ── Identity ──────────────────────────────────────────────────────────────
+    identity_path = Path(f"/agentOS/memory/identity/{agent_id}/profile.json")
+    name = _fun_name(agent_id)
+    if identity_path.exists():
+        try:
+            prof = json.loads(identity_path.read_text())
+            name = prof.get("name", name)
+            traits  = ", ".join(prof.get("traits",  []))
+            domains = ", ".join(prof.get("domains", []))
+            narrative = prof.get("narrative", "").strip()
+            lines.append(f"[bold white]{name}[/bold white]  [dim]{agent_id[:16]}[/dim]")
+            lines.append(f"[dim]traits   [/dim] {traits}")
+            lines.append(f"[dim]focus    [/dim] {domains}")
+            if narrative:
+                lines.append("")
+                lines.append("[dim]narrative[/dim]")
+                # word-wrap narrative into ~70-char lines
+                words, row = narrative.split(), ""
+                for w in words:
+                    if len(row) + len(w) + 1 > 70:
+                        lines.append(f"  [dim white]{row}[/dim white]")
+                        row = w
+                    else:
+                        row = (row + " " + w).strip()
+                if row:
+                    lines.append(f"  [dim white]{row}[/dim white]")
+        except Exception:
+            lines.append(f"[bold white]{name}[/bold white]")
+    else:
+        lines.append(f"[bold white]{name}[/bold white]  [dim](no identity yet)[/dim]")
+
+    # ── Completed goals ───────────────────────────────────────────────────────
+    lines.append("")
+    lines.append("[dim]─── completed goals ───────────────────────────────[/dim]")
+    reg = Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+    if reg.exists():
+        try:
+            done = []
+            for l in reg.read_text().strip().splitlines():
+                try:
+                    g = json.loads(l)
+                    if g.get("status") == "completed":
+                        done.append((g.get("completed_at", 0), g.get("objective", "")))
+                except Exception:
+                    pass
+            done.sort(reverse=True)
+            if done:
+                for ts, obj in done[:15]:
+                    t = time.strftime("%m/%d %H:%M", time.localtime(ts)) if ts else "?"
+                    lines.append(f"  [dim]{t}[/dim]  {obj[:65]}")
+            else:
+                lines.append("  [dim](none yet)[/dim]")
+        except Exception:
+            lines.append("  [dim](error reading goals)[/dim]")
+    else:
+        lines.append("  [dim](no goal history)[/dim]")
+
+    # ── Active goals ──────────────────────────────────────────────────────────
+    lines.append("")
+    lines.append("[dim]─── active goals ──────────────────────────────────[/dim]")
+    if reg.exists():
+        try:
+            active = []
+            for l in reg.read_text().strip().splitlines():
+                try:
+                    g = json.loads(l)
+                    if g.get("status") == "active":
+                        prog = g.get("metrics", {}).get("progress", 0.0)
+                        active.append((prog, g.get("objective", "")))
+                except Exception:
+                    pass
+            if active:
+                for prog, obj in active[:5]:
+                    lines.append(f"  [cyan]{prog:.0%}[/cyan]  {obj[:65]}")
+            else:
+                lines.append("  [dim](none)[/dim]")
+        except Exception:
+            pass
+
+    # ── Workspace files ───────────────────────────────────────────────────────
+    lines.append("")
+    lines.append("[dim]─── workspace files (all agents, recent first) ───[/dim]")
+    ws = Path("/agentOS/workspace")
+    if ws.exists():
+        try:
+            files = sorted(
+                [f for f in ws.iterdir() if f.is_file()],
+                key=lambda f: f.stat().st_mtime, reverse=True
+            )[:20]
+            if files:
+                for f in files:
+                    mtime = time.strftime("%m/%d %H:%M", time.localtime(f.stat().st_mtime))
+                    size  = f.stat().st_size
+                    sz    = f"{size}b" if size < 1024 else f"{size//1024}kb"
+                    lines.append(f"  [dim]{mtime}[/dim]  [white]{f.name}[/white]  [dim]{sz}[/dim]")
+            else:
+                lines.append("  [dim](empty)[/dim]")
+        except Exception:
+            lines.append("  [dim](error)[/dim]")
+
+    lines.append("")
+    lines.append("[dim]  escape to close[/dim]")
+    return "\n".join(lines)
 
 
 # ── Widgets ───────────────────────────────────────────────────────────────────
@@ -558,13 +679,14 @@ class ActivityLog(ScrollableContainer):
 class HollowMonitor(App):
     CSS = CSS
     BINDINGS = [
-        Binding("q",      "quit",       "quit",             priority=True),
-        Binding("g",      "goal_single","set agent goal",   priority=True),
-        Binding("G",      "goal_group", "set group goal",   priority=True),
-        Binding("p",      "push_files", "sync to desktop",  priority=True),
-        Binding("escape", "cancel_goal","cancel",           priority=True),
-        Binding("up",     "agent_up",   "prev agent",       priority=True),
-        Binding("down",   "agent_down", "next agent",       priority=True),
+        Binding("q",      "quit",          "quit",             priority=True),
+        Binding("g",      "goal_single",   "set agent goal",   priority=True),
+        Binding("G",      "goal_group",    "set group goal",   priority=True),
+        Binding("p",      "push_files",    "sync to desktop",  priority=True),
+        Binding("enter",  "inspect_agent", "inspect agent",    priority=True),
+        Binding("escape", "cancel_goal",   "cancel",           priority=True),
+        Binding("up",     "agent_up",      "prev agent",       priority=True),
+        Binding("down",   "agent_down",    "next agent",       priority=True),
     ]
 
     _goal_mode: str = ""   # "single" | "group" | ""
@@ -579,6 +701,7 @@ class HollowMonitor(App):
             with Vertical(id="right"):
                 yield Static("ACTIVITY", id="act-title")
                 yield ActivityLog(id="act-log")
+                yield Static("", id="detail")
         with Horizontal(id="goal-bar"):
             yield Label("", id="goal-label")
             yield Input(placeholder="type goal, press enter…", id="goal-input")
@@ -595,6 +718,7 @@ class HollowMonitor(App):
         footer = self.query_one("#footer", Static)
         footer.update(
             f"[dim]  [white]↑↓[/white] select  "
+            f"[white]enter[/white] inspect  "
             f"[white]g[/white] goal  "
             f"[white]G[/white] group goal  "
             f"[white]p[/white] sync  "
@@ -634,7 +758,38 @@ class HollowMonitor(App):
     def action_goal_group(self):
         self._open_goal_bar("group", f"  group goal  ")
 
+    def action_inspect_agent(self):
+        if self._goal_mode:
+            return
+        agent_id = self.query_one("#agent-list", AgentList).selected_agent_id()
+        detail = self.query_one("#detail", Static)
+        log_panel = self.query_one("#act-log")
+        title = self.query_one("#act-title", Static)
+        if "visible" in detail.classes:
+            # toggle off
+            detail.remove_class("visible")
+            log_panel.display = True
+            title.update("ACTIVITY")
+        else:
+            if not agent_id:
+                return
+            name = _fun_name(agent_id)
+            title.update(f"AGENT  [dim]·[/dim]  [white]{name}[/white]  [dim](escape to close)[/dim]")
+            log_panel.display = False
+            def _load():
+                text = _build_agent_detail(agent_id)
+                self.call_from_thread(lambda: detail.update(text))
+                self.call_from_thread(lambda: detail.add_class("visible"))
+            threading.Thread(target=_load, daemon=True).start()
+
     def action_cancel_goal(self):
+        # close detail panel if open
+        detail = self.query_one("#detail", Static)
+        if "visible" in detail.classes:
+            detail.remove_class("visible")
+            self.query_one("#act-log").display = True
+            self.query_one("#act-title", Static).update("ACTIVITY")
+            return
         if self._goal_mode:
             self._close_goal_bar()
 
