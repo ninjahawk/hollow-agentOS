@@ -375,6 +375,13 @@ Screen { background: #0a0a0a; color: #aaaaaa; }
 .sec { color: #333333; text-style: bold; margin-bottom: 1; }
 #agent-list { height: 1fr; }
 
+#agent-stats {
+    height: auto;
+    padding: 1 0 0 0;
+    border-top: solid #1c1c1c;
+    color: #444444;
+}
+
 #right { padding: 1 1; background: #0a0a0a; }
 #act-title { color: #333333; text-style: bold; margin-bottom: 1; }
 
@@ -479,9 +486,26 @@ class AgentList(Static):
             self._tick()
 
 
+class AgentStats(Static):
+    def on_mount(self):
+        self._tick()
+        self.set_interval(2.0, self._tick)
+    def _tick(self):
+        total  = len(AGENT_STATE)
+        done   = sum(1 for s in AGENT_STATE.values() if s["progress"] >= 1.0)
+        active = sum(1 for s in AGENT_STATE.values() if 0 < s["progress"] < 1.0)
+        idle   = total - done - active
+        self.update(
+            f"[dim]active  [/dim][white]{active}[/white]\n"
+            f"[dim]idle    [/dim][dim white]{idle}[/dim white]\n"
+            f"[dim]done    [/dim][green]{done}[/green]\n"
+            f"[dim]total   [/dim][dim]{total}[/dim]"
+        )
+
+
 class ActivityLog(ScrollableContainer):
     def compose(self):
-        yield RichLog(highlight=False, auto_scroll=True, max_lines=1200, id="log")
+        yield RichLog(highlight=False, auto_scroll=True, max_lines=1200, wrap=True, id="log")
     def on_mount(self):
         self.set_interval(0.5, self._poll)
     def _poll(self):
@@ -517,6 +541,7 @@ class HollowMonitor(App):
             with Vertical(id="left"):
                 yield Static("AGENTS", classes="sec")
                 yield AgentList(id="agent-list")
+                yield AgentStats(id="agent-stats")
             with Vertical(id="right"):
                 yield Static("ACTIVITY", id="act-title")
                 yield ActivityLog(id="act-log")
