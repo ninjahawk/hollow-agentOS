@@ -36,8 +36,9 @@ from pathlib import Path
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
-MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "5"))
+MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "3"))
 MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "12"))  # cap concurrent agents
+PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "4"))         # agents run in parallel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -291,55 +292,65 @@ def main():
         active = [a for a in agents if a not in metrics.skipped_agents]
 
         if active:
-            log.info("Cycle %d: %d agent(s) (%d skipped/cooling)",
-                     metrics.cycles, len(active), len(metrics.skipped_agents))
-            for agent_id in active:
-                if not _running[0]:
-                    break
+            log.info("Cycle %d: %d agent(s) (%d skipped/cooling) workers=%d",
+                     metrics.cycles, len(active), len(metrics.skipped_agents), PARALLEL_WORKERS)
 
-                # Stall detection: skip agents making zero progress repeatedly
+            # Pre-filter stalled agents before submitting to thread pool
+            runnable = []
+            for agent_id in active:
                 if metrics.is_stalled(agent_id):
                     metrics.skipped_agents.add(agent_id)
-                    log.warning("  %s stalled (5+ cycles no progress), cooling off for 10 cycles",
-                                agent_id)
-                    continue
+                    log.warning("  %s stalled, cooling off", agent_id)
+                else:
+                    runnable.append(agent_id)
 
+            def _run_one(agent_id):
+                """Run one agent cycle and return (agent_id, outcome, prev_progress)."""
+                if not _running[0]:
+                    return agent_id, {"ok": False, "error": "shutdown"}, 0.0
                 try:
                     from agents.persistent_goal import PersistentGoalEngine
                     ge = PersistentGoalEngine()
                     prev_goals = ge.list_active(agent_id, limit=1)
-                    prev_progress = prev_goals[0].metrics.get("progress", 0.0) if prev_goals else 0.0
+                    prev = prev_goals[0].metrics.get("progress", 0.0) if prev_goals else 0.0
                 except Exception:
-                    prev_progress = 0.0
+                    prev = 0.0
+                return agent_id, run_cycle(loop, agent_id), prev
 
-                outcome = run_cycle(loop, agent_id)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
+                futures = {pool.submit(_run_one, aid): aid for aid in runnable}
+                for fut in as_completed(futures):
+                    try:
+                        agent_id, outcome, prev_progress = fut.result()
+                    except Exception as e:
+                        log.error("worker exception: %s", e)
+                        continue
 
-                if outcome["ok"]:
-                    progress = outcome.get("progress", 0.0)
-                    metrics.record_outcome(agent_id, progress, prev_progress)
-                    log.info(
-                        "  %s → goal=%s progress=%.2f steps=%d",
-                        agent_id,
-                        outcome.get("goal_id", "none"),
-                        progress,
-                        outcome.get("steps", 0),
-                    )
-                    # If agent just finished: update narrative + assign new goal
-                    if progress >= 1.0:
-                        try:
-                            from agents.agent_identity import AgentIdentity
-                            ident = AgentIdentity.load_or_create(agent_id)
-                            goal_obj = outcome.get("goal_id", "")
-                            ident.update_narrative(
-                                goal_obj,
-                                f"progress={progress:.0%} steps={outcome.get('steps',0)}"
-                            )
-                        except Exception:
-                            pass
-                        _assign_idle_goal(agent_id)
-                else:
-                    metrics.errors += 1
-                    log.warning("  %s → error: %s", agent_id, outcome.get("error"))
+                    if outcome["ok"]:
+                        progress = outcome.get("progress", 0.0)
+                        metrics.record_outcome(agent_id, progress, prev_progress)
+                        log.info(
+                            "  %s → goal=%s progress=%.2f steps=%d",
+                            agent_id,
+                            outcome.get("goal_id", "none"),
+                            progress,
+                            outcome.get("steps", 0),
+                        )
+                        if progress >= 1.0:
+                            try:
+                                from agents.agent_identity import AgentIdentity
+                                ident = AgentIdentity.load_or_create(agent_id)
+                                ident.update_narrative(
+                                    outcome.get("goal_id", ""),
+                                    f"progress={progress:.0%} steps={outcome.get('steps',0)}"
+                                )
+                            except Exception:
+                                pass
+                            _assign_idle_goal(agent_id)
+                    else:
+                        metrics.errors += 1
+                        log.warning("  %s → error: %s", agent_id, outcome.get("error"))
 
         else:
             # Drain skipped agents set gradually (re-enable after 10 cycles)

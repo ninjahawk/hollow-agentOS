@@ -267,7 +267,7 @@ class ReasoningLayer:
 
             prompt = (
                 f"{identity_preamble}"
-                f"Plan 3-5 steps for an AI agent to accomplish this goal.\n"
+                f"Plan 2-3 steps for an AI agent to accomplish this goal.\n"
                 f"Goal: {objective}\n\n"
                 f"Available capabilities:\n{caps_text}\n\n"
                 f"Rules:\n"
