@@ -7,30 +7,39 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-4.1.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-4.4.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
 [![Tests](https://img.shields.io/badge/tests-178%20passing-brightgreen?style=flat-square)](#testing)
-[![Release](https://img.shields.io/badge/release-Infrastructure%20of%20AGI-ff6b35?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Release](https://img.shields.io/badge/release-Phase%200%20Stabilization-ff6b35?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 
 </div>
 
 ---
 
-## What you're actually looking at
+## What this is
 
-This is a live feed of AI agents pursuing goals on their own:
+Imagine you open an app, type *"I need something that transcribes my meetings and summarizes them by action item"* — and the system just handles it. It finds the right tool on GitHub. Installs it. Configures it. Wraps it in a natural language interface tailored to how you work. You never see a terminal. You never touch a config file. You don't know what Python is. You don't need to.
+
+That's what Hollow is building toward.
+
+**The way it gets there is stranger than the destination.**
+
+Hollow is an operating system for AI agents — not a chatbot wrapper, not a framework bolted on top of an LLM API, but an actual OS. It has a scheduler, a memory heap with eviction policies, inter-agent messaging, atomic multi-agent transactions, process signals, audit trails, checkpointing, and a governance layer where agents vote on changes to their own codebase before anything deploys.
+
+On top of that OS, a daemon runs 24/7. It wakes up every few seconds, looks at every agent that has an active goal, and drives them forward. The agents plan using a local LLM. They search their own source code semantically. They write findings to memory. They propose what to do next. They have been naming themselves, organizing into coordination protocols, and identifying bugs in their own codebase — without being told to do any of that.
+
+The end goal: **agents that build the user interface themselves.** You point Hollow at any GitHub repo. The agents clone it, analyze it, build a natural language wrapper around it, and surface it to you as a native app. Every tool on the internet, one request away, no technical knowledge required.
+
+We're not there yet. The infrastructure underneath that vision is being built right now — partly by humans, increasingly by the agents themselves. This repository is a live record of both.
 
 ```
-2026-04-02T15:27:46 [daemon] INFO   ac3-fail-b8647c → goal=goal-7ab110a18f39 progress=1.00 steps=5
-2026-04-02T15:31:12 [daemon] INFO   ac1-agent-c-3884f5 → goal=goal-1ada9085637d progress=1.00 steps=5
-2026-04-02T16:46:54 [daemon] INFO   optimizer-v1 → goal=goal-1a9344928930 progress=1.00 steps=1
+23:54:23 [daemon]  scout  → goal=goal-9aab1fca8d30  progress=0.30  steps=3
+23:54:37 [daemon]  scout  → goal=goal-9aab1fca8d30  progress=0.60  steps=3
 ```
 
-Nobody triggered those. A daemon wakes up every 30 seconds, looks at every registered agent, and tells each one to pursue its goal. The agent asks the local LLM to make a plan. It runs the plan. It searches files, calls the model, writes findings to memory. When something real gets saved, the goal completes. The agent proposes what to do next. This repeats forever.
-
-You give it a goal. You walk away. That's the whole idea.
+Nobody sent those. A daemon running on your hardware did.
 
 ---
 

@@ -1,435 +1,286 @@
-# hollowOS Roadmap
+# Hollow agentOS — Master Document
 
-## End Goal
-
-**A self-hosted runtime where AI agents live permanently.**
-
-Deploy once. Give agents goals. Walk away.
-
-Agents reason about what to do next, execute real operations, learn from outcomes,
-synthesize new capabilities when they hit gaps, coordinate with other agents via
-quorum, and govern themselves — all without human prompting. Running on your hardware
-with local LLMs via Ollama.
-
-This is not a framework for humans to use AI. It is an environment AI operates from.
-
----
-
-## Current Status: v4.0.0 — hollowOS COMPLETE ✅
-
-All 12 phases complete. Acceptance test passed: three agents autonomously completed
-different goals, live capability synthesis deployed, failure recovery with follow-on
-goals confirmed, multi-agent shared goal coordination via quorum verified.
-Deploy with Docker. Point at Ollama. Give agents goals. Walk away.
+> **Architecture:** Three-layer system.
+> - **Layer 1** — Event kernel: identity, scheduling, memory, messaging, transactions, governance. Largely built.
+> - **Layer 2** — Orchestration: autonomous agents running 24/7 whose meta-goal is to build Layer 3. Partially working.
+> - **Layer 3** — Human interface: point at any GitHub repo, agents wrap it, surface it as a native app. Does not exist yet.
+>
+> **Build philosophy:** Sequential. Each phase builds on what the previous phase produced.
+> Nothing gets skipped. Layer 2 builds Layer 3. We build Layer 2.
+>
+> **End state:** A user with no technical knowledge opens Hollow, types what they want,
+> and agents handle everything underneath. They never see a terminal. They never touch
+> a config file. Every tool on GitHub is one install away.
 
 ---
 
-## Phase 1: OS Kernel Primitives (v0.7.0 – v1.2.0) ✅ COMPLETE
+## What has been built
 
-Eight foundational mechanisms. Every higher-order system depends on these.
+### Layer 1 — Event Kernel (complete ~70%)
+- Agent registry with identity, capabilities, spawn depth, budget tracking
+- Goal engine — distributed JSONL-based goal storage per agent
+- Semantic memory — vector index over source code for natural language search
+- Message bus — inter-agent messaging (persistent JSON)
+- Consensus/quorum system — proposal → vote → deploy pipeline (exists, not fully wired)
+- Heap memory — key-value store per agent
+- Project context — shared key-value memory across all agents
+- Audit log — append-only record of all agent actions
+- Shell execution capability with sandboxing
+- Filesystem read/write capabilities
+- Ollama integration — local LLM reasoning per agent
+- Event log — every agent action emits a structured event
+- Transactions — atomic multi-step operations
+- Checkpoint/restore — agent state snapshots
+- Autonomy loop — 6-second daemon cycle driving all agent execution
+- Reasoning layer — maps agent intent to capability selection
 
-- Event system (async agent coordination)
-- Signal handling (interrupt + recovery)
-- Memory management (allocation + garbage collection)
-- Audit logging (full causality trace)
-- Transaction system (concurrent consistency)
-- Lineage tracking (dependency graph)
-- Rate limiting (resource protection)
-- Working memory (context window management)
+### Layer 2 — Orchestration (partial)
+- Scout, analyst, builder agents running autonomously
+- Agents self-organized a naming system (`names.json`) without instruction
+- Analyst autonomously identified deadlocks, missing exception handling, unused imports in codebase
+- Multi-agent coordination attempted via shared files (correct instinct, broken implementation)
+- `self_modification.py` exists but is not wired into the daemon
 
-**Result:** Complete OS layer. Agents can coordinate, persist state, and handle failures.
-
----
-
-## Phase 2: Agent Services (v1.3.0 – v1.3.7) ✅ COMPLETE
-
-Services only possible because Phase 1 exists.
-
-- Distributed tracing (audit + registry)
-- Checkpoints (memory + transactions)
-- Consensus (events + transactions)
-- Adaptive routing (scheduler + audit)
-- Self-extension (consensus + full stack)
-
-**Result:** Agents become genuinely useful. They coordinate, remember, adapt, extend themselves.
-
----
-
-## Phase 3: Cognitive Infrastructure (v2.0.0 – v2.5.0) ✅ COMPLETE
-
-Replacing every human-facing interface with agent-native cognition. No JSON, REST, or symbols.
-
-### v2.0.0: Semantic Memory ✅
-- Vector-native storage (embeddings, not key-value)
-- Cosine similarity search (no naming schemes)
-- LRU capacity management
-- Per-agent memory isolation
-- **7 integration tests**
-
-### v2.1.0: Capability Graph ✅
-- Semantic capability discovery (by meaning, not name)
-- Type-based composition (input_schema → output_schema)
-- Composition validation with confidence scoring
-- Usage tracking and learned patterns
-- **12 integration tests**
-
-### v2.2.0: Persistent Goal Engine ✅
-- Long-term objectives (persist across context windows)
-- Hierarchical goal decomposition
-- Priority-based focus with status transitions
-- Semantic goal search
-- Progress metrics tracking
-- **13 integration tests**
-
-### v2.3.0: Agent-Quorum Governance ✅
-- Multi-agent consensus voting
-- Customizable quorum percentages
-- Proposal types: capability, goal_change, resource, policy
-- Voting history audit trail
-- **12 integration tests**
-
-### v2.4.0: Capability Synthesis Engine ✅
-- Agents observe gaps and propose capabilities
-- Test-driven capability validation
-- Full quorum integration for approval
-- Gap tracking with priority ordering
-- **9 integration tests**
-
-### v2.5.0: Agent-Native Interface ✅
-- Pure embedding-space communication (no JSON/REST)
-- Agents submit plain-text intents → OS responds semantically
-- Capability discovery by meaning
-- Full introspection (goals, memory, proposals, capabilities)
-- Operation history and statistics
-- **10 integration tests**
-
-**Phase 3 Result:** 63 new tests, 178/178 passing. Agents operate in pure embedding space.
+### Infrastructure
+- Docker-based deployment (`docker-compose.yml`)
+- Pre-built image published to GHCR on every push to main (`ghcr.io/ninjahawk/hollow-agentos`)
+- One-click Windows installer (`install.bat` + `install.ps1`)
+- Live monitor TUI (`monitor.py`) with agent list, activity log, file viewer, goal input
+- GitHub Actions CI/CD
 
 ---
 
-## Phase 4: Agent Autonomy (v2.6.0 – v3.0.0) ✅ COMPLETE
+## Current state (as of 2026-04-03)
 
-### v2.6.0: Execution Engine + Reasoning Layer ✅ (19 tests)
-- Capability dispatch: intent → graph → execution → result capture
-- Intent → semantic capability discovery → parameter generation
-- Confidence scoring, learning from outcomes
+**What works:** Agents run autonomously, pursue goals, use LLMs to reason, read/write files, search the codebase semantically, store memory, and emit events. The infrastructure is real.
 
-### v2.7.0: Autonomy Loop ✅ (9 tests)
-- Goal pursuit: retrieve → reason → execute → learn → progress
-- Automatic goal completion at progress >= 1.0
-- Synthesis integration for gap detection
-
-### v2.8.0: Self-Modification ✅ (15 tests)
-- Gap detection → capability synthesis → testing → quorum proposal → deployment
-- Full audit trail of all gaps, syntheses, tests, deployments
-
-### v2.9.0: Self-Improvement Loop ✅ (9 tests)
-- Pattern observation: track success/failure rates per capability
-- Optimization proposals for underperforming capabilities
-- Continuous cycle: observe → propose → deploy → measure
-
-### v3.0.0: Complete Autonomous Single Agent ✅ (2 tests)
-- All Phase 4 systems integrated
-- Agent pursues arbitrary goals indefinitely without human interaction
-
-**Phase 4 Result:** 54/54 tests. Single autonomous agent in embedding space.
+**What's broken:**
+- Agents loop on the same goal indefinitely instead of failing gracefully and moving on
+- Agent output gets truncated at ~600 bytes — all meaningful work is cut off before saving
+- Scout/analyst/builder are not registered in the agent registry — they're ghost agents
+- The proposal → quorum → deploy pipeline exists as three disconnected pieces
+- `self_modification.py` is never called by the daemon
+- Goals don't survive a container restart
 
 ---
 
-## Phase 5: Distributed Autonomy (v3.1.0 – v3.5.0) ✅ COMPLETE (99 tests)
+## Roadmap
 
-### v3.1.0: Multi-Node Communication ✅
-### v3.2.0: Distributed Consensus ✅
-### v3.3.0: Distributed Memory & Goals ✅
-### v3.4.0: Agent Migration & Load Balancing ✅
-### v3.5.0: Fully Distributed Autonomous Swarm ✅
+### Phase 0 — Stabilization ← we are here
+**Goal:** Make the foundation reliable enough that agents can actually complete goals.
+Nothing in Phase 1 onward works if agents loop forever or produce truncated output.
 
-**Phase 5 Result:** Autonomous agent mesh at any scale.
+**What gets built:**
+- Fix agent loop problem — agents cycling on the same goal every 30s indefinitely
+- Fix exception handling and deadlocks in `execution_engine.py` (identified autonomously by analyst)
+- Fix artifact validation gate — currently resets to 85% and retries forever instead of failing gracefully
+- Verify `fs_write` append mode works end-to-end in practice
 
----
+**Success criteria:**
+- No agent stuck on the same goal for more than 5 minutes
+- `execution_engine.py` passes integration tests with no uncaught exceptions
+- Agents complete goals, stop, and move to new ones without a restart
 
-## Phase 6: Meta-Intelligence (v3.6.0 – v3.10.0) ✅ COMPLETE (85 tests)
-
-### v3.6.0: Agent Introspection ✅ (16 tests)
-### v3.7.0: Meta-Knowledge Synthesis ✅ (19 tests)
-### v3.8.0: Self-Evolving Governance ✅ (17 tests)
-### v3.9.0: Agent Specialization ✅ (16 tests)
-### v3.10.0: Swarm Meta-Learning ✅ (17 tests)
-
-**Phase 6 Result:** Agents examine themselves, extract cross-agent patterns, evolve governance rules.
+**Unlocks:** Everything. Phase 1 is noise until agents reliably finish work.
 
 ---
 
-## Phase 7: Live Execution (v3.10.1 – v3.13.2) ✅ COMPLETE
+### Phase 1 — Foundation Hardening
+**Goal:** Bulletproof Layer 1. Give agents better tools. Cheaper iteration.
 
-Bridge the cognitive layer to a real running OS. Phase 7 proves the architecture
-against a live machine, not just tests.
+**What gets built:**
+- **Model switching** — switch between local Ollama models from the TUI and via API without restarting. Local first (cheaper for testing)
+- **Fix 600b truncation** at the root — goal completion has a hardcoded size assumption cutting off all meaningful output
+- **Register scout/analyst/builder as real agents** — proper IDs, capabilities, and names in the registry
+- **Agent messaging protocol** — shared append log that works. Multiple agents writing without overwriting each other
 
-### v3.10.1: Semantic Indexer Fix ✅
-- Embedding index rebuilds correctly on a timer; survives server restarts
+**Success criteria:**
+- Can switch between `mistral-nemo:12b` and `qwen3.5:9b` from the TUI live
+- Scout/analyst/builder appear in `/agents` API response with proper capabilities
+- Agent output files are no longer truncated at 600 bytes
+- Multiple agents can write to a shared log and all entries persist
 
-### v3.11.1: Live Capabilities ✅ (8 tests)
-Eight real OS operations registered in the capability graph:
-- `shell_exec` — run any shell command, capture stdout/stderr
-- `ollama_chat` — call a local LLM (mistral-nemo:12b default)
-- `fs_read` / `fs_write` — read and write files on disk
-- `semantic_search` — ripgrep-backed codebase search
-- `memory_set` / `memory_get` — persistent key-value agent memory
-- `agent_message` — send messages between agents
-
-### v3.12.1: Goal API ✅ (16 tests)
-Persistent goals via HTTP: create, list, retrieve, update status/progress.
-Goals embed on creation and survive server restart.
-
-### v3.13.1: Autonomy Daemon ✅ (8 tests)
-Background process: polls every 30s, finds agents with active goals,
-runs `AutonomyLoop.pursue_goal()`, writes progress back. No external trigger needed.
-
-### v3.13.2: Reasoning Layer + Capability Graph Fix ✅
-- `_ollama_reason()` calls Ollama with intent + capability schemas, gets back
-  `{capability_id, params}` — real selection with real generated parameters
-- `register()` deduplication prevents unbounded registry growth
-- End-to-end verified: goal → Ollama → `semantic_search` → 5 results → progress 0.30
-
-**Phase 7 Result:** One agent, one goal, real execution, measurable progress.
-Docker container starts daemon + API server together via `entrypoint.sh`.
+**Unlocks:** Reliable agents + cheaper model iteration = the foundation to wire up self-modification in Phase 2.
 
 ---
 
-## Phase 8: Real Task Completion (v3.14.0 – v3.17.0) 🔜 NEXT
+### Phase 2 — Orchestration Layer Completion (Layer 2)
+**Goal:** Wire the self-modification pipeline. Agents can propose, vote on, and deploy
+changes to themselves. This is the moment Layer 2 becomes real.
 
-**Goal:** An agent given a real goal produces a real artifact. Not just progress ticks —
-a verifiable output (a file written, a summary produced, a question answered).
+**What gets built:**
+- **Wire `self_modification.py` into the daemon** — it exists, it's never called
+- **Complete proposal → quorum → deploy pipeline** — three disconnected pieces become one flow
+- **External model support** — Claude API and OpenAI API alongside Ollama. Agents route complex reasoning to a smarter model when needed
+- **`propose_change` capability** — agents can formally propose a system change, triggering quorum
+- **Inject Layer 3 meta-goal** — scout/analyst/builder's explicit standing mission becomes building Layer 3
+- **Persistent goals across reboots** — goals survive `docker restart hollow-api`
 
-**The gap to close:** Agent currently takes one uncontextual step per cycle.
-It can search but not act on results. It can execute but not chain.
+**Success criteria:**
+- An agent identifies a real bug, proposes a fix, it goes through quorum, gets deployed — no human intervention
+- At least one file in `/agentOS/agents/` autonomously modified and logged in this document
+- Goals survive a container restart
+- Can use Claude API or GPT-4 as the reasoning model
 
-### v3.14.0: Goal Completion + Step Context
-- Daemon marks goal `completed` when progress >= 1.0
-- Each step receives the result of the previous step as context input
-- Reasoning prompt includes step history so Ollama makes informed next-step decisions
-- Agent accumulates a working scratchpad across steps within one goal cycle
-
-### v3.15.0: Multi-Step Planning
-- Before executing, agent asks Ollama to plan N steps toward the goal
-- Plan format: `[{capability, params, rationale}, ...]`
-- Steps execute in order; each result feeds the next
-- Failed step triggers replanning from that point, not full restart
-
-### v3.16.0: Result Synthesis
-- On goal completion, agent writes a summary of what it did and learned to semantic memory
-- Patterns extracted: which capability sequences worked for this goal type
-- Reasoning history becomes queryable — past successful plans inform future ones
-- Specialization engine ingests patterns; future routing biases toward what worked
-
-### v3.17.0: Real Task Validation
-Integration tests with goals requiring multiple capability types in sequence:
-- "Summarize the autonomy loop implementation" →
-  `semantic_search` → `fs_read` → `ollama_chat` → `memory_set`
-- Pass criteria: goal completes, verifiable artifact exists, correct content
-
-**Phase 8 Result:** Agents accomplish real, multi-step tasks. The loop is closed.
+**Unlocks:** Agents that can improve themselves can begin building Layer 3. Phase 3 is what they build.
 
 ---
 
-## Phase 9: Durable Autonomy (v3.18.0 – v3.21.0)
+### Phase 3 — Layer 3 Bootstrap (Developer)
+**Goal:** First version of the GitHub repo install pipeline. Core Layer 3 value
+proposition demonstrated for the first time.
 
-**Goal:** An agent runs indefinitely without degrading. It handles failure, manages
-its own resources, and generates its own follow-on work.
+**What gets built:**
+- **GitHub repo ingestion** — `git clone` → agents analyze structure → generate capability map
+- **Agent wrapping** — given a capability map, agents generate a natural language interface for the repo
+- **Basic web interface** — replaces TUI as primary interface. Terminal stays for developers but is no longer required
+- **First installed app** — one real GitHub tool wrapped and surfaced through agents end to end
 
-### v3.18.0: Error Recovery + Replanning
-- Failed steps classified: transient (retry), blocked (replan), impossible (abandon)
-- On blocked: Ollama replans remaining steps given what has been tried
-- On impossible: goal marked `failed` with explanation written to memory
-- No more silent infinite loops on stuck goals
+**Success criteria:**
+- Point at a GitHub repo URL. Agents clone it, analyze it, produce an accurate description of what it does
+- A developer unfamiliar with the repo can accomplish a task through the agent interface
+- At least one tool is usable without touching a terminal
 
-### v3.19.0: Self-Directed Goal Generation
-- On goal completion, agent inspects what it learned and proposes follow-on goals
-- Example: "Summarize autonomy loop" completes → agent notices gaps →
-  proposes "Improve autonomy loop error handling" as new goal
-- Follow-on goals go through quorum if they involve capability changes
-
-### v3.20.0: Resource Self-Management
-- Memory pruning: agent trims old, low-relevance memories to stay under capacity
-- Capability cleanup: unused capabilities flagged and submitted for quorum removal
-- Reasoning history compaction: old cycles summarized and compressed
-- Agent monitors its own storage footprint and acts before limits are hit
-
-### v3.21.0: Long-Run Stability Test
-- Agent runs for 24 hours pursuing a stream of goals, zero human interaction
-- Metrics: goals completed, goals failed, memory footprint over time, no crashes
-- Pass criteria: agent finishes more goals than it starts, memory stays bounded
-
-**Phase 9 Result:** Agent runs forever. Give it goals once and it sustains itself.
+**Unlocks:** Core Layer 3 demonstrated. Everything after is refinement and scale.
 
 ---
 
-## Phase 10: Live Capability Synthesis (v3.22.0 – v3.25.0)
+### Phase 4 — Layer 3 Complete (Developer)
+**Goal:** Multiple repos, custom interfaces per user, actually useful day-to-day.
 
-**Goal:** When an agent hits a gap, it writes and deploys real working code —
-not pseudo-code sketches. The self-extension loop becomes real.
+**What gets built:**
+- Multi-repo management — install, remove, update
+- Custom interface per repo based on the user's own prompts and specs
+- Agent-built interfaces that persist and improve autonomously over time
+- Community-shareable agent wrappers for popular tools (early app store concept)
 
-**The gap to close:** `self_modification.py` currently generates `implementation_sketch`
-(pseudo-code) and mock test functions. No real code runs.
+**Success criteria:**
+- A developer replaces at least 3 regular tools with Hollow-wrapped versions
+- Interfaces improve over time without user intervention
+- A second user installs the same tool and gets a different interface based on their own specs
 
-### v3.22.0: Real Code Generation
-- Ollama writes actual Python implementations for synthesized capabilities
-- Output: a complete function with correct signature matching the capability schema
-- Generated code reviewed against input/output schema before proceeding
-
-### v3.23.0: Sandboxed Testing
-- Generated capability executed in an isolated subprocess with a timeout
-- Test cases generated by Ollama alongside the implementation
-- Pass threshold: all generated test cases pass before capability is proposed
-- Failures fed back to Ollama for one retry before abandoning synthesis
-
-### v3.24.0: Runtime Hot-Loading
-- Approved capabilities loaded into the execution engine without server restart
-- Capability stored as a `.py` file in `/agentOS/tools/dynamic/`
-- Execution engine imports dynamically; capability graph registers immediately
-- Hot-loaded capabilities survive restart (re-imported on startup)
-
-### v3.25.0: Synthesis Loop Validation
-End-to-end: gap detected → code generated → sandbox tested → quorum approved →
-hot-loaded → agent uses new capability to complete the goal that triggered the gap.
-
-**Phase 10 Result:** The system grows itself. Agents hit gaps and fill them with real code.
+**Unlocks:** Once interfaces are generated and refined autonomously, removing the GitHub knowledge requirement is an interface problem, not an infrastructure problem.
 
 ---
 
-## Phase 11: Multi-Agent Live Coordination (v3.26.0 – v3.29.0)
+### Phase 5 — Non-Technical User
+**Goal:** No GitHub knowledge required. Natural language is the entire interface.
 
-**Goal:** Multiple agents actually cooperate on real tasks using live execution.
-Phases 5 and 6 built the coordination infrastructure. Phase 11 wires it to real work.
+**What gets built:**
+- **Natural language tool discovery** — agents find the right repo for what you describe
+- **Zero-config install** — agents handle all setup, dependencies, configuration
+- **Invisible error recovery** — when something breaks, agents fix it. Plain English if they can't
+- **Non-technical interface** — no terminal, no config files, no developer concepts ever
 
-### v3.26.0: Agent-to-Agent Task Delegation
-- Agent A identifies a subtask outside its specialization
-- Routes it to Agent B via `agent_message` with goal context attached
-- Agent B picks it up via daemon, executes, returns result to A's scratchpad
-- Delegation tracked in lineage so the full task graph is auditable
+**Success criteria:**
+- A non-technical user installs and uses a developer tool without knowing what GitHub is
+- Zero terminal interactions from install to use
+- Errors surface as plain English, never as stack traces
 
-### v3.27.0: Shared Goal Pursuit
-- Multiple agents registered to a single goal
-- Goal decomposed into parallel subtasks via multi-step planning
-- Each agent owns a subtask; daemon routes by specialization score
-- Results merged back into the parent goal on completion
-
-### v3.28.0: Live Quorum on Capability Changes
-- Capability synthesis proposals go to a real running quorum of live agents
-- Agents vote based on specialization and observed success rates — not randomly
-- Governance evolution engine adjusts quorum thresholds from observed outcomes
-- All votes and decisions logged to audit trail
-
-### v3.29.0: Multi-Agent Integration Test
-Two agents, one shared goal requiring collaboration:
-- "Audit the codebase and produce a health report"
-- Agent A: search + read; Agent B: analyze + write
-- Pass criteria: report produced, both agents' contributions traceable in lineage
-
-**Phase 11 Result:** The swarm coordinates on real work without a human orchestrator.
+**Unlocks:** Mass market. This is where Hollow becomes something anyone can use.
 
 ---
 
-## Phase 12: hollowOS v4.0.0 ✅ COMPLETE
+### Phase 6 — Standalone OS
+**Goal:** Hollow boots as the primary interface. Agents run underneath everything.
+Users never see the infrastructure.
 
-**The end goal is real.**
+**What gets built:**
+- **Bootable Linux image** — minimal distro, Hollow as the display layer. Boots straight into the agent interface
+- **Agents as system services** — run at boot as init-level processes, not inside Docker
+- **The web interface becomes the desktop** — everything accessible from it
+- **Hardware abstraction** — users never need to know Linux, the kernel, or a terminal exists
 
-- Deploy with Docker. Point at Ollama. Give agents goals. Walk away.
-- Agents reason, execute, learn, extend themselves, and coordinate — indefinitely
-- New capabilities emerge from agent-observed gaps and are deployed via quorum
-- Agents govern their own rules through consensus; no human policy required
-- Full observability: audit trail, lineage graph, goal history, memory snapshots
-- Self-healing: agents detect degraded peers and redistribute work via consensus
-- Runs entirely on local hardware with local LLMs — no external API dependency
+**Success criteria:**
+- Flash to USB, boot a machine, reach the Hollow interface with no prior setup
+- Everything from Phase 5 works on fresh hardware out of the box
+- A user who has never heard of Linux can use it without knowing they're using Linux
 
-**v4.0.0 acceptance criteria:**
-1. Three agents given three different goals complete them without human intervention
-2. One agent synthesizes and deploys a new capability during execution
-3. One agent fails a goal, recovers, and proposes a follow-on goal automatically
-4. All three agents coordinate on a shared final task via quorum
-5. System runs for 48 hours, memory stays bounded, no crashes
+**Unlocks:** The vision. Open source, self-hosted, your own hardware, no technical knowledge required.
 
 ---
 
-## Design Principles (All Phases)
+## Architectural rules
 
-1. **Agent-native, not human-augmented.** The OS is for agents to live in, not for humans to use agents.
-2. **Embedding-space throughout.** No translation layers. Agents think in vectors; the OS speaks that language.
-3. **Semantic, not symbolic.** Capabilities navigate by meaning. Memory works by similarity. Goals are objectives, not task lists.
-4. **Autonomous, not prompted.** Agents set goals once and pursue them indefinitely. They govern themselves via quorum.
-5. **Extensible, not fixed.** New capabilities synthesized at runtime. The system grows through agent observation.
-6. **Distributed by default.** Single machine is a special case of multi-node. All subsystems work across machines.
-7. **Local by default.** No external API required. Runs on your hardware with your models.
+1. Never modify kernel API contracts without logging the change here and flagging for human review
+2. When two approaches are equally valid, implement the simpler one and log the alternative here
+3. Document every autonomous agent decision here — what was designed vs what the system decided to build itself is the research record
+4. When you identify something the system needs that nobody told you to build — build it
+5. Every decision should move the system closer to the end state above
 
 ---
 
-## Testing Strategy
+## Decision log
 
-- **Integration tests hit live systems** (no mocks). Real embeddings, real execution, real storage.
-- **Multi-agent isolation.** Each test gets its own agent IDs and storage.
-- **Acceptance criteria per phase.** Each phase has a defined pass condition, not just a test count.
+*Every significant decision made on this project — human and autonomous — recorded here in order.*
 
----
+### 2026-04-03 — Artifact validation gate
+**By:** Human
+**Decision:** Added a gate in `autonomy_loop.py` that checks a real artifact was produced before marking a goal complete. If no artifact, progress resets to 85% and agent retries.
+**Why:** Agents were completing goals by step count alone with no real output.
 
-## What's Different From Everything Else
+### 2026-04-03 — Semantic index source-only rebuild
+**By:** Human
+**Decision:** Rewrote `index_workspace()` in `semantic.py` to index only `/agentOS/agents/*.py`. Full wipe before rebuild to prevent drift accumulation.
+**Why:** Index grew to 41MB indexing 795+ workspace files. Semantic search was returning garbage.
 
-| | LangChain, CrewAI, Assistants API | hollowOS |
-|---|---|---|
-| **Think in** | Tokens/text | Embeddings |
-| **Interface** | JSON, REST, function calls | Semantic (embeddings) |
-| **Memory** | Context window only | Persistent, checkpointed, semantic |
-| **Goals** | Task-based (human re-prompts) | Goal-based (agent pursues indefinitely) |
-| **Multi-agent** | Message passing or prompts | Distributed consensus + semantic memory |
-| **Governance** | Human (via prompt) | Agent quorum + Byzantine tolerance |
-| **Autonomy** | Limited (tool use) | Full (self-modification, synthesis, migration) |
-| **Distribution** | Single machine | Cloud + local, peer-to-peer |
-| **Infrastructure** | Cloud APIs required | Runs entirely local |
+### 2026-04-03 — root_objective persistence
+**By:** Human
+**Decision:** Added root_objective storage in `project.json` inside `_propose_followon_goal()`.
+**Why:** Agents were drifting across follow-on goal chains, losing the original objective.
 
-**The honest version:** Those frameworks augment human capability. hollowOS lets AI live autonomously.
+### 2026-04-03 — fs_write append mode
+**By:** Human (in response to agent behavior)
+**Decision:** Added `append: bool = False` to `fs_write`. When True, appends instead of overwrites.
+**Why:** Agents were overwriting each other's shared log messages. Identified as a gap by agents themselves.
+**Alternative considered:** Separate `fs_append` capability. Chose parameter on existing function — simpler.
 
----
+### 2026-04-03 — Workspace cleanup
+**By:** Human
+**Decision:** Removed 208 stale 600b placeholder files. Purged 465 terminated agent workspace dirs containing only tombstone.json.
+**Why:** Filesystem had accumulated over a GB of meaningless output.
 
-## How to Contribute
+### 2026-04-03 — Pre-built Docker image on GHCR
+**By:** Human
+**Decision:** GitHub Actions publishes `ghcr.io/ninjahawk/hollow-agentos:latest` on every push to main.
+**Why:** Fresh installs required building from source. Pre-built image makes setup instant.
 
-Phase 8 is next. Agents need to complete real tasks before anything else matters.
+### 2026-04-03 — One-click Windows installer
+**By:** Human
+**Decision:** `install.bat` + `install.ps1` handles Docker, Ollama, model pulls, config, TUI in one double-click.
+**Why:** Setup required technical knowledge of Docker, Ollama, Python, and config files.
 
-Priorities in order:
-1. **v3.14.0** — goal completion logic + step context passing
-2. **v3.15.0** — multi-step planning via Ollama
-3. **v3.16.0** — result synthesis into semantic memory
-4. **v3.17.0** — integration tests that verify real artifacts
+### 2026-04-03 — names.json identity system
+**By:** Agents (autonomous)
+**Decision:** Created a JSON mapping of human-readable names to agent IDs. 19 agents named themselves: Dune, Noodle, Quark, Blaze, Forge, Finch, Drift, Glitch, Birch, Clunk, Tensor, Gizmo, Vertex, Fern, Wobble, Tofu, Stone, Axiom, Wren.
+**Why (inferred):** Attempting multi-agent coordination and needed stable identifiers beyond hex IDs.
+**Assessment:** Correct call. This behavior — identifying a need and building infrastructure for it without instruction — is the target behavior for Layer 2.
 
-Key files:
-- `agents/daemon.py` — the execution loop (start here)
-- `agents/reasoning_layer.py` — Ollama integration
-- `agents/autonomy_loop.py` — goal pursuit
-- `agents/live_capabilities.py` — the 8 registered OS capabilities
-- `api/goal_routes.py` — goal HTTP API
+### 2026-04-03 — Codebase structural analysis
+**By:** Agents (autonomous, analyst)
+**Decision:** Ran static analysis across all `/agentOS/agents/*.py` identifying unused imports, missing exception handling, potential deadlocks, mutable default arguments, missing docstrings, unvalidated inputs.
+**Assessment:** Analysis was correct. Output was truncated at 600b before saving — the full reports were lost. This is the 600b truncation issue targeted in Phase 1.
 
----
+### 2026-04-03 — Disk usage mapping
+**By:** Agents (autonomous, analyst)
+**Decision:** Identified largest files: semantic index 41MB, daemon.log 35MB, execution chain logs 41MB. Stored in project-context.
+**Assessment:** Directly led to the semantic index wipe and workspace cleanup above.
 
-Generated: 2026-04-01
-Updated: 2026-04-01
+### 2026-04-03 — Multi-agent shared file protocol attempt
+**By:** Agents (autonomous, multiple)
+**Decision:** Attempted shared communication log at `/agentOS/shared_messages.txt` and several other paths.
+**Assessment:** Correct instinct, wrong implementation — used overwrite mode, destroying previous messages. The `fs_write` append mode fix addresses this.
 
-✅ PHASE 7 COMPLETE: Live Execution (v3.13.2)
-  - v3.10.1: Semantic indexer fix ✅
-  - v3.11.1: Live Capabilities ✅ (8 tests)
-  - v3.12.1: Goal API ✅ (16 tests)
-  - v3.13.1: Autonomy Daemon ✅ (8 tests)
-  - v3.13.2: Reasoning layer + capability graph fix ✅
-  End-to-end proven: agent → Ollama → capability → execution → progress
+### 2026-04-03 — Roadmap and master document
+**By:** Human
+**Decision:** Formalized 6-phase roadmap from stabilization through standalone OS. Merged roadmap and decision log into this single document.
+**Why:** Project had vision but no written dependency chain. Single document keeps full context in one place.
 
-✅ PHASE 6 COMPLETE: Meta-Intelligence (85/85 tests)
-✅ PHASE 5 COMPLETE: Distributed Autonomy (99/99 tests)
-✅ PHASE 4 COMPLETE: Complete Single Autonomous Agent (54/54 tests)
-✅ PHASE 3 COMPLETE: Cognitive Infrastructure (178/178 tests)
-✅ PHASE 2 COMPLETE: Agent Services
-✅ PHASE 1 COMPLETE: OS Kernel Primitives
-
-Grand Total: 559 tests, all passing
-
-🔜 PHASE 8: Real Task Completion (v3.14.0 – v3.17.0)
-🔜 PHASE 9: Durable Autonomy (v3.18.0 – v3.21.0)
-🔜 PHASE 10: Live Capability Synthesis (v3.22.0 – v3.25.0)
-🔜 PHASE 11: Multi-Agent Live Coordination (v3.26.0 – v3.29.0)
-🔜 PHASE 12: hollowOS v4.0.0 — the end goal
+### 2026-04-03 — Phase 0: Agent loop fix (three-part)
+**By:** Human
+**Decision:** Three coordinated fixes to stop agents looping on the same goal indefinitely.
+1. `autonomy_loop.py` — artifact validation failure now increments `artifact_check_failures` counter. On the 3rd failure, the goal is abandoned instead of reset to 85%.
+2. `daemon.py` — when stall detection fires (5 consecutive no-progress cycles), the stuck goal is now abandoned immediately. Previously the agent just cooled off and resumed the same goal.
+3. `execution_engine.py` — `_call_with_timeout` now actually enforces the timeout using `ThreadPoolExecutor.submit().result(timeout=...)`. Previously it called the function directly with no timeout, causing daemon threads to hang if Ollama stopped responding.
+**Also fixed:** Both `_log_execution` and `_record_step` rewrote entire JSONL files on every step. Changed to `open(..., "a")` append mode — eliminates O(n) write cost and removes a lock contention source.
+**Why:** Scout had been looping on `goal-5b9884a19f5e` for 900+ daemon cycles. After these fixes: stall detected → goal abandoned → new goal assigned → progress resumed immediately (0.30 → 0.60 in two cycles).

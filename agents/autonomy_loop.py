@@ -444,9 +444,23 @@ class AutonomyLoop:
                     self._synthesize_completion(agent_id, goal.objective, steps_executed)
                     return (goal_id, 1.0, steps_executed)
                 else:
-                    # Progress reached 1.0 but no real artifact — reset to 0.85 and keep going
-                    _thought(agent_id, f"  artifact MISSING | checks={validation.get('checks',[])} — resetting progress")
                     metrics = dict(current.metrics)
+                    artifact_fails = metrics.get("artifact_check_failures", 0) + 1
+                    metrics["artifact_check_failures"] = artifact_fails
+                    _thought(agent_id, f"  artifact MISSING ({artifact_fails}/3) | {validation.get('checks',[])} — resetting progress")
+                    if artifact_fails >= 3:
+                        # Permanently abandon — repeated failure to produce a verifiable artifact
+                        explanation = (
+                            f"Goal '{goal.objective}' abandoned: artifact validation "
+                            f"failed {artifact_fails} times. Checks: {validation.get('checks', [])}"
+                        )
+                        metrics["failure_reason"] = explanation
+                        self._goal_engine.update_progress(agent_id, goal_id, metrics)
+                        self._goal_engine.abandon(agent_id, goal_id)
+                        if self._semantic_memory:
+                            self._semantic_memory.store(agent_id, f"FAILED: {explanation}")
+                        _thought(agent_id, f"  FAIL: abandon | {explanation[:120]}")
+                        return (goal_id, 0.0, steps_executed)
                     metrics["progress"] = 0.85
                     metrics["has_output"] = False  # force re-earning output gate
                     self._goal_engine.update_progress(agent_id, goal_id, metrics)
@@ -712,11 +726,8 @@ class AutonomyLoop:
             agent_dir = AUTONOMY_PATH / agent_id
             agent_dir.mkdir(parents=True, exist_ok=True)
             chain_file = agent_dir / "execution_chain.jsonl"
-            chain_file.write_text(
-                chain_file.read_text() + json.dumps(asdict(step)) + "\n"
-                if chain_file.exists()
-                else json.dumps(asdict(step)) + "\n"
-            )
+            with open(chain_file, "a") as f:
+                f.write(json.dumps(asdict(step)) + "\n")
 
     def validate_goal_artifact(self, agent_id: str, goal_id: str) -> dict:
         """

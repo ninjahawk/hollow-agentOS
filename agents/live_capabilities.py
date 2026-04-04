@@ -102,8 +102,15 @@ def fs_read(path: str = "") -> dict:
     return {"content": content, "path": path, "size": len(content)}
 
 
-def fs_write(path: str = "", content: str = "") -> dict:
-    """Write content to a file."""
+def fs_write(path: str = "", content: str = "", append: bool = False) -> dict:
+    """Write content to a file. Set append=True to add to existing content instead of overwriting."""
+    if append:
+        import os
+        full = path if path.startswith("/") else f"/agentOS/workspace/{path}"
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "a") as f:
+            f.write(content)
+        return {"ok": True, "path": full, "mode": "append"}
     if not path:
         return {"error": "no path provided", "ok": False}
     _call("post", "/fs/write", json={"path": path, "content": content})

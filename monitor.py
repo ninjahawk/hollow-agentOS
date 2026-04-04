@@ -523,6 +523,16 @@ Screen { background: #0a0a0a; color: #aaaaaa; }
 }
 #detail.visible { display: block; }
 
+#file-view {
+    display: none;
+    background: #0a0a0a;
+    padding: 1 2;
+    overflow-y: auto;
+    scrollbar-size: 1 1;
+    scrollbar-color: #1c1c1c #0a0a0a;
+}
+#file-view.visible { display: block; }
+
 #footer {
     height: 1;
     background: #0a0a0a;
@@ -738,13 +748,52 @@ class ActivityLog(ScrollableContainer):
                     pass
 
 
+class FileViewer(Static):
+    """Live workspace file listing, refreshes every 2s."""
+
+    def on_mount(self):
+        self._tick()
+        self.set_interval(2.0, self._tick)
+
+    def _tick(self):
+        ws = _HOLLOW_DIR / "workspace"
+        if not ws.exists():
+            self.update("[dim](workspace not found)[/dim]")
+            return
+        try:
+            files = sorted(
+                [f for f in ws.iterdir() if f.is_file()],
+                key=lambda f: f.stat().st_mtime, reverse=True
+            )
+            now = time.strftime("%H:%M:%S")
+            lines = [
+                f"[dim]─── workspace files  ·  {len(files)} total  ·  {now} ───[/dim]",
+                "",
+            ]
+            for f in files[:60]:
+                mtime = time.strftime("%m-%d %H:%M", time.localtime(f.stat().st_mtime))
+                size  = f.stat().st_size
+                sz    = f"{size}b" if size < 1024 else f"{size//1024}kb"
+                lines.append(
+                    f"  [dim]{mtime}[/dim]  [white]{f.name:<45}[/white]  [dim]{sz:>6}[/dim]"
+                )
+            if len(files) > 60:
+                lines.append(f"  [dim]… {len(files)-60} more files[/dim]")
+            lines.append("")
+            lines.append("[dim]  f to close[/dim]")
+            self.update("\n".join(lines))
+        except Exception as e:
+            self.update(f"[dim](error: {e})[/dim]")
+
+
 class HollowMonitor(App):
     CSS = CSS
     BINDINGS = [
         Binding("q",      "quit",          "quit",             priority=True),
         Binding("g",      "goal_single",   "set agent goal",   priority=True),
         Binding("G",      "goal_group",    "set group goal",   priority=True),
-        Binding("p",      "push_files",    "sync to desktop",  priority=True),
+        Binding("f",      "files",         "workspace files",  priority=True),
+        Binding("p",      "push_files",    "open workspace",   priority=True),
         Binding("enter",  "inspect_agent", "inspect agent"),
         Binding("escape", "cancel_goal",   "cancel",           priority=True),
         Binding("up",     "agent_up",      "prev agent",       priority=True),
@@ -764,6 +813,7 @@ class HollowMonitor(App):
                 yield Static("ACTIVITY", id="act-title")
                 yield ActivityLog(id="act-log")
                 yield Static("", id="detail")
+                yield FileViewer(id="file-view")
         with Horizontal(id="goal-bar"):
             yield Label("", id="goal-label")
             yield Input(placeholder="type goal, press enter…", id="goal-input")
@@ -783,9 +833,10 @@ class HollowMonitor(App):
         footer.update(
             f"[dim]  [white]↑↓[/white] select  "
             f"[white]enter[/white] inspect  "
+            f"[white]f[/white] files  "
             f"[white]g[/white] goal  "
             f"[white]G[/white] group goal  "
-            f"[white]p[/white] sync  "
+            f"[white]p[/white] workspace  "
             f"[white]q[/white] quit"
             f"  ·  model: [white]{MODEL}[/white][/dim]"
         )
@@ -847,7 +898,12 @@ class HollowMonitor(App):
             threading.Thread(target=_load, daemon=True).start()
 
     def action_cancel_goal(self):
-        # close detail panel if open
+        fv = self.query_one("#file-view", FileViewer)
+        if "visible" in fv.classes:
+            fv.remove_class("visible")
+            self.query_one("#act-log").display = True
+            self.query_one("#act-title", Static).update("ACTIVITY")
+            return
         detail = self.query_one("#detail", Static)
         if "visible" in detail.classes:
             detail.remove_class("visible")
@@ -862,6 +918,21 @@ class HollowMonitor(App):
 
     def action_agent_down(self):
         self.query_one("#agent-list", AgentList).move(1)
+
+    def action_files(self):
+        fv       = self.query_one("#file-view", FileViewer)
+        detail   = self.query_one("#detail", Static)
+        log_panel = self.query_one("#act-log")
+        title    = self.query_one("#act-title", Static)
+        if "visible" in fv.classes:
+            fv.remove_class("visible")
+            log_panel.display = True
+            title.update("ACTIVITY")
+        else:
+            detail.remove_class("visible")
+            log_panel.display = False
+            title.update("FILES  [dim]·[/dim]  workspace  [dim](f to close)[/dim]")
+            fv.add_class("visible")
 
     def action_push_files(self):
         footer = self.query_one("#footer", Static)

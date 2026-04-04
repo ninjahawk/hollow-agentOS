@@ -154,6 +154,7 @@ class ExecutionEngine:
     def _call_with_timeout(self, func: Callable, params: dict, timeout_ms: int) -> Any:
         """Call function with timeout. Filters params to only those the function accepts."""
         import inspect
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
         if params:
             sig = inspect.signature(func)
             # If function uses **kwargs, it accepts everything — pass through unfiltered
@@ -162,28 +163,31 @@ class ExecutionEngine:
                 for p in sig.parameters.values()
             )
             if has_var_keyword:
-                result = func(**params)
+                call = lambda: func(**params)
             else:
                 accepted = set(sig.parameters.keys())
                 # Pass only params the function accepts — Ollama may hallucinate extras
                 filtered = {k: v for k, v in params.items() if k in accepted}
-                result = func(**filtered)
+                call = lambda: func(**filtered)
         else:
-            result = func()
-        return result
+            call = func
+
+        timeout_sec = timeout_ms / 1000.0
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(call)
+            try:
+                return future.result(timeout=timeout_sec)
+            except _FuturesTimeout:
+                raise TimeoutError(f"Execution exceeded {timeout_ms}ms timeout")
 
     def _log_execution(self, agent_id: str, context: ExecutionContext) -> None:
         """Store execution record."""
         with self._lock:
             agent_dir = EXECUTION_PATH / agent_id
             agent_dir.mkdir(parents=True, exist_ok=True)
-
             history_file = agent_dir / "history.jsonl"
-            history_file.write_text(
-                history_file.read_text() + json.dumps(asdict(context)) + "\n"
-                if history_file.exists()
-                else json.dumps(asdict(context)) + "\n"
-            )
+            with open(history_file, "a") as f:
+                f.write(json.dumps(asdict(context)) + "\n")
 
     def get_execution_history(self, agent_id: str, limit: int = 50) -> list:
         """Get execution history for an agent."""

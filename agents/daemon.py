@@ -47,6 +47,16 @@ logging.basicConfig(
 )
 log = logging.getLogger("agentos.daemon")
 
+# Also write daemon log to file so the TUI can tail it
+_LOG_FILE = Path("/agentOS/logs/daemon.log")
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+_fh = logging.FileHandler(_LOG_FILE)
+_fh.setFormatter(logging.Formatter(
+    "%(asctime)s [daemon] %(levelname)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+))
+logging.getLogger().addHandler(_fh)
+
 
 # --------------------------------------------------------------------------- #
 #  API helpers                                                                 #
@@ -299,8 +309,21 @@ def main():
             runnable = []
             for agent_id in active:
                 if metrics.is_stalled(agent_id):
+                    # Abandon the stuck goal so the agent gets fresh work next cycle
+                    try:
+                        from agents.persistent_goal import PersistentGoalEngine
+                        _ge = PersistentGoalEngine()
+                        _stuck = _ge.list_active(agent_id, limit=1)
+                        if _stuck:
+                            _ge.abandon(agent_id, _stuck[0].goal_id)
+                            log.warning("  %s stalled on '%s' — goal abandoned",
+                                        agent_id, _stuck[0].objective[:80])
+                        else:
+                            log.warning("  %s stalled (no active goal), cooling off", agent_id)
+                    except Exception as _se:
+                        log.debug("Could not abandon stalled goal for %s: %s", agent_id, _se)
                     metrics.skipped_agents.add(agent_id)
-                    log.warning("  %s stalled, cooling off", agent_id)
+                    metrics.stalled_agents[agent_id] = 0
                 else:
                     runnable.append(agent_id)
 
@@ -371,6 +394,29 @@ def main():
                              fp.proposal_id, fp.status, fp.yes_votes, fp.no_votes)
             except Exception as qe:
                 log.debug("Quorum voting error: %s", qe)
+
+        # Periodic semantic workspace re-index
+        _semantic_interval_cycles = max(1, int(
+            json.loads(CONFIG_PATH.read_text()).get("memory", {}).get("auto_index_interval_seconds", 300)
+            / HEARTBEAT
+        )) if CONFIG_PATH.exists() else 50
+        if metrics.cycles % _semantic_interval_cycles == 0:
+            try:
+                import httpx as _hx
+                r = _hx.post(
+                    f"{API_BASE}/semantic/index",
+                    headers=_headers(),
+                    json={},
+                    timeout=120,
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    log.info("[SEMANTIC] re-indexed workspace: %d chunks / %d files",
+                             d.get("total_chunks", 0), d.get("total_files", 0))
+                else:
+                    log.debug("[SEMANTIC] re-index returned %d", r.status_code)
+            except Exception as _se:
+                log.debug("[SEMANTIC] re-index error: %s", _se)
 
         # Periodic status report every 10 cycles
         if metrics.cycles % 10 == 0:
