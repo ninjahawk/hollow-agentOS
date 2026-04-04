@@ -161,6 +161,9 @@ def _agents_with_goals() -> list[str]:
             result = _get(f"/goals/{agent_id}")
             if result.get("count", 0) > 0:
                 with_goals.append(agent_id)
+            else:
+                # Agent exists but has no active goal — give it something to do
+                _assign_idle_goal(agent_id)
         except Exception:
             pass
 
@@ -318,6 +321,7 @@ def main():
                             _ge.abandon(agent_id, _stuck[0].goal_id)
                             log.warning("  %s stalled on '%s' — goal abandoned",
                                         agent_id, _stuck[0].objective[:80])
+                            _assign_idle_goal(agent_id)  # queue fresh goal for after cooling
                         else:
                             log.warning("  %s stalled (no active goal), cooling off", agent_id)
                     except Exception as _se:
