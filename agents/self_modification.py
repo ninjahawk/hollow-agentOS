@@ -154,20 +154,85 @@ class SelfModificationCycle:
             agent_id, synthesis_id, synthesized_cap, test_results
         )
         if proposal_id:
-            # Quorum exists — wait for approval
-            if not self._quorum or not self._quorum.is_approved(proposal_id):
-                return (False, None)
+            # Submitted to quorum — daemon will vote next cycle; record for deferred deploy
+            self._record_pending_deployment(agent_id, proposal_id, synthesis_id, synthesized_cap)
+            return (False, None)  # not yet deployed; flush_approved() handles it next cycle
         # else: no quorum → auto-approved, proceed directly
 
-        # Step 5: Deploy
+        # Step 5: Deploy (auto-approved path)
         deploy_result = self._deploy(agent_id, synthesis_id, synthesized_cap)
         if deploy_result:
             deployment_id, registered_cap_id = deploy_result
-            # Update gap resolution
             self._update_gap(agent_id, gap_id, "deployed", synthesis_id, deployment_id)
             return (True, registered_cap_id)
 
         return (False, None)
+
+    def flush_approved_proposals(self) -> List[str]:
+        """
+        Check pending proposals for approval and deploy approved ones.
+        Called by the daemon after each vote_on_pending() cycle.
+        Returns list of deployed capability IDs.
+        """
+        deployed = []
+        try:
+            pending_dir = SELF_MOD_PATH / "_pending"
+            if not pending_dir.exists():
+                return deployed
+
+            for pending_file in list(pending_dir.glob("*.json")):
+                try:
+                    data = json.loads(pending_file.read_text())
+                    proposal_id = data["proposal_id"]
+                    agent_id = data["agent_id"]
+                    synthesis_id = data["synthesis_id"]
+                    cap_data = data["capability"]
+
+                    # Check if approved
+                    approved = False
+                    if self._quorum and hasattr(self._quorum, "is_approved"):
+                        approved = self._quorum.is_approved(proposal_id)
+                    elif self._quorum and hasattr(self._quorum, "get_proposal"):
+                        p = self._quorum.get_proposal(proposal_id)
+                        approved = p is not None and p.status == "approved"
+
+                    if not approved:
+                        continue  # not yet approved
+
+                    # Reconstruct capability and deploy
+                    cap = SynthesizedCapability(**cap_data)
+                    deploy_result = self._deploy(agent_id, synthesis_id, cap)
+                    if deploy_result:
+                        deployment_id, cap_id = deploy_result
+                        self._update_gap(agent_id, cap_data.get("gap_id", ""), "deployed",
+                                         synthesis_id, deployment_id)
+                        deployed.append(cap_id)
+
+                    # Remove pending file whether deployed or not (don't retry rejected)
+                    pending_file.unlink()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return deployed
+
+    def _record_pending_deployment(self, agent_id: str, proposal_id: str,
+                                    synthesis_id: str,
+                                    cap: "SynthesizedCapability") -> None:
+        """Record a submitted-but-not-yet-approved proposal for deferred deployment."""
+        try:
+            pending_dir = SELF_MOD_PATH / "_pending"
+            pending_dir.mkdir(parents=True, exist_ok=True)
+            f = pending_dir / f"{proposal_id}.json"
+            f.write_text(json.dumps({
+                "proposal_id": proposal_id,
+                "agent_id": agent_id,
+                "synthesis_id": synthesis_id,
+                "capability": asdict(cap),
+                "submitted_at": time.time(),
+            }))
+        except Exception:
+            pass
 
     def _synthesize(self, agent_id: str, intent: str, gap_id: str) -> Optional[Tuple[str, SynthesizedCapability]]:
         """
@@ -341,24 +406,39 @@ class SelfModificationCycle:
         if not self._quorum:
             return None
 
-        # Create proposal
-        proposal_data = {
+        payload = {
             "synthesis_id": synthesis_id,
             "agent_id": agent_id,
+            "cap_id": f"synth_{synthesis_id[:8]}",
             "capability_name": capability.name,
             "capability_description": capability.description,
+            "description": capability.description,
+            "code_preview": capability.implementation_code[:500],
             "test_success_rate": test_results.success_rate,
             "confidence": capability.confidence,
         }
+        description = f"New capability: {capability.name} — {capability.description[:120]}"
 
-        # Propose to quorum
-        proposal_id = self._quorum.propose(
-            agent_id=agent_id,
-            proposal_type="capability",
-            proposal_data=proposal_data,
-        )
-
-        return proposal_id
+        # Support both AgentQuorum and CapabilityQuorum interfaces
+        try:
+            if hasattr(self._quorum, "submit"):
+                # CapabilityQuorum interface
+                return self._quorum.submit(
+                    proposer_id=agent_id,
+                    cap_id=payload["cap_id"],
+                    description=description,
+                    code=capability.implementation_code,
+                )
+            else:
+                # AgentQuorum interface
+                return self._quorum.propose(
+                    proposer_id=agent_id,
+                    proposal_type="capability",
+                    description=description,
+                    payload=payload,
+                )
+        except Exception:
+            return None
 
     def _deploy(self, agent_id: str, synthesis_id: str, capability: SynthesizedCapability) -> Optional[str]:
         """

@@ -60,6 +60,13 @@ GOAL_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "goals"
 DEFAULT_VECTOR_DIM = 768
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Write text to path atomically (write temp → rename) to avoid partial-write corruption."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.rename(path)
+
+
 @dataclass
 class GoalRecord:
     """A single goal: objective, status, progress tracking."""
@@ -119,10 +126,9 @@ class PersistentGoalEngine:
         """
         Create a new goal. Returns goal_id.
         Goal starts in 'active' status and is tracked indefinitely until completed or abandoned.
+        Embedding is optional — if unavailable, goal is still created (semantic search degraded).
         """
-        embedding = self._embed(objective)
-        if embedding is None:
-            raise ValueError("Embedding unavailable")
+        embedding = self._embed(objective)  # May return None — handled below
 
         goal_id = f"goal-{uuid.uuid4().hex[:12]}"
         now = time.time()
@@ -140,28 +146,45 @@ class PersistentGoalEngine:
             agent_dir = GOAL_PATH / agent_id
             agent_dir.mkdir(parents=True, exist_ok=True)
 
-            # Append to registry
+            # Count existing lines to know what index this goal gets
             registry_file = agent_dir / "registry.jsonl"
-            registry_file.write_text(
-                registry_file.read_text() + json.dumps(asdict(record)) + "\n"
-                if registry_file.exists()
-                else json.dumps(asdict(record)) + "\n"
-            )
+            existing_count = 0
+            if registry_file.exists():
+                try:
+                    lines = [
+                        l for l in registry_file.read_text().splitlines() if l.strip()
+                    ]
+                    existing_count = len(lines)
+                except Exception:
+                    existing_count = 0
 
-            # Append to embeddings
-            embeddings_file = agent_dir / "embeddings.npy"
-            if embeddings_file.exists():
-                embeddings = np.load(embeddings_file)
-                embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
-            else:
-                embeddings = embedding.reshape(1, -1)
-            np.save(embeddings_file, embeddings)
+            # Atomic-safe append: open in append mode
+            with open(registry_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(record)) + "\n")
 
-            # Update index
+            # Update index (goal_id → line number)
             index_file = agent_dir / "index.json"
-            index = json.loads(index_file.read_text()) if index_file.exists() else {}
-            index[goal_id] = len(embeddings) - 1
-            index_file.write_text(json.dumps(index, indent=2))
+            index = {}
+            if index_file.exists():
+                try:
+                    index = json.loads(index_file.read_text())
+                except Exception:
+                    index = {}
+            index[goal_id] = existing_count
+            _atomic_write(index_file, json.dumps(index, indent=2))
+
+            # Update embeddings only if available
+            if embedding is not None:
+                embeddings_file = agent_dir / "embeddings.npy"
+                try:
+                    if embeddings_file.exists():
+                        embeddings = np.load(embeddings_file)
+                        embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
+                    else:
+                        embeddings = embedding.reshape(1, -1)
+                    np.save(embeddings_file, embeddings)
+                except Exception:
+                    pass  # embedding index is best-effort; goal is already stored
 
         return goal_id
 
@@ -175,18 +198,30 @@ class PersistentGoalEngine:
             if not index_file.exists() or not registry_file.exists():
                 return None
 
-            index = json.loads(index_file.read_text())
+            try:
+                index = json.loads(index_file.read_text(encoding="utf-8"))
+            except Exception:
+                return None
             if goal_id not in index:
                 return None
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            try:
+                registry_lines = [
+                    l for l in registry_file.read_text(encoding="utf-8").splitlines()
+                    if l.strip()
+                ]
+            except Exception:
+                return None
 
             if idx >= len(registry_lines):
                 return None
 
-            goal_dict = json.loads(registry_lines[idx])
-            return GoalRecord(**goal_dict)
+            try:
+                goal_dict = json.loads(registry_lines[idx])
+                return GoalRecord(**goal_dict)
+            except Exception:
+                return None
 
     def list_active(self, agent_id: str, limit: int = 100) -> List[GoalRecord]:
         """List active goals for an agent, sorted by priority."""
@@ -199,17 +234,24 @@ class PersistentGoalEngine:
             if not registry_file.exists():
                 return []
 
+            goals = []
             try:
-                goals = [
-                    GoalRecord(**json.loads(line))
-                    for line in registry_file.read_text().strip().split("\n")
-                    if line.strip() and json.loads(line)["status"] == "active"
-                ]
-                # Sort by priority (descending) then by created_at (ascending)
-                goals.sort(key=lambda g: (-g.priority, g.created_at))
-                return goals[:limit]
+                raw = registry_file.read_text(encoding="utf-8")
             except Exception:
                 return []
+
+            for line in raw.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    d = json.loads(line)
+                    if d.get("status") == "active":
+                        goals.append(GoalRecord(**d))
+                except Exception:
+                    continue  # skip corrupt lines, don't lose all goals
+
+            goals.sort(key=lambda g: (-g.priority, g.created_at))
+            return goals[:limit]
 
     def search_goals(self, agent_id: str, query: str, top_k: int = 5,
                     similarity_threshold: float = 0.5) -> List[GoalRecord]:
@@ -279,14 +321,14 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["subgoals"] = subgoal_ids
             goal_dict["updated_at"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def update_progress(self, agent_id: str, goal_id: str, metrics: dict) -> None:
         """
@@ -298,18 +340,18 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             if goal_id not in index:
                 return
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["metrics"] = metrics
             goal_dict["updated_at"] = time.time()
             goal_dict["last_worked_on"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def complete(self, agent_id: str, goal_id: str) -> None:
         """Mark a goal as completed."""
@@ -318,18 +360,18 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             if goal_id not in index:
                 return
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["status"] = "completed"
             goal_dict["updated_at"] = time.time()
             goal_dict["completed_at"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def abandon(self, agent_id: str, goal_id: str) -> None:
         """Mark a goal as abandoned."""
@@ -338,17 +380,17 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             if goal_id not in index:
                 return
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["status"] = "abandoned"
             goal_dict["updated_at"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def pause(self, agent_id: str, goal_id: str) -> None:
         """Pause a goal (temporarily stop pursuing it)."""
@@ -357,17 +399,17 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             if goal_id not in index:
                 return
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["status"] = "paused"
             goal_dict["updated_at"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def resume(self, agent_id: str, goal_id: str) -> None:
         """Resume a paused goal."""
@@ -376,17 +418,17 @@ class PersistentGoalEngine:
             index_file = agent_dir / "index.json"
             registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text())
+            index = json.loads(index_file.read_text(encoding="utf-8"))
             if goal_id not in index:
                 return
 
             idx = index[goal_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
+            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
             goal_dict = json.loads(registry_lines[idx])
             goal_dict["status"] = "active"
             goal_dict["updated_at"] = time.time()
             registry_lines[idx] = json.dumps(goal_dict)
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
 
     def get_next_focus(self, agent_id: str, top_k: int = 1) -> List[GoalRecord]:
         """

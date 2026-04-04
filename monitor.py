@@ -308,6 +308,26 @@ def _set_individual_goal(agent_id: str, objective: str) -> str:
     name = _fun_name(agent_id)
     return f"✓ {name} has a new goal" if ok else f"✗ failed to reach API"
 
+def _switch_model(model_name: str) -> str:
+    """Call PATCH /ollama/models to change the active model live."""
+    global MODEL
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
+        token = cfg.get("api", {}).get("token", "")
+        r = httpx.patch(
+            f"{API_BASE}/ollama/models",
+            json={"default": model_name},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            MODEL = model_name
+            return f"✓ model → {model_name}"
+        return f"✗ API error {r.status_code}: {r.text[:80]}"
+    except Exception as e:
+        return f"✗ {e}"
+
+
 def _set_group_goal(objective: str) -> str:
     agents = sorted(AGENT_STATE.keys())
     if not agents:
@@ -792,6 +812,7 @@ class HollowMonitor(App):
         Binding("q",      "quit",          "quit",             priority=True),
         Binding("g",      "goal_single",   "set agent goal",   priority=True),
         Binding("G",      "goal_group",    "set group goal",   priority=True),
+        Binding("m",      "switch_model",  "switch model",     priority=True),
         Binding("f",      "files",         "workspace files",  priority=True),
         Binding("p",      "push_files",    "open workspace",   priority=True),
         Binding("enter",  "inspect_agent", "inspect agent"),
@@ -800,7 +821,7 @@ class HollowMonitor(App):
         Binding("down",   "agent_down",    "next agent",       priority=True),
     ]
 
-    _goal_mode: str = ""   # "single" | "group" | ""
+    _goal_mode: str = ""   # "single" | "group" | "model" | ""
 
     def compose(self):
         yield TitleBar(id="title")
@@ -836,6 +857,7 @@ class HollowMonitor(App):
             f"[white]f[/white] files  "
             f"[white]g[/white] goal  "
             f"[white]G[/white] group goal  "
+            f"[white]m[/white] model  "
             f"[white]p[/white] workspace  "
             f"[white]q[/white] quit"
             f"  ·  model: [white]{MODEL}[/white][/dim]"
@@ -872,6 +894,9 @@ class HollowMonitor(App):
 
     def action_goal_group(self):
         self._open_goal_bar("group", f"  group goal  ")
+
+    def action_switch_model(self):
+        self._open_goal_bar("model", f"  switch model (e.g. mistral-nemo:12b)  ")
 
     def action_inspect_agent(self):
         if self._goal_mode:
@@ -967,7 +992,9 @@ class HollowMonitor(App):
         self._close_goal_bar("sending…")
 
         def _send():
-            if mode == "single":
+            if mode == "model":
+                status = _switch_model(objective)
+            elif mode == "single":
                 agent_id = self.query_one("#agent-list", AgentList).selected_agent_id()
                 if agent_id:
                     status = _set_individual_goal(agent_id, objective)

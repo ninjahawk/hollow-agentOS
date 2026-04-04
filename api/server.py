@@ -954,6 +954,80 @@ async def ollama_models(authorization: Optional[str] = Header(None)):
     }
 
 
+class ModelSwitchRequest(BaseModel):
+    default: Optional[str] = None          # set new DEFAULT_MODEL
+    routing: Optional[dict] = None         # merge into MODEL_ROUTES
+
+
+@app.patch("/ollama/models")
+async def ollama_set_model(req: ModelSwitchRequest, authorization: Optional[str] = Header(None)):
+    """
+    Switch the active model without restarting the server.
+    - `default`: sets the fallback model for all requests
+    - `routing`: dict of role→model entries to merge into the routing table
+
+    Example: PATCH /ollama/models {"default": "qwen2.5:14b"}
+    """
+    global DEFAULT_MODEL, MODEL_ROUTES
+    _verify_any_token(authorization)
+
+    changed = {}
+    if req.default is not None:
+        DEFAULT_MODEL = req.default
+        changed["default"] = DEFAULT_MODEL
+    if req.routing is not None:
+        MODEL_ROUTES.update(req.routing)
+        changed["routing"] = dict(MODEL_ROUTES)
+
+    if not changed:
+        raise HTTPException(status_code=400, detail="Provide 'default' or 'routing' to update")
+
+    return {"ok": True, "changed": changed}
+
+
+# ── Shared agent log ──────────────────────────────────────────────────────────
+
+class SharedLogWriteRequest(BaseModel):
+    message: str
+    tags: list = []
+
+
+@app.post("/shared-log")
+async def shared_log_write(req: SharedLogWriteRequest, authorization: Optional[str] = Header(None)):
+    """Append a message to the shared agent broadcast log."""
+    _verify_any_token(authorization)
+    try:
+        from agents.registry import AgentRegistry
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        caller = _registry.authenticate(token) if _registry else None
+        agent_id = caller.agent_id if caller else "anonymous"
+
+        from agents.shared_log import SharedLog
+        SharedLog().write(agent_id, req.message, req.tags)
+        return {"ok": True, "agent_id": agent_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/shared-log")
+async def shared_log_read(
+    limit: int = 100,
+    since_ts: Optional[float] = None,
+    agent_id: Optional[str] = None,
+    tag: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    """Read recent entries from the shared agent broadcast log."""
+    _verify_any_token(authorization)
+    try:
+        from agents.shared_log import SharedLog
+        entries = SharedLog().read(limit=limit, since_ts=since_ts,
+                                   agent_id=agent_id, tag=tag)
+        return {"entries": entries, "count": len(entries)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Semantic search ───────────────────────────────────────────────────────────
 
 @app.post("/semantic/search")

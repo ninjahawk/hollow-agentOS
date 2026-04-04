@@ -109,21 +109,38 @@ def _build_stack():
     from agents.semantic_memory import SemanticMemory
     from agents.agent_quorum import AgentQuorum
     from agents.capability_quorum import CapabilityQuorum
+    from agents.self_modification import SelfModificationCycle
+    from agents.capability_synthesis import CapabilitySynthesisEngine
 
     graph, engine = build_live_stack()
     reasoning = ReasoningLayer(capability_graph=graph, execution_engine=engine)
     goal_engine = PersistentGoalEngine()
     memory = SemanticMemory()
+
+    # Self-modification: synthesize new capabilities when agents hit gaps
+    agent_quorum = AgentQuorum()
+    cap_quorum = CapabilityQuorum(agent_quorum=agent_quorum)
+    try:
+        synthesis_engine = CapabilitySynthesisEngine()
+        self_mod = SelfModificationCycle(
+            execution_engine=engine,
+            synthesis_engine=synthesis_engine,
+            quorum=cap_quorum,   # pass CapabilityQuorum so daemon's vote_on_pending picks it up
+            semantic_memory=memory,
+        )
+        log.info("Self-modification cycle initialized")
+    except Exception as e:
+        self_mod = None
+        log.warning("Self-modification unavailable: %s", e)
+
     loop = AutonomyLoop(
         goal_engine=goal_engine,
         reasoning_layer=reasoning,
         execution_engine=engine,
         semantic_memory=memory,
+        self_modification=self_mod,
     )
-
-    agent_quorum = AgentQuorum()
-    cap_quorum = CapabilityQuorum(agent_quorum=agent_quorum)
-    _stack = (graph, engine, reasoning, loop, goal_engine, cap_quorum)
+    _stack = (graph, engine, reasoning, loop, goal_engine, cap_quorum, self_mod)
     log.info("Autonomy stack ready: %d capabilities registered", len(graph._embedder and [] or []))
     return _stack
 
@@ -265,6 +282,64 @@ def _assign_idle_goal(agent_id: str) -> None:
         log.debug("_assign_idle_goal failed for %s: %s", agent_id, e)
 
 
+# Layer 3 meta-goal text per core agent
+_LAYER3_GOALS = {
+    "scout": (
+        "LAYER 3 MISSION — GitHub Repo Discovery: "
+        "Study the current agentOS codebase at /agentOS/agents/ and /agentOS/api/. "
+        "Identify specifically what code is needed to: (1) accept a GitHub repo URL as input, "
+        "(2) clone it, (3) analyze its structure and purpose using ollama_chat, "
+        "(4) generate a natural language interface description. "
+        "Write your findings and a concrete implementation plan to "
+        "/agentOS/workspace/layer3_scout_plan.md, then use propose_change to formally "
+        "propose the first missing piece."
+    ),
+    "analyst": (
+        "LAYER 3 MISSION — Codebase Quality for Layer 3: "
+        "Read /agentOS/agents/autonomy_loop.py, /agentOS/agents/live_capabilities.py, "
+        "and /agentOS/agents/self_modification.py. "
+        "Identify: (1) any remaining bugs that would prevent agents from reliably "
+        "completing multi-step tasks, (2) missing capabilities agents need to wrap "
+        "external repos, (3) gaps in the proposal/quorum/deploy pipeline. "
+        "Write a prioritized bug/gap report to /agentOS/workspace/layer3_analyst_report.md "
+        "and use propose_change for each fix you identify."
+    ),
+    "builder": (
+        "LAYER 3 MISSION — Build the Repo Ingestion Capability: "
+        "Read /agentOS/workspace/layer3_scout_plan.md if it exists. "
+        "Your goal is to implement a working git_clone capability: "
+        "write a Python function that accepts a GitHub repo URL, clones it to "
+        "/agentOS/workspace/repos/{repo_name}/, reads the README, and returns a "
+        "summary of what the repo does. "
+        "Use shell_exec to test your implementation. When it works, use propose_change "
+        "with proposal_type=new_tool to formally add it to the system."
+    ),
+}
+
+
+def _inject_layer3_goals() -> None:
+    """
+    Ensure scout, analyst, and builder each have a Layer 3 meta-goal.
+    Only injects if the agent has no active goals that mention 'LAYER 3'.
+    """
+    try:
+        from agents.persistent_goal import PersistentGoalEngine
+        ge = PersistentGoalEngine()
+        for agent_id, goal_text in _LAYER3_GOALS.items():
+            try:
+                active = ge.list_active(agent_id, limit=50)
+                already_has = any("LAYER 3" in g.objective for g in active)
+                if already_has:
+                    log.debug("%s already has Layer 3 goal", agent_id)
+                    continue
+                ge.create(agent_id, goal_text, priority=9)  # high priority
+                log.info("Injected Layer 3 meta-goal into %s", agent_id)
+            except Exception as e:
+                log.debug("Layer 3 goal injection failed for %s: %s", agent_id, e)
+    except Exception as e:
+        log.warning("_inject_layer3_goals failed: %s", e)
+
+
 def main():
     log.info("Autonomy daemon starting (heartbeat=%ds, max_steps=%d)",
              HEARTBEAT, MAX_STEPS_PER_AGENT)
@@ -289,10 +364,13 @@ def main():
 
     log.info("API reachable. Building autonomy stack…")
     try:
-        _, _, _, loop, _, cap_quorum = _build_stack()
+        _, _, _, loop, _, cap_quorum, self_mod = _build_stack()
     except Exception as e:
         log.error("Failed to build autonomy stack: %s", e)
         sys.exit(1)
+
+    # Inject Layer 3 meta-goals into scout/analyst/builder if they have none
+    _inject_layer3_goals()
 
     metrics = DaemonMetrics()
     log.info("Daemon ready. Entering main loop.")
@@ -398,6 +476,15 @@ def main():
                              fp.proposal_id, fp.status, fp.yes_votes, fp.no_votes)
             except Exception as qe:
                 log.debug("Quorum voting error: %s", qe)
+
+            # Deploy any quorum-approved capabilities
+            if self_mod:
+                try:
+                    deployed_caps = self_mod.flush_approved_proposals()
+                    for cap_id in deployed_caps:
+                        log.info("[DEPLOY] capability '%s' approved by quorum and deployed", cap_id)
+                except Exception as de:
+                    log.debug("flush_approved_proposals error: %s", de)
 
         # Periodic semantic workspace re-index
         _semantic_interval_cycles = max(1, int(

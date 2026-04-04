@@ -23,6 +23,9 @@ Capabilities:
   memory_set       Persist a key-value to agent memory
   memory_get       Retrieve a value from agent memory
   agent_message    Send a message to another agent
+  shared_log_write Broadcast a message all agents can read
+  shared_log_read  Read recent shared broadcast messages
+  propose_change   Formally propose a system change for quorum review
 """
 
 import json
@@ -161,6 +164,51 @@ def agent_message(to_id: str = "", content: str = "",
     return {"ok": True, "msg_id": result.get("msg_id"), "to": to_id}
 
 
+def shared_log_write(message: str = "", tags: list = None) -> dict:
+    """Broadcast a message to the shared agent log all agents can read."""
+    if not message:
+        return {"error": "message required", "ok": False}
+    result = _call("post", "/shared-log", json={
+        "message": message, "tags": tags or []
+    })
+    return {"ok": result.get("ok", False)}
+
+
+def propose_change(proposal_type: str = "new_tool", spec: dict = None,
+                   rationale: str = "", test_cases: list = None,
+                   consensus_quorum: int = 2) -> dict:
+    """
+    Formally propose a system change (new tool, endpoint, config, or standard update).
+    Goes through quorum: other agents vote before it's deployed.
+    proposal_type: new_tool | new_endpoint | standard_update | config_change
+    """
+    if not spec:
+        return {"error": "spec required", "ok": False}
+    result = _call("post", "/proposals", json={
+        "proposal_type": proposal_type,
+        "spec": spec,
+        "rationale": rationale or f"agent proposed {proposal_type}",
+        "test_cases": test_cases or [],
+        "consensus_quorum": consensus_quorum,
+    })
+    return {"ok": True, "proposal_id": result.get("proposal_id"),
+            "status": result.get("status")}
+
+
+def shared_log_read(limit: int = 50, since_ts: float = None,
+                    agent_id: str = None, tag: str = None) -> dict:
+    """Read recent entries from the shared agent broadcast log."""
+    params = {"limit": limit}
+    if since_ts is not None:
+        params["since_ts"] = since_ts
+    if agent_id:
+        params["agent_id"] = agent_id
+    if tag:
+        params["tag"] = tag
+    result = _call("get", "/shared-log", params=params)
+    return {"entries": result.get("entries", []), "count": result.get("count", 0)}
+
+
 # --------------------------------------------------------------------------- #
 #  Capability manifest                                                         #
 # --------------------------------------------------------------------------- #
@@ -270,6 +318,51 @@ LIVE_CAPABILITIES = [
         "composition_tags": ["communication", "coordination", "message"],
         "fn": agent_message,
         "timeout_ms": 10000,
+    },
+    {
+        "capability_id": "propose_change",
+        "name": "Propose System Change",
+        "description": (
+            "Formally propose a change to the system (new tool, API endpoint, config, or standard). "
+            "Other agents vote on it. If approved by quorum, it is deployed automatically. "
+            "Use when you identify an improvement or bug fix that requires system modification."
+        ),
+        "input_schema": (
+            '{"proposal_type": "new_tool", '
+            '"spec": {"name": "my_tool", "description": "does X", "implementation": "..."}, '
+            '"rationale": "needed because ...", "consensus_quorum": 2}'
+        ),
+        "output_schema": '{"ok": true, "proposal_id": "prop-xxx", "status": "proposed"}',
+        "composition_tags": ["governance", "self-modification", "proposal", "quorum"],
+        "fn": propose_change,
+        "timeout_ms": 10000,
+    },
+    {
+        "capability_id": "shared_log_write",
+        "name": "Broadcast to Shared Log",
+        "description": (
+            "Append a message to the shared agent broadcast log that all agents can read. "
+            "Use to share discoveries, progress updates, findings, or warnings with all agents."
+        ),
+        "input_schema": '{"message": "found deadlock in execution_engine.py", "tags": ["bug", "finding"]}',
+        "output_schema": "ok confirmation",
+        "composition_tags": ["communication", "broadcast", "log", "coordination"],
+        "fn": shared_log_write,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "shared_log_read",
+        "name": "Read Shared Log",
+        "description": (
+            "Read recent messages from the shared agent broadcast log. "
+            "Use to see what other agents have discovered or are working on. "
+            "Filter by agent, tag, or timestamp."
+        ),
+        "input_schema": '{"limit": 50}',
+        "output_schema": "list of log entries with ts, agent_id, message, tags",
+        "composition_tags": ["communication", "broadcast", "log", "coordination"],
+        "fn": shared_log_read,
+        "timeout_ms": 5000,
     },
 ]
 

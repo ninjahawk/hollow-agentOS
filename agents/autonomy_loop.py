@@ -135,14 +135,14 @@ def _result_to_text(result: dict) -> str:
         if val:
             if isinstance(val, list):
                 parts = []
-                for item in val[:5]:
+                for item in val[:10]:
                     if isinstance(item, dict):
-                        parts.append(item.get("preview", str(item))[:200])
+                        parts.append(item.get("preview", str(item))[:4000])
                     else:
-                        parts.append(str(item)[:200])
+                        parts.append(str(item)[:4000])
                 return "\n".join(parts)
-            return str(val)[:600]
-    return json.dumps(result)[:400]
+            return str(val)[:16000]
+    return json.dumps(result)[:8000]
 
 
 def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
@@ -153,7 +153,6 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     """
     if not previous_result:
         return params
-    result_str = json.dumps(previous_result)[:600]
     result_text = _result_to_text(previous_result)
     out = {}
     for k, v in params.items():
@@ -192,12 +191,13 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
 class AutonomyLoop:
     def __init__(self, goal_engine=None, execution_engine=None,
                  reasoning_layer=None, semantic_memory=None,
-                 native_interface=None):
+                 native_interface=None, self_modification=None):
         self._lock = threading.RLock()
         self._goal_engine = goal_engine
         self._execution_engine = execution_engine
         self._reasoning_layer = reasoning_layer
         self._semantic_memory = semantic_memory
+        self._self_modification = self_modification
         AUTONOMY_PATH.mkdir(parents=True, exist_ok=True)
 
     # ── API ────────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ class AutonomyLoop:
             # Fallback: single-step reasoning with context
             intent = f"progress towards: {active_goal.objective}"
             if context:
-                intent += f"\nPrevious result: {json.dumps(context)[:300]}"
+                intent += f"\nPrevious result: {json.dumps(context)[:4000]}"
             cap_id, params, _, reasoning_text = self._reasoning_layer.reason(agent_id, intent)
             if not cap_id:
                 return (goal_id, False, None)
@@ -411,6 +411,17 @@ class AutonomyLoop:
                     new_plan = self._reasoning_layer.plan(agent_id, blocked_msg) if self._reasoning_layer else []
                     if new_plan:
                         plan = plan[:plan_index] + new_plan
+
+                    # Capability gap detected — trigger self-modification in background
+                    if self._self_modification:
+                        import threading as _t
+                        _t.Thread(
+                            target=self._self_modification.process_gap,
+                            args=(agent_id, goal.objective,
+                                  f"capability '{cap_id}' failed {fail_count} times"),
+                            daemon=True,
+                        ).start()
+                        _thought(agent_id, f"  gap → self-mod triggered for {cap_id}")
 
                 elif fail_count >= 2:
                     # BLOCKED: replan with context about what failed

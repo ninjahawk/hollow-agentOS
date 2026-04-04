@@ -284,3 +284,21 @@ Users never see the infrastructure.
 3. `execution_engine.py` — `_call_with_timeout` now actually enforces the timeout using `ThreadPoolExecutor.submit().result(timeout=...)`. Previously it called the function directly with no timeout, causing daemon threads to hang if Ollama stopped responding.
 **Also fixed:** Both `_log_execution` and `_record_step` rewrote entire JSONL files on every step. Changed to `open(..., "a")` append mode — eliminates O(n) write cost and removes a lock contention source.
 **Why:** Scout had been looping on `goal-5b9884a19f5e` for 900+ daemon cycles. After these fixes: stall detected → goal abandoned → new goal assigned → progress resumed immediately (0.30 → 0.60 in two cycles).
+
+### 2026-04-03 — Phase 1+2 batch: Foundation hardening and orchestration layer
+**By:** Human (automated run)
+**Decision:** Completed Phase 1 and Phase 2 roadmap items in a single session.
+
+**Phase 1 — Foundation Hardening:**
+1. **Output truncation fixed** (`autonomy_loop.py`) — `_result_to_text` raised from 600→16,000 chars, list items 200→4,000, JSON fallback 400→8,000. Context injection limit 300→4,000. Agents can now write meaningful output.
+2. **Core agents registered** (`registry.py`) — `_ensure_core_agents()` called at startup, creates scout/analyst/builder with fixed IDs, deterministic tokens, and full capability sets if not already registered.
+3. **Model switching live** (`api/server.py`, `monitor.py`) — `PATCH /ollama/models` updates `DEFAULT_MODEL` and `MODEL_ROUTES` in-memory without restart. TUI: press `m` to switch models.
+4. **Shared agent broadcast log** (`agents/shared_log.py`) — new JSONL append-only broadcast channel. `POST /shared-log` and `GET /shared-log` endpoints. `shared_log_write` and `shared_log_read` capabilities added. `bus.py` `_save()` made atomic (temp→rename).
+
+**Phase 2 — Orchestration Layer Completion:**
+5. **Persistent goals fixed** (`persistent_goal.py`) — `list_active()` now skips corrupt lines instead of returning empty. `create()` uses proper append mode and works without embeddings. All mutation methods (complete, abandon, update_progress, etc.) use atomic writes (temp→rename).
+6. **Self-modification wired** (`daemon.py`, `autonomy_loop.py`) — `SelfModificationCycle` instantiated in `_build_stack()`. `AutonomyLoop` triggers `process_gap()` in background when a capability is blacklisted (3 consecutive failures). Fixed `_propose_to_quorum()` API parameter mismatch.
+7. **Proposal→quorum→deploy pipeline completed** — `flush_approved_proposals()` added to `SelfModificationCycle`; daemon calls it after each `vote_on_pending()` cycle and deploys approved capabilities. `propose_change` capability added so agents can formally submit proposals from goal execution.
+8. **Layer 3 meta-goals injected** (`daemon.py`) — scout, analyst, and builder each get a specific standing mission targeting Layer 3 on daemon startup. Scout: map GitHub ingestion requirements. Analyst: identify bugs blocking Layer 3. Builder: implement git_clone capability and propose it via quorum.
+
+**Why:** Phase 0 fixes made the foundation stable. These changes close the gap between "agents run" and "agents improve themselves and build toward Layer 3."

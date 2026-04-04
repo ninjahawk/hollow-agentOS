@@ -183,4 +183,6 @@ class MessageBus:
                 for aid, msgs in self._queues.items()
             }
         }
-        BUS_PATH.write_text(json.dumps(out, indent=2))
+        tmp = BUS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(out, indent=2))
+        tmp.rename(BUS_PATH)

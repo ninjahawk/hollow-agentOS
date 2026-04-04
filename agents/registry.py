@@ -125,6 +125,7 @@ class AgentRegistry:
         WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
         self._load()
         self._ensure_root()
+        self._ensure_core_agents()
 
     def set_event_bus(self, event_bus) -> None:
         """Inject EventBus after both are created. Called at server startup."""
@@ -149,6 +150,46 @@ class AgentRegistry:
             self._agents["root"] = root
             self._token_index[self._master_hash] = "root"
             Path(root.workspace_dir).mkdir(parents=True, exist_ok=True)
+            self._save()
+
+    def _ensure_core_agents(self):
+        """Scout, analyst, and builder always exist as first-class registered agents."""
+        core = [
+            ("scout",   "orchestrator", "Scout — discovers and maps the codebase"),
+            ("analyst", "coder",        "Analyst — identifies issues and proposes fixes"),
+            ("builder", "coder",        "Builder — implements code changes and new capabilities"),
+        ]
+        changed = False
+        for agent_id, role, description in core:
+            if agent_id in self._agents:
+                # Ensure status is active in case it got suspended or terminated
+                if self._agents[agent_id].status != "active":
+                    self._agents[agent_id].status = "active"
+                    changed = True
+                continue
+            raw_token = _token_for(agent_id, self._master_token)
+            token_hash = _hash_token(raw_token)
+            workspace = Path(f"/agentOS/workspace/{agent_id}")
+            workspace.mkdir(parents=True, exist_ok=True)
+            caps = list(ROLE_DEFAULTS.get(role, ROLE_DEFAULTS["worker"]))
+            record = AgentRecord(
+                agent_id=agent_id,
+                name=agent_id.capitalize(),
+                role=role,
+                capabilities=caps,
+                token_hash=token_hash,
+                workspace_dir=str(workspace),
+                status="active",
+                budget=ROLE_BUDGETS.get(role, ROLE_BUDGETS["worker"]).copy(),
+                usage={"shell_calls": 0, "tokens_in": 0, "tokens_out": 0},
+                created_at=time.time(),
+                spawn_depth=1,
+                metadata={"description": description, "core": True},
+            )
+            self._agents[agent_id] = record
+            self._token_index[token_hash] = agent_id
+            changed = True
+        if changed:
             self._save()
 
     def register(
