@@ -169,7 +169,7 @@ class AgentRegistry:
                 continue
             raw_token = _token_for(agent_id, self._master_token)
             token_hash = _hash_token(raw_token)
-            workspace = Path(f"/agentOS/workspace/{agent_id}")
+            workspace = WORKSPACE_ROOT / agent_id
             workspace.mkdir(parents=True, exist_ok=True)
             caps = list(ROLE_DEFAULTS.get(role, ROLE_DEFAULTS["worker"]))
             record = AgentRecord(
