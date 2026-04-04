@@ -102,7 +102,7 @@ class TestAutonomyBasics:
         )
 
         # Execute one step
-        goal_result, success = autonomy.execute_step(agent_id)
+        goal_result, success, _ = autonomy.execute_step(agent_id)
 
         assert goal_result == goal_id
 
@@ -113,13 +113,13 @@ class TestAutonomyBasics:
     def test_autonomy_step_with_no_active_goal(self):
         """
         Agent has no active goal.
-        Assert: execute_step returns (None, False).
+        Assert: execute_step returns (None, False, None).
         """
         goal_engine = PersistentGoalEngine()
         autonomy = AutonomyLoop(goal_engine=goal_engine, reasoning_layer=None)
         agent_id = "agent-bob"
 
-        goal_result, success = autonomy.execute_step(agent_id)
+        goal_result, success, _ = autonomy.execute_step(agent_id)
 
         assert goal_result is None
         assert success is False

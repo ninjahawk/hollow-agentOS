@@ -133,10 +133,10 @@ class TestCompleteAutonomousAgent:
         )
 
         # Execute autonomy steps
-        goal_result1, success1 = autonomy.execute_step(agent_id)
+        goal_result1, success1, _ = autonomy.execute_step(agent_id)
         assert goal_result1 == goal1
 
-        goal_result2, success2 = autonomy.execute_step(agent_id)
+        goal_result2, success2, _ = autonomy.execute_step(agent_id)
 
         # Self-improvement
         improvements = improvement.continuous_improvement_cycle(agent_id, max_iterations=1)

@@ -180,9 +180,44 @@ foreach ($model in $models) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 4 — Config
+# STEP 4 — Claude auth
 # ─────────────────────────────────────────────────────────────────────────────
-_head "Step 4/6 — Configuration"
+_head "Step 4/7 — Claude auth"
+
+$EnvFile = Join-Path $HollowDir ".env"
+$ClaudeCredentials = Join-Path $env:USERPROFILE ".claude\.credentials.json"
+
+if (Test-Path $ClaudeCredentials) {
+    try {
+        $creds = Get-Content $ClaudeCredentials -Raw | ConvertFrom-Json
+        $token = $creds.claudeAiOauth.accessToken
+        if ($token) {
+            # Write .env with the credentials file path so Docker mounts it
+            # The container re-reads it fresh on each call, so token refresh
+            # by Claude Code is picked up automatically.
+            $envContent = "CLAUDE_CREDENTIALS_FILE=$ClaudeCredentials"
+            Set-Content $EnvFile $envContent -Encoding UTF8
+            _ok "Claude credentials found — agents will use your extra usage credits"
+        } else {
+            _warn "Claude credentials file found but no access token — falling back to Ollama"
+            "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
+        }
+    } catch {
+        _warn "Could not read Claude credentials — falling back to Ollama"
+        "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
+    }
+} else {
+    _info "Claude Code not detected — agents will use Ollama for reasoning"
+    _info "To use Claude (recommended), install Claude Code from claude.ai/code"
+    if (-not (Test-Path $EnvFile)) {
+        "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 5 — Config
+# ─────────────────────────────────────────────────────────────────────────────
+_head "Step 5/7 — Configuration"
 
 if (Test-Path $ConfigDest) {
     _ok "config.json already exists — keeping it"
@@ -205,7 +240,7 @@ if (Test-Path $ConfigDest) {
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 5 — Start the AgentOS stack
 # ─────────────────────────────────────────────────────────────────────────────
-_head "Step 5/6 — Starting AgentOS"
+_head "Step 6/7 — Starting AgentOS"
 
 Set-Location $HollowDir
 
@@ -248,7 +283,7 @@ if ($healthy) {
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 6 — Python TUI setup + desktop shortcut
 # ─────────────────────────────────────────────────────────────────────────────
-_head "Step 6/6 — Monitor TUI"
+_head "Step 7/7 — Monitor TUI"
 
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCmd) {

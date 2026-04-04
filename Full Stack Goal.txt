@@ -1,0 +1,56 @@
+Full Stack Goal:
+
+The complete stack, bottom to top:
+
+  Linux Kernel
+    The foundation. We use it, we don't build it.
+    Docker gives us Linux in a container today.
+    Phase 6 gives us Linux directly on hardware.
+
+  AgentOS (Event Kernel)
+    Sits on top of Linux. Owns: agent identity, goal engine,
+    semantic memory, message bus, consensus/quorum, heap memory,
+    project context, audit log, shell execution, filesystem I/O,
+    transactions, checkpoints, event log, autonomy loop.
+    This is the OS that agents run on. Largely built.
+
+  Autonomous Agents (the runtime)
+    Scout, analyst, builder — and any agents they spawn.
+    These are not apps. They ARE the runtime.
+    Everything above this layer gets built by them, not by humans.
+    The agents' job is to build HollowOS and keep it running.
+    They self-modify, propose changes, vote, deploy.
+    Partially working. Self-modification pipeline exists but
+    agents are not yet reliably completing complex multi-step tasks.
+
+  HollowOS
+    The user-facing operating system.
+    A web interface that acts as the desktop.
+    No terminal. No config files. No developer concepts.
+    Users type what they want. Agents handle everything underneath.
+    Does not exist yet. Gets built in Phases 3-6.
+
+  Apps (wrapped GitHub repos)
+    Any public GitHub repo, wrapped by Claude into a usable interface.
+    The wrapper is a JSON artifact: capability map + interface spec.
+    Claude generates both. No human writes app code.
+    One app proven end-to-end (Hello-World, ripgrep cloned).
+    Full wrapping pipeline not built yet.
+
+  App Store
+    Central server. One wrapper per repo, shared forever.
+    First install pays the Claude wrap cost. Everyone else downloads free.
+    Network effects: more users → more pre-wrapped repos → cheaper for all.
+    Agents monitor GitHub for updates. Claude rewraps automatically.
+    No developers maintain apps. AI owns the full software lifecycle.
+    Store server doesn't exist yet. Being built in Phase 3.
+
+---
+
+Current honest status (2026-04-04):
+  - Linux Kernel: done (Docker)
+  - AgentOS: ~70% built, working
+  - Autonomous Agents: running but not yet reliably building layers above them
+  - HollowOS: does not exist
+  - Apps: 1 proven end-to-end, wrapping pipeline not built
+  - App Store: being built now

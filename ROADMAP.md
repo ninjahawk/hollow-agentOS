@@ -1,5 +1,15 @@
 # Hollow agentOS — Master Document
 
+> **The full stack, bottom to top:**
+> ```
+> Linux Kernel          — foundation, we use it not build it
+> AgentOS               — event kernel: identity, goals, memory, execution (largely built)
+> Autonomous Agents     — the runtime: scout/analyst/builder build everything above (partial)
+> HollowOS              — the user-facing OS: web interface as the desktop (not built yet)
+> Apps                  — wrapped GitHub repos, Claude-generated interfaces (1 proven)
+> App Store             — central server, shared wrappers, network effects (being built)
+> ```
+>
 > **Architecture:** Three-layer system.
 > - **Layer 1** — Event kernel: identity, scheduling, memory, messaging, transactions, governance. Largely built.
 > - **Layer 2** — Orchestration: autonomous agents running 24/7 whose meta-goal is to build Layer 3. Partially working.
@@ -11,6 +21,25 @@
 > **End state:** A user with no technical knowledge opens Hollow, types what they want,
 > and agents handle everything underneath. They never see a terminal. They never touch
 > a config file. Every tool on GitHub is one install away.
+>
+> **The store:** Every wrapped app is uploaded to a central store. First person to install
+> a repo pays the AI wrap cost (cents). Everyone after downloads it free. Popular tools
+> get wrapped once, shared forever. Network effects make the system cheaper and better
+> the more people use it.
+>
+> **No developers required:** AI handles the entire software lifecycle. GitHub is the
+> source of truth. Small models monitor repos for changes. Big models (Claude) re-wrap
+> when something changes. No human ever ports a tool to Hollow — any public repo is
+> automatically one install away, permanently maintained by AI.
+>
+> **Model routing:** Local small models handle monitoring, polling, and cheap ops.
+> Claude handles wrapping, interface generation, and updates. Cost scales with actual
+> reasoning work, not with usage.
+>
+> **Hard dependency:** Claude API access is required for Phases 3 onward. Ollama alone
+> cannot reliably generate interfaces or analyze repos holistically. If API credits are
+> not available, Phase 3 cannot proceed. Apply for Anthropic developer credits immediately.
+> Until credits arrive, wrapping pipeline can be run manually through Claude Code sessions.
 
 ---
 
@@ -131,35 +160,71 @@ changes to themselves. This is the moment Layer 2 becomes real.
 proposition demonstrated for the first time.
 
 **What gets built:**
-- **GitHub repo ingestion** — `git clone` → agents analyze structure → generate capability map
-- **Agent wrapping** — given a capability map, agents generate a natural language interface for the repo
-- **Basic web interface** — replaces TUI as primary interface. Terminal stays for developers but is no longer required
-- **First installed app** — one real GitHub tool wrapped and surfaced through agents end to end
+
+- **Claude API routing** — `ANTHROPIC_API_KEY` set in container → `reasoning_layer.py` routes to Haiku (capability selection) and Sonnet (planning). Ollama remains local fallback. Already wired in code, needs API key to activate.
+
+- **The wrapping pipeline** — the exact sequence that turns a GitHub URL into a usable app:
+  1. `git clone` the repo into workspace
+  2. Read README + key source files (Claude identifies which ones matter)
+  3. Claude call: "what does this tool do, what are its commands, what are the params?" → `capability_map` JSON
+  4. Claude call: "generate a form-based interface for this tool" → `interface_spec` JSON
+  5. Validate: capability_map has at least one capability, interface_spec has at least one field
+  6. Bundle as `wrapper.json` and upload to store
+  This pipeline must work reliably before anything else in Phase 3 matters.
+
+- **The store server (v1)** — a separate FastAPI server, not part of the agent API. Endpoints:
+  - `POST /wrappers` — upload a wrapper
+  - `GET /wrappers/{repo_id}` — download a wrapper by repo URL hash
+  - `GET /wrappers` — list all wrappers
+  - `POST /wrappers/{repo_id}/install` — increment install count
+  - `GET /wrappers/{repo_id}/version` — check if a newer version exists
+  Wrapper format: `{schema_version, repo_url, source_commit, wrapped_at, install_count, capability_map, interface_spec}`
+  Store must be **publicly hosted** — not just running locally. Every Hollow install in the world connects to the same store URL. Without public hosting, there are no network effects.
+
+- **Web interface (the renderer)** — a minimal HTML/JS page served by the store or the local agent API. Reads `interface_spec` JSON and renders a form. No framework needed at this stage — vanilla JS is fine. When the form submits, it builds the shell command from `capability_map.shell_template` and runs it via the agent API's `shell_exec`. Output displays in the page. This is what "replaces the TUI" means concretely.
+
+- **First installed app** — ripgrep already cloned. Wrap it. Put it in the store. Make it usable through the web interface with zero terminal interaction.
 
 **Success criteria:**
-- Point at a GitHub repo URL. Agents clone it, analyze it, produce an accurate description of what it does
-- A developer unfamiliar with the repo can accomplish a task through the agent interface
-- At least one tool is usable without touching a terminal
+- Point at a GitHub repo URL. Claude wraps it. A non-developer can use it through the web interface.
+- The same repo installed by a second user costs zero — pulled from store.
+- At least one tool is usable without touching a terminal.
+- The store server is publicly accessible at a real URL.
 
-**Unlocks:** Core Layer 3 demonstrated. Everything after is refinement and scale.
+**Unlocks:** Core Layer 3 demonstrated. The store exists. Everything after is network effects and automation.
 
 ---
 
 ### Phase 4 — Layer 3 Complete (Developer)
-**Goal:** Multiple repos, custom interfaces per user, actually useful day-to-day.
+**Goal:** Multiple repos, the store has real coverage, AI handles versioning end to end.
 
 **What gets built:**
-- Multi-repo management — install, remove, update
-- Custom interface per repo based on the user's own prompts and specs
-- Agent-built interfaces that persist and improve autonomously over time
-- Community-shareable agent wrappers for popular tools (early app store concept)
+
+- **App sandboxing** — right now wrapped apps run `shell_exec` as root in Docker. Before handing this to real users, apps must be sandboxed. Each app runs in its own container or restricted subprocess. A bad or malicious wrapper cannot touch the host system or other apps. This must be done before Phase 5.
+
+- **Auto-versioning pipeline** — the monitoring system that makes "no developers required" real:
+  1. A lightweight agent (Haiku or local model) polls GitHub API for new commits on installed repos. Runs on a cron, costs near zero.
+  2. When a new commit is detected, fetch the diff.
+  3. Hand diff to Claude: "here's what changed in this repo, update the wrapper."
+  4. Claude regenerates only the affected parts of the capability map and interface spec.
+  5. New wrapper version uploads to store. All installs get the update.
+  No human involved at any step. AI owns the full update lifecycle.
+
+- **Store quality ranking** — multiple wrappers for the same repo. Install count, ratings, and Claude evaluation surface the best one. Prevents store from accumulating bad wrappers.
+
+- **Multi-repo management** — install, remove, update from the web interface. Never a terminal command.
+
+- **Pre-wrapped launch catalog** — top 100 most-used GitHub CLI tools wrapped before launch. Store ships with real coverage on day one. Done manually through Claude Code sessions before API budget allows automation.
+
+- **Custom interface per user** — users can describe how they want to interact with a tool. Claude re-wraps for their preferences and saves it locally.
 
 **Success criteria:**
-- A developer replaces at least 3 regular tools with Hollow-wrapped versions
-- Interfaces improve over time without user intervention
-- A second user installs the same tool and gets a different interface based on their own specs
+- A repo updates on GitHub. The wrapper updates automatically within 24 hours. User sees nothing.
+- A developer replaces at least 3 regular tools with Hollow-wrapped versions.
+- Store has 100+ pre-wrapped tools at launch.
+- A bad wrapper cannot harm the host system.
 
-**Unlocks:** Once interfaces are generated and refined autonomously, removing the GitHub knowledge requirement is an interface problem, not an infrastructure problem.
+**Unlocks:** The no-developer maintenance model is real. AI owns the full software lifecycle from source to interface to update.
 
 ---
 
@@ -185,16 +250,21 @@ proposition demonstrated for the first time.
 **Goal:** Hollow boots as the primary interface. Agents run underneath everything.
 Users never see the infrastructure.
 
+**What HollowOS is (defined):**
+HollowOS is a minimal Linux distro that boots directly into a browser in kiosk mode, displaying the Hollow web interface fullscreen. There is no desktop environment, no window manager, no taskbar. The browser IS the desktop. The agent daemon starts at boot as a systemd service. The store connection is pre-configured. The user sees one screen: the Hollow interface. They never know they're running Linux.
+
 **What gets built:**
-- **Bootable Linux image** — minimal distro, Hollow as the display layer. Boots straight into the agent interface
-- **Agents as system services** — run at boot as init-level processes, not inside Docker
-- **The web interface becomes the desktop** — everything accessible from it
-- **Hardware abstraction** — users never need to know Linux, the kernel, or a terminal exists
+- **Minimal Linux base** — Alpine or Debian minimal. Only what's needed: Linux kernel, systemd, network stack, a browser (Chromium), and the Hollow stack. No GNOME, no KDE, no X11 session manager.
+- **Kiosk mode boot** — systemd starts Chromium in kiosk mode pointed at localhost. That's the "desktop."
+- **Agents as system services** — AgentOS daemon runs as a systemd service at boot, not inside Docker. Docker is only for development. Production runs native.
+- **Hardware abstraction** — all hardware interaction (USB drives, network config, display settings) goes through agent capabilities. Users never see a shell prompt.
+- **Bootable image** — built with a tool like `mkosi` or a custom build script. Flash to USB, boot any x86 machine, reach Hollow with no prior setup.
 
 **Success criteria:**
 - Flash to USB, boot a machine, reach the Hollow interface with no prior setup
 - Everything from Phase 5 works on fresh hardware out of the box
 - A user who has never heard of Linux can use it without knowing they're using Linux
+- The Linux terminal is present but hidden — accessible only via a deliberate developer unlock sequence
 
 **Unlocks:** The vision. Open source, self-hosted, your own hardware, no technical knowledge required.
 
@@ -207,6 +277,9 @@ Users never see the infrastructure.
 3. Document every autonomous agent decision here — what was designed vs what the system decided to build itself is the research record
 4. When you identify something the system needs that nobody told you to build — build it
 5. Every decision should move the system closer to the end state above
+6. Agents are the runtime, not a service. Everything above AgentOS gets built by agents, not by humans writing code. Human sessions (like this one) wire infrastructure and unblock agents. Agents do the building.
+7. The store is shared infrastructure, not a local feature. Any decision that would make the store per-install instead of per-network is wrong.
+8. No phase skips sandboxing. Real users (Phase 5+) must never be able to damage their system by installing a bad app. Sandboxing is a prerequisite for non-technical users, not a follow-on.
 
 ---
 
@@ -285,6 +358,23 @@ Users never see the infrastructure.
 **Also fixed:** Both `_log_execution` and `_record_step` rewrote entire JSONL files on every step. Changed to `open(..., "a")` append mode — eliminates O(n) write cost and removes a lock contention source.
 **Why:** Scout had been looping on `goal-5b9884a19f5e` for 900+ daemon cycles. After these fixes: stall detected → goal abandoned → new goal assigned → progress resumed immediately (0.30 → 0.60 in two cycles).
 
+### 2026-04-04 — Community wrapper store with network effects
+**By:** Human
+**Decision:** Every wrapped app uploads to a central store. First person to install a repo pays the Claude API wrap cost (cents). Every subsequent install pulls from the store — zero AI cost. Popular tools get wrapped once and shared permanently.
+**Why:** Solves the cost problem entirely for common tools. Creates a genuine network effect: more users → more repos pre-wrapped → cheaper and faster for everyone. At launch, pre-wrap the top 100 GitHub CLI tools to seed the store with real coverage.
+**Implication:** The store is a first-class architectural component, not a Phase 4 feature. It needs to exist in Phase 3.
+
+### 2026-04-04 — AI-driven auto-versioning, no developers required
+**By:** Human
+**Decision:** When a repo updates on GitHub, AI handles the wrapper update end to end. Small/cheap model monitors installed repos for new commits and detects staleness. Big model (Claude) receives the diff and regenerates the interface. Updated wrapper uploads to store. No human ports tools to Hollow, no developer maintains wrappers — AI owns the full software lifecycle.
+**Why:** Without this, every repo update requires human intervention to keep wrappers current. With it, Hollow is self-maintaining. The system improves autonomously as the underlying repos improve.
+**Model routing:** Local small model for polling/monitoring (near-zero cost). Claude only fires when there's an actual update to process.
+
+### 2026-04-04 — Claude replaces Ollama as core reasoning model
+**By:** Human
+**Decision:** Claude API replaces local Ollama models for agent planning, analysis, and interface generation. Local models remain for cheap mechanical ops (file ops, shell exec, goal tracking). Model routing: task complexity determines which model runs.
+**Why:** qwen3.5:9b cannot reliably generate interfaces, analyze repo structure holistically, or maintain coherent multi-step plans. Claude can. The quality gap is not a tuning problem — it's a capability ceiling. The infrastructure is right. The brain needs to change.
+
 ### 2026-04-03 — Phase 1+2 batch: Foundation hardening and orchestration layer
 **By:** Human (automated run)
 **Decision:** Completed Phase 1 and Phase 2 roadmap items in a single session.
@@ -302,3 +392,30 @@ Users never see the infrastructure.
 8. **Layer 3 meta-goals injected** (`daemon.py`) — scout, analyst, and builder each get a specific standing mission targeting Layer 3 on daemon startup. Scout: map GitHub ingestion requirements. Analyst: identify bugs blocking Layer 3. Builder: implement git_clone capability and propose it via quorum.
 
 **Why:** Phase 0 fixes made the foundation stable. These changes close the gap between "agents run" and "agents improve themselves and build toward Layer 3."
+
+---
+
+### 2026-04-04 — Phase 3 bootstrap: wrapping pipeline, store, and apps UI
+**By:** Human
+**Decision:** Built the core Phase 3 components in one session.
+
+1. **Claude API routing** (`agents/reasoning_layer.py`) — OAuth credentials file (`~/.claude/.credentials.json`) + `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_API_KEY` all supported, tried in order. Automatic goal complexity classifier routes complex goals (wrapping, analysis) to Sonnet, routine ops to Haiku.
+2. **`wrap_repo` capability** (`agents/live_capabilities.py`) — Takes a GitHub URL, clones the repo (reusing existing clone), reads README + file structure + config file, calls Claude Sonnet (or Ollama fallback) to generate `capability_map` + `interface_spec`, saves `wrapper.json` to `/agentOS/workspace/wrappers/{repo_name}/`. Returns wrapper path and capability count.
+3. **Store server** (`store/server.py`) — Standalone FastAPI server on port 7779. Endpoints: upload, download, list, install count, version check. Wrappers stored as JSON files. No database. Atomic writes.
+4. **Apps UI** (`dashboard/apps.html`) — First HollowOS user interface. Lists installed apps (reads from agent workspace via fs API), renders `interface_spec` as a form, submits commands via the shell API, shows output. Separate from the developer dashboard.
+5. **Builder goal updated** (`agents/daemon.py`) — Builder's standing mission is now to use `wrap_repo` on ripgrep, verify the output, and broadcast to other agents.
+6. **Installer updated** (`install.ps1`) — Detects Claude Code credentials, writes `.env` with `CLAUDE_CREDENTIALS_FILE` path so Docker mounts the credentials file into the container.
+
+**First successful end-to-end wrap:**
+- `wrap_repo(url='https://github.com/BurntSushi/ripgrep')` called directly in container
+- Ollama (mistral-nemo) analyzed the repo (Claude Sonnet would give higher quality)
+- Generated `wrapper.json` with 2 capabilities (`search_files`, `search_with_ignore`)
+- Uploaded to store at `repo_id=fd05f589984fa65d`
+- Store confirmed 1 wrapper, retrievable via API
+
+**Phase 3 core value proposition demonstrated:** URL in → usable app out → stored in the community store. The pipeline is proven. Quality improves with Claude auth; the architecture is sound.
+
+**What remains in Phase 3:**
+- Wire real Claude auth (API key or OAuth) into the container so Sonnet generates the wrappers
+- Validate `apps.html` in the browser with a real user interaction
+- Let agents autonomously wrap more repos using the `wrap_repo` capability

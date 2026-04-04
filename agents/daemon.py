@@ -36,7 +36,7 @@ from pathlib import Path
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
-MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "3"))
+MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "6"))
 MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "20"))  # cap concurrent agents
 PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "12"))        # batch LLM: all agents fire together
 
@@ -187,8 +187,12 @@ def _agents_with_goals() -> list[str]:
         except Exception:
             pass
 
-    # Cap to avoid Ollama contention: keep highest-priority agents only
-    return with_goals[:MAX_ACTIVE_AGENTS]
+    # Core agents always get a slot; rest sorted alphabetically
+    _CORE = {"scout", "analyst", "builder"}
+    core = [a for a in with_goals if a in _CORE]
+    rest = [a for a in with_goals if a not in _CORE]
+    prioritized = core + rest
+    return prioritized[:MAX_ACTIVE_AGENTS]
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +253,33 @@ class DaemonMetrics:
 
 
 
+def _cap_agent_goals(agent_id: str, max_goals: int = 2) -> None:
+    """
+    If an agent has more than max_goals active goals, abandon the excess
+    lowest-priority ones.  Prevents goal queue bloat from stale/orphaned goals.
+    """
+    try:
+        from agents.persistent_goal import PersistentGoalEngine
+        ge = PersistentGoalEngine()
+        active = ge.list_active(agent_id, limit=50)
+        if len(active) <= max_goals:
+            return
+        # Sort: keep highest priority first; ties broken by recency (latest first)
+        try:
+            active.sort(key=lambda g: (-(g.priority or 0), -(g.created_at or 0)))
+        except Exception:
+            pass
+        to_abandon = active[max_goals:]
+        for g in to_abandon:
+            try:
+                ge.abandon(agent_id, g.goal_id)
+                log.debug("  %s goal cap: abandoned '%s'", agent_id, g.objective[:60])
+            except Exception as _ae:
+                log.debug("  %s abandon error: %s", agent_id, _ae)
+    except Exception as e:
+        log.debug("_cap_agent_goals failed for %s: %s", agent_id, e)
+
+
 def _assign_idle_goal(agent_id: str) -> None:
     """
     When an agent finishes all its goals, give it a fresh self-directed one
@@ -288,34 +319,35 @@ def _assign_idle_goal(agent_id: str) -> None:
 # Layer 3 meta-goal text per core agent
 _LAYER3_GOALS = {
     "scout": (
-        "LAYER 3 MISSION — GitHub Repo Discovery: "
-        "Study the current agentOS codebase at /agentOS/agents/ and /agentOS/api/. "
-        "Identify specifically what code is needed to: (1) accept a GitHub repo URL as input, "
-        "(2) clone it, (3) analyze its structure and purpose using ollama_chat, "
-        "(4) generate a natural language interface description. "
-        "Write your findings and a concrete implementation plan to "
-        "/agentOS/workspace/layer3_scout_plan.md, then use propose_change to formally "
-        "propose the first missing piece."
+        "LAYER 3 — Map the repo ingestion pipeline: "
+        "Step 1: use fs_read to read /agentOS/agents/live_capabilities.py and identify "
+        "the git_clone capability and what it returns. "
+        "Step 2: use git_clone with url='https://github.com/BurntSushi/ripgrep' to clone "
+        "a real repo and see what comes back. "
+        "Step 3: use fs_write to write your findings — what the capability returned, what "
+        "the top-level file structure looks like, what the README says — to "
+        "/agentOS/workspace/scout/layer3_recon.md. "
+        "Step 4: use shared_log_write to broadcast a one-line summary to other agents."
     ),
     "analyst": (
-        "LAYER 3 MISSION — Codebase Quality for Layer 3: "
-        "Read /agentOS/agents/autonomy_loop.py, /agentOS/agents/live_capabilities.py, "
-        "and /agentOS/agents/self_modification.py. "
-        "Identify: (1) any remaining bugs that would prevent agents from reliably "
-        "completing multi-step tasks, (2) missing capabilities agents need to wrap "
-        "external repos, (3) gaps in the proposal/quorum/deploy pipeline. "
-        "Write a prioritized bug/gap report to /agentOS/workspace/layer3_analyst_report.md "
-        "and use propose_change for each fix you identify."
+        "LAYER 3 — Audit live_capabilities.py for gaps: "
+        "Step 1: use fs_read to read /agentOS/agents/live_capabilities.py. "
+        "Step 2: use ollama_chat to reason about what capabilities are missing for a full "
+        "repo-ingestion pipeline (clone → read structure → generate interface). "
+        "Step 3: use fs_write to write a gap report to "
+        "/agentOS/workspace/analyst/layer3_gaps.md listing each missing capability and "
+        "a one-paragraph spec for it. "
+        "Step 4: for the most important gap, use propose_change with "
+        "proposal_type='new_tool' to formally propose it."
     ),
     "builder": (
-        "LAYER 3 MISSION — Build the Repo Ingestion Capability: "
-        "Read /agentOS/workspace/layer3_scout_plan.md if it exists. "
-        "Your goal is to implement a working git_clone capability: "
-        "write a Python function that accepts a GitHub repo URL, clones it to "
-        "/agentOS/workspace/repos/{repo_name}/, reads the README, and returns a "
-        "summary of what the repo does. "
-        "Use shell_exec to test your implementation. When it works, use propose_change "
-        "with proposal_type=new_tool to formally add it to the system."
+        "LAYER 3 — Wrap ripgrep using the wrap_repo capability: "
+        "Step 1: use wrap_repo with url='https://github.com/BurntSushi/ripgrep' "
+        "to generate a Hollow app wrapper for ripgrep. "
+        "Step 2: use fs_read to verify the wrapper was created — read "
+        "/agentOS/workspace/wrappers/ripgrep/wrapper.json and confirm it has content. "
+        "Step 3: use shared_log_write to broadcast: "
+        "'ripgrep wrapped — wrapper at /agentOS/workspace/wrappers/ripgrep/wrapper.json'."
     ),
 }
 
@@ -416,6 +448,7 @@ def main():
                 """Run one agent cycle and return (agent_id, outcome, prev_progress)."""
                 if not _running[0]:
                     return agent_id, {"ok": False, "error": "shutdown"}, 0.0
+                _cap_agent_goals(agent_id, max_goals=2)
                 try:
                     from agents.persistent_goal import PersistentGoalEngine
                     ge = PersistentGoalEngine()

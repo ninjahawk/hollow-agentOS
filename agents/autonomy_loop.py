@@ -145,6 +145,29 @@ def _result_to_text(result: dict) -> str:
     return json.dumps(result)[:8000]
 
 
+_REFUSAL_PREFIXES = (
+    "i'd be happy to help",
+    "i cannot access",
+    "i don't have access",
+    "please provide",
+    "i'm unable to",
+    "i am unable to",
+    "i can't access",
+    "i cannot directly",
+    "as an ai",
+    "i don't have the ability",
+    "i need you to provide",
+    "unfortunately, i",
+)
+
+def _is_llm_refusal(text: str) -> bool:
+    """Return True if ollama responded with a refusal/placeholder instead of real content."""
+    if not text:
+        return False
+    t = text.strip().lower()[:120]
+    return any(t.startswith(p) for p in _REFUSAL_PREFIXES)
+
+
 def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     """
     Replace {result} placeholders in params with the previous result.
@@ -157,7 +180,22 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     out = {}
     for k, v in params.items():
         if isinstance(v, str) and "{result}" in v:
-            out[k] = v.replace("{result}", result_text)
+            substituted = v.replace("{result}", result_text)
+            # Guard: path/url params must look like actual paths/URLs after substitution
+            if k in ("path", "url") and not (substituted.startswith("/") or substituted.startswith("http")):
+                out[k] = v  # keep original (unsubstituted) — agent will error gracefully
+            elif k == "prompt" and len(result_text.strip()) < 50:
+                # Previous step returned almost nothing — warn the model rather than
+                # letting it hallucinate a plausible-sounding response
+                out[k] = (
+                    f"WARNING: the previous step returned very little data "
+                    f"('{result_text.strip()}'). "
+                    f"If you do not have enough real information to complete this task, "
+                    f"respond with exactly: INSUFFICIENT_DATA\n\n"
+                    + v.replace("{result}", result_text)
+                )
+            else:
+                out[k] = substituted
         elif isinstance(v, str) and v and k in ("prompt", "content", "query", "value"):
             # Append context to these key params so LLM/search gets real data
             out[k] = v.rstrip() + "\n\n" + result_text if result_text else v
@@ -249,6 +287,16 @@ class AutonomyLoop:
         # Execute
         _thought(agent_id, f"  RUN: {cap_id} | params: {json.dumps(params)[:120]}")
         result, status = self._execution_engine.execute(agent_id, cap_id, params)
+
+        # Detect ollama refusals — model said "I'd be happy to help" instead of doing the work
+        if cap_id == "ollama_chat" and status == "success" and result:
+            response_text = result.get("response", "")
+            if _is_llm_refusal(response_text) or "INSUFFICIENT_DATA" in response_text:
+                status = "failed"
+                result = {"error": f"ollama returned refusal/placeholder: {response_text[:120]}",
+                          "ok": False}
+                _thought(agent_id, f"  FAIL: ollama_chat | refusal detected — treating as failure")
+
         result_preview = _result_to_text(result)[:200] if result else "none"
         _thought(agent_id, f"  {'OK' if status == 'success' else 'FAIL'}: {cap_id} | {result_preview}")
 
@@ -783,33 +831,58 @@ class AutonomyLoop:
 
             elif cap == "fs_write" and r.get("ok") and r.get("path"):
                 import os
-                if os.path.exists(r["path"]) and os.path.getsize(r["path"]) > 0:
-                    checks.append(f"file '{r['path']}' exists with content")
-                    return {
-                        "validated": True,
-                        "artifact_type": "file",
-                        "artifact_value": r["path"],
-                        "checks": checks,
-                    }
-                checks.append(f"file '{r['path']}' missing or empty")
+                path = r["path"]
+                if os.path.exists(path):
+                    size = os.path.getsize(path)
+                    if size < 200:
+                        checks.append(f"file '{path}' too small ({size} bytes) — likely stub or template")
+                    else:
+                        # Spot-check: file shouldn't be a refusal
+                        try:
+                            snippet = open(path).read(300)
+                        except Exception:
+                            snippet = ""
+                        if _is_llm_refusal(snippet):
+                            checks.append(f"file '{path}' contains refusal/placeholder content")
+                        else:
+                            checks.append(f"file '{path}' exists with {size} bytes")
+                            return {
+                                "validated": True,
+                                "artifact_type": "file",
+                                "artifact_value": path,
+                                "checks": checks,
+                            }
+                else:
+                    checks.append(f"file '{path}' missing")
 
             elif cap == "ollama_chat" and r.get("response"):
-                checks.append("ollama_chat produced non-empty response")
-                return {
-                    "validated": True,
-                    "artifact_type": "llm_response",
-                    "artifact_value": r["response"][:200],
-                    "checks": checks,
-                }
+                response = r["response"]
+                if _is_llm_refusal(response):
+                    checks.append("ollama_chat response is a refusal/placeholder — not a valid artifact")
+                elif len(response.strip()) < 80:
+                    checks.append(f"ollama_chat response too short ({len(response)} chars)")
+                else:
+                    checks.append("ollama_chat produced substantive response")
+                    return {
+                        "validated": True,
+                        "artifact_type": "llm_response",
+                        "artifact_value": response[:200],
+                        "checks": checks,
+                    }
 
             elif cap == "shell_exec" and r.get("exit_code") == 0 and r.get("stdout", "").strip():
-                checks.append("shell_exec produced output")
-                return {
-                    "validated": True,
-                    "artifact_type": "shell_output",
-                    "artifact_value": r["stdout"][:200],
-                    "checks": checks,
-                }
+                stdout = r["stdout"].strip()
+                # Require meaningful output — not just a directory listing header
+                if len(stdout) < 10:
+                    checks.append(f"shell_exec output too short: '{stdout}'")
+                else:
+                    checks.append("shell_exec produced output")
+                    return {
+                        "validated": True,
+                        "artifact_type": "shell_output",
+                        "artifact_value": stdout[:200],
+                        "checks": checks,
+                    }
 
         checks.append("no verifiable artifact found in execution chain")
         return {"validated": False, "artifact_type": None, "artifact_value": None, "checks": checks}

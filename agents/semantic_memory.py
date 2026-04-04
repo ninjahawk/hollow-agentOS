@@ -45,37 +45,18 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-try:
-    from sentence_transformers import SentenceTransformer
-    EMBEDDING_MODEL_AVAILABLE = True
-except ImportError:
-    EMBEDDING_MODEL_AVAILABLE = False
+EMBEDDING_MODEL_AVAILABLE = True  # always available via Ollama
 
-# Module-level singleton — one embedder shared across all agent instances
-_EMBEDDER_SINGLETON = None
-_EMBEDDER_LOCK = None
+_OLLAMA_EMBED_URL = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434") + "/api/embeddings"
+_EMBED_MODEL = "nomic-embed-text"
 
 def _get_shared_embedder():
-    import threading
-    global _EMBEDDER_SINGLETON, _EMBEDDER_LOCK
-    if _EMBEDDER_LOCK is None:
-        _EMBEDDER_LOCK = threading.Lock()
-    if _EMBEDDER_SINGLETON is None:
-        with _EMBEDDER_LOCK:
-            if _EMBEDDER_SINGLETON is None:
-                try:
-                    _EMBEDDER_SINGLETON = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5")
-                except Exception:
-                    try:
-                        _EMBEDDER_SINGLETON = SentenceTransformer("all-MiniLM-L6-v2")
-                    except Exception:
-                        pass
-    return _EMBEDDER_SINGLETON
+    return None  # not used — embedding done via Ollama directly
 
 SEMANTIC_MEMORY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "semantic"
 DEFAULT_VECTOR_DIM = 768
 DEFAULT_CAPACITY_MB = 512
-SIMILARITY_THRESHOLD = 0.7
+SIMILARITY_THRESHOLD = 0.35
 
 
 @dataclass
@@ -108,13 +89,19 @@ class SemanticMemory:
         self._embedder = _get_shared_embedder()
 
     def _embed(self, text: str) -> Optional[np.ndarray]:
-        """Convert text to 768-dimensional embedding. Returns None if embedder unavailable."""
-        if self._embedder is None:
-            return None
+        """Convert text to embedding via Ollama nomic-embed-text."""
         try:
-            return np.array(self._embedder.encode(text, convert_to_numpy=True), dtype=np.float32)
+            import httpx
+            r = httpx.post(_OLLAMA_EMBED_URL,
+                           json={"model": _EMBED_MODEL, "prompt": text},
+                           timeout=15)
+            r.raise_for_status()
+            emb = r.json().get("embedding")
+            if emb:
+                return np.array(emb, dtype=np.float32)
         except Exception:
-            return None
+            pass
+        return None
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two vectors."""
@@ -132,8 +119,6 @@ class SemanticMemory:
         Embedding is computed automatically. Metadata is optional (agent context).
         """
         embedding = self._embed(thought)
-        if embedding is None:
-            raise ValueError("Embedding unavailable — install sentence-transformers")
 
         memory_id = f"mem-{uuid.uuid4().hex[:12]}"
         now = time.time()
@@ -159,20 +144,21 @@ class SemanticMemory:
                 else json.dumps(asdict(record)) + "\n"
             )
 
-            # Append to embeddings matrix
-            embeddings_file = agent_dir / "embeddings.npy"
-            if embeddings_file.exists():
-                embeddings = np.load(embeddings_file)
-                embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
-            else:
-                embeddings = embedding.reshape(1, -1)
-            np.save(embeddings_file, embeddings)
+            if embedding is not None:
+                # Append to embeddings matrix
+                embeddings_file = agent_dir / "embeddings.npy"
+                if embeddings_file.exists():
+                    embeddings = np.load(embeddings_file)
+                    embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
+                else:
+                    embeddings = embedding.reshape(1, -1)
+                np.save(embeddings_file, embeddings)
 
-            # Update index
-            index_file = agent_dir / "index.json"
-            index = json.loads(index_file.read_text()) if index_file.exists() else {}
-            index[memory_id] = len(embeddings) - 1
-            index_file.write_text(json.dumps(index, indent=2))
+                # Update index
+                index_file = agent_dir / "index.json"
+                index = json.loads(index_file.read_text()) if index_file.exists() else {}
+                index[memory_id] = len(embeddings) - 1
+                index_file.write_text(json.dumps(index, indent=2))
 
             self._maybe_evict(agent_id)
 

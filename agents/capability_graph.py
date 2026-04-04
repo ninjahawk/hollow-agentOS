@@ -49,14 +49,12 @@ from pathlib import Path
 from typing import Optional, Callable
 import numpy as np
 
-try:
-    from sentence_transformers import SentenceTransformer
-    EMBEDDING_AVAILABLE = True
-except ImportError:
-    EMBEDDING_AVAILABLE = False
+EMBEDDING_AVAILABLE = True  # always available via Ollama
 
 CAPABILITY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "capabilities"
 DEFAULT_VECTOR_DIM = 768
+_OLLAMA_EMBED_URL = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434") + "/api/embeddings"
+_EMBED_MODEL = "nomic-embed-text"
 
 
 @dataclass
@@ -96,22 +94,22 @@ class CapabilityGraph:
         CAPABILITY_PATH.mkdir(parents=True, exist_ok=True)
 
     def _init_embedder(self) -> None:
-        """Load embedding model."""
-        if not EMBEDDING_AVAILABLE:
-            return
-        try:
-            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
-        except Exception:
-            pass
+        pass  # embedder is Ollama, no init needed
 
     def _embed(self, text: str) -> Optional[np.ndarray]:
-        """Embed text to vector."""
-        if self._embedder is None:
-            return None
+        """Embed text via Ollama nomic-embed-text."""
         try:
-            return np.array(self._embedder.encode(text, convert_to_numpy=True), dtype=np.float32)
+            import httpx
+            r = httpx.post(_OLLAMA_EMBED_URL,
+                           json={"model": _EMBED_MODEL, "prompt": text},
+                           timeout=15)
+            r.raise_for_status()
+            emb = r.json().get("embedding")
+            if emb:
+                return np.array(emb, dtype=np.float32)
         except Exception:
-            return None
+            pass
+        return None
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Cosine similarity between vectors."""
@@ -143,9 +141,7 @@ class CapabilityGraph:
             if cap.capability_id in index:
                 return cap.capability_id
 
-        embedding = self._embed(cap.description)
-        if embedding is None:
-            raise ValueError("Embedding unavailable")
+        embedding = self._embed(cap.description)  # None if embedder unavailable
 
         with self._lock:
             index = json.loads(index_file.read_text()) if index_file.exists() else {}
@@ -160,16 +156,20 @@ class CapabilityGraph:
                 else json.dumps(asdict(cap)) + "\n"
             )
 
-            # Append to embeddings
-            embeddings_file = CAPABILITY_PATH / "embeddings.npy"
-            if embeddings_file.exists():
-                embeddings = np.load(embeddings_file)
-                embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
+            # Append to embeddings only if available — capability works without it,
+            # it just won't surface in semantic search until embeddings are rebuilt
+            if embedding is not None:
+                embeddings_file = CAPABILITY_PATH / "embeddings.npy"
+                if embeddings_file.exists():
+                    embeddings = np.load(embeddings_file)
+                    embeddings = np.vstack([embeddings, embedding.reshape(1, -1)])
+                else:
+                    embeddings = embedding.reshape(1, -1)
+                np.save(embeddings_file, embeddings)
+                index[cap.capability_id] = len(embeddings) - 1
             else:
-                embeddings = embedding.reshape(1, -1)
-            np.save(embeddings_file, embeddings)
+                index[cap.capability_id] = -1  # registered but not semantically indexed
 
-            index[cap.capability_id] = len(embeddings) - 1
             index_file.write_text(json.dumps(index, indent=2))
 
         return cap.capability_id
@@ -186,12 +186,30 @@ class CapabilityGraph:
         with self._lock:
             registry_file = CAPABILITY_PATH / "registry.jsonl"
             embeddings_file = CAPABILITY_PATH / "embeddings.npy"
+            index_file = CAPABILITY_PATH / "index.json"
 
             if not registry_file.exists() or not embeddings_file.exists():
                 return []
 
             embeddings = np.load(embeddings_file)
-            registry_lines = [line for line in registry_file.read_text().strip().split("\n") if line.strip()]
+
+            # Build reverse map: embedding_row → capability_id
+            row_to_id = {}
+            if index_file.exists():
+                idx_map = json.loads(index_file.read_text())
+                for cap_id, row in idx_map.items():
+                    if row >= 0:
+                        row_to_id[row] = cap_id
+
+            # Build id → registry dict for fast lookup
+            id_to_cap = {}
+            for line in registry_file.read_text().strip().split("\n"):
+                if line.strip():
+                    try:
+                        d = json.loads(line)
+                        id_to_cap[d["capability_id"]] = d
+                    except Exception:
+                        pass
 
             # Compute similarities
             similarities = []
@@ -203,10 +221,10 @@ class CapabilityGraph:
             similarities.sort(key=lambda x: x[1], reverse=True)
 
             results = []
-            for idx, sim in similarities[:top_k]:
-                if idx < len(registry_lines):
-                    cap_dict = json.loads(registry_lines[idx])
-                    cap = CapabilityRecord(**cap_dict)
+            for row, sim in similarities[:top_k]:
+                cap_id = row_to_id.get(row)
+                if cap_id and cap_id in id_to_cap:
+                    cap = CapabilityRecord(**id_to_cap[cap_id])
                     results.append((cap, sim))
 
             return results
@@ -294,14 +312,17 @@ class CapabilityGraph:
             if capability_id not in index:
                 return None
 
-            idx = index[capability_id]
-            registry_lines = registry_file.read_text().strip().split("\n")
-
-            if idx >= len(registry_lines):
-                return None
-
-            cap_dict = json.loads(registry_lines[idx])
-            return CapabilityRecord(**cap_dict)
+            # Scan registry by capability_id — avoids row/line offset bugs
+            for line in registry_file.read_text().strip().split("\n"):
+                if not line.strip():
+                    continue
+                try:
+                    cap_dict = json.loads(line)
+                    if cap_dict.get("capability_id") == capability_id:
+                        return CapabilityRecord(**cap_dict)
+                except Exception:
+                    pass
+            return None
 
     def list_all(self, limit: int = 100) -> list:
         """List all registered capabilities."""
@@ -330,16 +351,20 @@ class CapabilityGraph:
             cap.usage_count += 1
             cap.last_used = time.time()
 
-            # Rewrite the registry line
-            index_file = CAPABILITY_PATH / "index.json"
+            # Rewrite the matching registry line by capability_id
             registry_file = CAPABILITY_PATH / "registry.jsonl"
-
-            index = json.loads(index_file.read_text())
-            idx = index[capability_id]
-
+            updated_cap_json = json.dumps(asdict(cap))
             registry_lines = registry_file.read_text().strip().split("\n")
-            registry_lines[idx] = json.dumps(asdict(cap))
-            registry_file.write_text("\n".join(registry_lines) + "\n")
+            new_lines = []
+            for line in registry_lines:
+                if not line.strip():
+                    continue
+                try:
+                    d = json.loads(line)
+                    new_lines.append(updated_cap_json if d.get("capability_id") == capability_id else line)
+                except Exception:
+                    new_lines.append(line)
+            registry_file.write_text("\n".join(new_lines) + "\n")
 
     def learn_composition(self, composition: CompositionPlan) -> None:
         """

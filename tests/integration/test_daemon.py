@@ -71,11 +71,11 @@ def _post_goal(agent_id, objective, priority=5):
 
 class TestStackBuilds:
     def test_build_stack_returns_five_tuple(self):
-        """_build_stack() returns (graph, engine, reasoning, loop, goal_engine)."""
+        """_build_stack() returns (graph, engine, reasoning, loop, goal_engine, cap_quorum)."""
         if not STACK_AVAILABLE:
             pytest.skip("stack modules not available")
         result = _build_stack()
-        assert len(result) == 5
+        assert len(result) == 6
 
     def test_stack_components_are_correct_types(self):
         """Stack components are the expected types."""
@@ -84,7 +84,7 @@ class TestStackBuilds:
         from agents.capability_graph import CapabilityGraph
         from agents.execution_engine import ExecutionEngine
 
-        graph, engine, reasoning, loop, goal_engine = _build_stack()
+        graph, engine, reasoning, loop, goal_engine, cap_quorum = _build_stack()
         assert isinstance(graph, CapabilityGraph)
         assert isinstance(engine, ExecutionEngine)
         assert isinstance(goal_engine, PersistentGoalEngine)
@@ -135,7 +135,7 @@ class TestRunCycle:
         if not STACK_AVAILABLE or not API_REACHABLE:
             pytest.skip("stack or API not available")
 
-        _, _, _, loop, _ = _build_stack()
+        _, _, _, loop, _, _ = _build_stack()
         agent_id = _uid()
 
         # Create a goal for this agent first
@@ -151,7 +151,7 @@ class TestRunCycle:
         if not STACK_AVAILABLE:
             pytest.skip("stack not available")
 
-        _, _, _, loop, _ = _build_stack()
+        _, _, _, loop, _, _ = _build_stack()
         agent_id = _uid()   # no goals
 
         outcome = run_cycle(loop, agent_id)
@@ -167,7 +167,7 @@ class TestRunCycle:
         if not STACK_AVAILABLE or not API_REACHABLE:
             pytest.skip("stack or API not available")
 
-        _, _, _, loop, _ = _build_stack()
+        _, _, _, loop, _, _ = _build_stack()
         agent_id = _uid()
         _post_goal(agent_id, "search the codebase for autonomy patterns", priority=7)
 

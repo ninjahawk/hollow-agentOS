@@ -79,6 +79,92 @@ CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
+# Claude auth — two supported paths (tried in order):
+#   1. OAuth credentials file (Claude Code session, draws from extra usage credits)
+#      Mounted into container at /claude-auth/.credentials.json
+#   2. ANTHROPIC_AUTH_TOKEN env var (OAuth token passed directly)
+#   3. ANTHROPIC_API_KEY env var (standard API key)
+#   4. Ollama / BatchLLM fallback (local, no Claude)
+ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+CLAUDE_CREDENTIALS_PATH = Path(
+    os.getenv("CLAUDE_CREDENTIALS_PATH", "/claude-auth/.credentials.json")
+)
+CLAUDE_FAST_MODEL  = "claude-haiku-4-5-20251001"   # capability selection, routine planning
+CLAUDE_SMART_MODEL = "claude-sonnet-4-6"            # wrapping, interface generation, analysis
+
+# Keywords that indicate a goal needs Sonnet-level reasoning.
+# Everything else uses Haiku — same Claude, lower cost.
+_COMPLEX_KEYWORDS = {
+    "wrap", "wrap_repo", "interface", "capability map", "capability_map",
+    "analyze repo", "generate wrapper", "interface spec", "layer 3 bootstrap",
+    "ingest", "generate interface", "app wrapper",
+}
+
+
+def _classify_prompt(prompt: str) -> str:
+    """Return 'smart' (Sonnet) or 'fast' (Haiku) based on prompt content."""
+    lowered = prompt.lower()
+    if any(kw in lowered for kw in _COMPLEX_KEYWORDS):
+        return "smart"
+    return "fast"
+
+
+def _read_claude_oauth_token() -> str:
+    """
+    Read the current OAuth access token from the Claude Code credentials file.
+    Returns empty string if the file is missing or malformed.
+    Called fresh on every Claude request so token refresh by Claude Code
+    is picked up automatically without restarting the container.
+    """
+    try:
+        if CLAUDE_CREDENTIALS_PATH.exists():
+            data = json.loads(CLAUDE_CREDENTIALS_PATH.read_text())
+            token = data.get("claudeAiOauth", {}).get("accessToken", "")
+            return token
+    except Exception:
+        pass
+    return ""
+
+
+def _get_claude_client():
+    """
+    Return an Anthropic client using the best available auth method.
+    Priority: OAuth credentials file → ANTHROPIC_AUTH_TOKEN → ANTHROPIC_API_KEY
+    Returns None if no auth is available.
+    """
+    import anthropic
+
+    # 1. OAuth credentials file (auto-refreshed by Claude Code)
+    oauth_token = _read_claude_oauth_token()
+    if oauth_token:
+        return anthropic.Anthropic(auth_token=oauth_token)
+
+    # 2. OAuth token from env var
+    if ANTHROPIC_AUTH_TOKEN:
+        return anthropic.Anthropic(auth_token=ANTHROPIC_AUTH_TOKEN)
+
+    # 3. Standard API key
+    if ANTHROPIC_API_KEY:
+        return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    return None
+
+
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences Claude sometimes wraps around JSON."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        # drop opening fence (```json or ```) and closing ```
+        inner = []
+        for line in lines[1:]:
+            if line.strip() == "```":
+                break
+            inner.append(line)
+        text = "\n".join(inner).strip()
+    return text
+
 
 @dataclass
 class ReasoningContext:
@@ -113,12 +199,54 @@ class ReasoningLayer:
         except Exception:
             return "mistral-nemo:12b"
 
-    def _generate(self, prompt: str) -> str:
+    def _claude_generate(self, prompt: str, model: str) -> str:
         """
-        Generate a response: try BatchLLM first (all agents fire together),
-        fall back to Ollama if batch_llm is unavailable or fails.
+        Call Claude using the best available auth (OAuth or API key).
+        Retries once with a fresh token read if a 401 is returned
+        (handles the case where Claude Code refreshed the OAuth token mid-session).
         """
-        # Try batch LLM (transformers, true parallel GPU inference)
+        import anthropic
+
+        for attempt in range(2):
+            client = _get_claude_client()
+            if client is None:
+                raise RuntimeError("No Claude auth configured")
+            try:
+                message = client.messages.create(
+                    model=model,
+                    max_tokens=2048,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return _strip_code_fences(message.content[0].text.strip())
+            except anthropic.AuthenticationError:
+                if attempt == 0:
+                    continue  # re-read credentials file and retry once
+                raise
+
+    def _generate(self, prompt: str, model_tier: str = "auto") -> str:
+        """
+        Generate a response. Routing priority:
+          1. Claude (OAuth credentials file, OAuth env token, or API key)
+          2. BatchLLM (local parallel GPU inference)
+          3. Ollama (local fallback)
+
+        model_tier: "auto"  → classify prompt → Haiku or Sonnet
+                    "fast"  → Haiku  (capability selection, routine ops)
+                    "smart" → Sonnet (wrapping, interface generation, analysis)
+        """
+        # 1. Claude (any auth method available)
+        if _get_claude_client() is not None:
+            try:
+                if model_tier == "auto":
+                    tier = _classify_prompt(prompt)
+                else:
+                    tier = model_tier
+                model = CLAUDE_SMART_MODEL if tier == "smart" else CLAUDE_FAST_MODEL
+                return self._claude_generate(prompt, model)
+            except Exception:
+                pass  # fall through to local models
+
+        # 2. BatchLLM (local parallel GPU inference)
         try:
             from agents.batch_llm import get_server
             server = get_server()
@@ -127,7 +255,7 @@ class ReasoningLayer:
         except Exception:
             pass
 
-        # Fallback: Ollama
+        # 3. Ollama
         import httpx
         model = self._ollama_model()
         resp = httpx.post(
@@ -222,7 +350,7 @@ class ReasoningLayer:
                 f'Respond ONLY with JSON: {{"capability_id":"<id>","params":{{<params>}}}}'
             )
 
-            raw = self._generate(prompt)
+            raw = self._generate(prompt, model_tier="fast")
             result = json.loads(raw)
 
             cap_id = result.get("capability_id", "")
@@ -333,11 +461,15 @@ class ReasoningLayer:
                 f"- IMPORTANT: for params that depend on a previous step output, use EXACTLY the string {{result}} as the entire value\n"
                 f'  Example: {{"prompt": "Analyze this: {{result}}"}}, {{"value": "{{result}}"}}, {{"content": "{{result}}"}}\n'
                 f"- Do NOT use nested objects or arrays as placeholder values\n"
-                f"- NEVER reference file paths that are not listed above unless using shell_exec to discover them first\n\n"
+                f"- NEVER use {{result}} for 'url' params — always hardcode the literal URL (e.g. https://github.com/owner/repo)\n"
+                f"- NEVER use shell_exec 'which git' before git_clone — git is always available. Use git_clone directly with the real URL.\n"
+                f"- NEVER reference file paths that are not listed above unless using shell_exec to discover them first\n"
+                f"- Do NOT write Python or bash scripts as fs_write content — use shell_exec to RUN commands now and record the real output as findings.\n"
+                f"- When using git_clone, use a REAL, SPECIFIC GitHub URL (e.g. https://github.com/octocat/Hello-World). NEVER use placeholder URLs like https://github.com/owner/repo.git.\n\n"
                 f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
             )
 
-            raw = self._generate(prompt)
+            raw = self._generate(prompt, model_tier="smart")
             result = json.loads(raw)
             steps = result.get("steps", [])
 

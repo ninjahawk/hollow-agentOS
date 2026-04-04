@@ -404,7 +404,7 @@ class TestLineagePersistence:
                 import os
                 memory_path = os.environ.get(
                     "AGENTOS_MEMORY_PATH",
-                    "C:/Users/jedin/AppData/Local/Temp/hollow-memory"
+                    "/agentOS/memory"
                 )
                 lineage_path = os.path.join(memory_path, "lineage.json")
                 assert os.path.exists(lineage_path), (

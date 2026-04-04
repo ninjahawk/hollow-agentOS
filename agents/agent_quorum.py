@@ -117,8 +117,6 @@ class AgentQuorum:
         Returns proposal_id.
         """
         embedding = self._embed(description)
-        if embedding is None:
-            raise ValueError("Embedding unavailable")
 
         proposal_id = f"prop-{uuid.uuid4().hex[:12]}"
         now = time.time()

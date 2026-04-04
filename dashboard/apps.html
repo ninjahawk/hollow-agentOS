@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hollow — Apps</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0a;
+    color: #c8c8c8;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #1e1e1e;
+    background: #0d0d0d;
+  }
+  header h1 { color: #7fff7f; font-size: 14px; letter-spacing: 2px; }
+  header nav a {
+    color: #555;
+    text-decoration: none;
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+  header nav a:hover { color: #7fff7f; }
+  #status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #333; margin-left: auto;
+  }
+  #status-dot.online { background: #7fff7f; box-shadow: 0 0 6px #7fff7f; }
+  #status-dot.offline { background: #ff4444; }
+
+  /* ── Main layout ── */
+  main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── App list (left) ── */
+  #app-list {
+    width: 240px;
+    border-right: 1px solid #1e1e1e;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  #app-list h2 {
+    color: #555;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 8px 12px 4px;
+    text-transform: uppercase;
+  }
+  .app-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+  }
+  .app-item:hover { background: #111; }
+  .app-item.active {
+    background: #0e1a0e;
+    border-left-color: #7fff7f;
+  }
+  .app-item .app-name { color: #e0e0e0; font-weight: bold; font-size: 12px; }
+  .app-item .app-desc { color: #555; font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-item .app-installs { color: #3a3; font-size: 10px; margin-top: 2px; }
+
+  #no-apps {
+    padding: 20px 12px;
+    color: #333;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  /* ── App detail (right) ── */
+  #app-detail {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+  }
+
+  #app-detail.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #2a2a2a;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+
+  #app-header { margin-bottom: 20px; }
+  #app-header h2 { color: #7fff7f; font-size: 18px; }
+  #app-header p { color: #666; margin-top: 4px; font-size: 12px; }
+  #app-header .meta { color: #333; font-size: 11px; margin-top: 8px; }
+
+  /* ── Capability selector ── */
+  #cap-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .cap-tab {
+    padding: 4px 10px;
+    border: 1px solid #2a2a2a;
+    border-radius: 2px;
+    cursor: pointer;
+    color: #666;
+    font-size: 11px;
+    background: transparent;
+  }
+  .cap-tab:hover { border-color: #444; color: #aaa; }
+  .cap-tab.active { border-color: #7fff7f; color: #7fff7f; background: #0e1a0e; }
+
+  /* ── Form ── */
+  #app-form { max-width: 560px; }
+  .field-group { margin-bottom: 14px; }
+  .field-group label {
+    display: block;
+    color: #aaa;
+    font-size: 11px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .field-group label .required { color: #7fff7f; margin-left: 2px; }
+  .field-group input[type="text"],
+  .field-group input[type="number"],
+  .field-group select {
+    width: 100%;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    color: #e0e0e0;
+    padding: 7px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    border-radius: 2px;
+  }
+  .field-group input:focus,
+  .field-group select:focus { border-color: #7fff7f; }
+  .field-group input[type="checkbox"] { width: auto; margin-right: 6px; }
+  .field-group .hint { color: #333; font-size: 10px; margin-top: 3px; }
+
+  #run-btn {
+    background: #0e1a0e;
+    border: 1px solid #7fff7f;
+    color: #7fff7f;
+    padding: 8px 20px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    border-radius: 2px;
+    margin-top: 4px;
+  }
+  #run-btn:hover { background: #1a2e1a; }
+  #run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Output ── */
+  #output-section { margin-top: 24px; }
+  #output-section h3 { color: #555; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+  #output-box {
+    background: #060606;
+    border: 1px solid #1a1a1a;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow-y: auto;
+    color: #bbb;
+    border-radius: 2px;
+    min-height: 60px;
+  }
+  #output-box.error { color: #ff6666; }
+  #output-box.running { color: #666; font-style: italic; }
+
+  /* ── Generated command preview ── */
+  #cmd-preview {
+    margin-top: 10px;
+    color: #2a4a2a;
+    font-size: 11px;
+    padding: 6px 10px;
+    background: #050505;
+    border: 1px solid #1a1a1a;
+    border-radius: 2px;
+  }
+  #cmd-preview span { color: #3a7a3a; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HOLLOW</h1>
+  <nav>
+    <a href="index.html">System</a>
+    <a href="apps.html" style="color:#7fff7f">Apps</a>
+  </nav>
+  <div id="status-dot"></div>
+</header>
+
+<main>
+  <div id="app-list">
+    <div style="display:flex;align-items:center;padding:8px 12px 0;gap:8px">
+      <h2 style="margin:0;flex:1">Apps</h2>
+      <button onclick="showTab('local')" id="tab-local" style="background:none;border:none;color:#7fff7f;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px;border-bottom:1px solid #7fff7f">LOCAL</button>
+      <button onclick="showTab('store')" id="tab-store" style="background:none;border:none;color:#555;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px">STORE</button>
+    </div>
+    <div id="app-entries">
+      <div id="no-apps" style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">Loading...</div>
+    </div>
+  </div>
+
+  <div id="app-detail" class="empty">
+    select an app
+  </div>
+</main>
+
+<script>
+const API = 'http://localhost:7777';
+const STORE = 'http://localhost:7779';
+const TOKEN = (() => {
+  const m = document.querySelector('meta[name="api-token"]');
+  return m ? m.content : 'ci-test-token-replace-in-production';
+})();
+
+let wrappers = [];
+let activeWrapper = null;
+let activeCap = null;
+let currentTab = 'local';
+
+function showTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-local').style.color = tab === 'local' ? '#7fff7f' : '#555';
+  document.getElementById('tab-local').style.borderBottom = tab === 'local' ? '1px solid #7fff7f' : 'none';
+  document.getElementById('tab-store').style.color = tab === 'store' ? '#7fff7f' : '#555';
+  document.getElementById('tab-store').style.borderBottom = tab === 'store' ? '1px solid #7fff7f' : 'none';
+  if (tab === 'local') loadLocalWrappers();
+  else loadStoreWrappers();
+}
+
+// ── Status dot ───────────────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch(`${API}/health`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+    document.getElementById('status-dot').className = r.ok ? 'online' : 'offline';
+  } catch {
+    document.getElementById('status-dot').className = 'offline';
+  }
+}
+
+// ── Load from local agent API ─────────────────────────────────────────────────
+async function loadLocalWrappers() {
+  try {
+    const r = await fetch(`${API}/wrappers`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+    if (!r.ok) { renderEmpty('API unavailable'); return; }
+    const data = await r.json();
+    wrappers = [];
+    for (const w of (data.wrappers || [])) {
+      // Fetch full wrapper
+      try {
+        const wr = await fetch(`${API}/wrappers/${w.repo_name}`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+        if (wr.ok) wrappers.push({repo_id: w.repo_name, wrapper: await wr.json()});
+      } catch {}
+    }
+    renderList();
+  } catch (e) { renderEmpty('Failed to load local apps'); }
+}
+
+// ── Load from community store ─────────────────────────────────────────────────
+async function loadStoreWrappers() {
+  try {
+    const r = await fetch(`${STORE}/wrappers`);
+    if (!r.ok) { renderEmpty('Store unavailable'); return; }
+    const data = await r.json();
+    wrappers = [];
+    for (const w of (data.wrappers || [])) {
+      try {
+        const wr = await fetch(`${STORE}/wrappers/${w.repo_id}`);
+        if (wr.ok) wrappers.push({repo_id: w.repo_id, wrapper: await wr.json()});
+      } catch {}
+    }
+    renderList();
+  } catch (e) { renderEmpty('Store offline'); }
+}
+
+async function loadWrappers() {
+  await checkStatus();
+  if (currentTab === 'local') await loadLocalWrappers();
+  else await loadStoreWrappers();
+}
+
+function renderEmpty(msg) {
+  document.getElementById('app-entries').innerHTML =
+    `<div style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">${msg}</div>`;
+}
+
+// ── Render left panel ────────────────────────────────────────────────────────
+function renderList() {
+  const el = document.getElementById('app-entries');
+  if (!wrappers.length) {
+    el.innerHTML = '<div id="no-apps">No apps installed yet.<br><br>' +
+      'Use <span style="color:#3a3">wrap_repo</span> to wrap a GitHub repo.</div>';
+    return;
+  }
+  el.innerHTML = wrappers.map((w, i) => {
+    const cm = w.wrapper.capability_map;
+    return `<div class="app-item" onclick="selectApp(${i})">
+      <div class="app-name">${esc(cm.name || w.repo_id)}</div>
+      <div class="app-desc">${esc((cm.description || '').substring(0, 60))}</div>
+      <div class="app-installs">${w.wrapper.install_count || 0} installs</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Select an app ─────────────────────────────────────────────────────────────
+function selectApp(idx) {
+  document.querySelectorAll('.app-item').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+  });
+  activeWrapper = wrappers[idx].wrapper;
+  activeCap = activeWrapper.capability_map.capabilities[0];
+  renderDetail();
+}
+
+// ── Render right panel ────────────────────────────────────────────────────────
+function renderDetail() {
+  const w = activeWrapper;
+  const cm = w.capability_map;
+  const iface = w.interface_spec;
+  const detail = document.getElementById('app-detail');
+  detail.className = '';
+
+  // Cap tabs
+  const tabs = cm.capabilities.map((c, i) =>
+    `<button class="cap-tab${i===0?' active':''}" onclick="selectCap(${i})">${esc(c.id)}</button>`
+  ).join('');
+
+  detail.innerHTML = `
+    <div id="app-header">
+      <h2>${esc(cm.name)}</h2>
+      <p>${esc(cm.description)}</p>
+      <div class="meta">
+        invoke: <span style="color:#3a7a3a">${esc(cm.invoke)}</span> &nbsp;·&nbsp;
+        commit: ${esc(w.source_commit || 'unknown')} &nbsp;·&nbsp;
+        <a href="${esc(w.repo_url)}" target="_blank" style="color:#555">${esc(w.repo_url)}</a>
+      </div>
+    </div>
+    <div id="cap-tabs">${tabs}</div>
+    <div id="app-form"></div>
+    <div id="cmd-preview" style="display:none">$ <span id="cmd-text"></span></div>
+    <div id="output-section" style="display:none">
+      <h3>Output</h3>
+      <div id="output-box"></div>
+    </div>
+  `;
+
+  renderForm(cm.capabilities[0], iface);
+}
+
+// ── Select capability tab ─────────────────────────────────────────────────────
+function selectCap(idx) {
+  document.querySelectorAll('.cap-tab').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+  });
+  activeCap = activeWrapper.capability_map.capabilities[idx];
+  renderForm(activeCap, activeWrapper.interface_spec);
+}
+
+// ── Render form from interface_spec ──────────────────────────────────────────
+function renderForm(cap, iface) {
+  const formEl = document.getElementById('app-form');
+  if (!formEl) return;
+
+  // Match fields to this capability's params
+  const capParamNames = new Set((cap.params || []).map(p => p.name));
+  const fields = iface.fields.filter(f => capParamNames.has(f.id) || !capParamNames.size);
+
+  const fieldHtml = fields.map(f => {
+    const req = f.required ? '<span class="required">*</span>' : '';
+    let input = '';
+    if (f.type === 'checkbox') {
+      input = `<label><input type="checkbox" id="field-${esc(f.id)}"> ${esc(f.label)}</label>`;
+    } else if (f.type === 'select' && f.options && f.options.length) {
+      const opts = f.options.map(o => `<option>${esc(o)}</option>`).join('');
+      input = `<select id="field-${esc(f.id)}">${opts}</select>`;
+    } else if (f.type === 'number') {
+      input = `<input type="number" id="field-${esc(f.id)}" placeholder="${esc(f.placeholder || '')}">`;
+    } else {
+      input = `<input type="text" id="field-${esc(f.id)}" placeholder="${esc(f.placeholder || '')}" oninput="updatePreview()">`;
+    }
+    return `<div class="field-group">
+      <label>${esc(f.label)}${req}</label>
+      ${input}
+    </div>`;
+  }).join('');
+
+  formEl.innerHTML = `
+    ${fieldHtml}
+    <button id="run-btn" onclick="runCommand()">▶  Run</button>
+  `;
+
+  updatePreview();
+}
+
+// ── Build the shell command from template + current field values ──────────────
+function buildCommand() {
+  if (!activeCap) return '';
+  let cmd = activeCap.shell_template || activeCap.id;
+  const fields = activeWrapper.interface_spec.fields;
+  for (const f of fields) {
+    const el = document.getElementById(`field-${f.id}`);
+    if (!el) continue;
+    const val = f.type === 'checkbox' ? (el.checked ? f.id : '') : el.value.trim();
+    cmd = cmd.replace(new RegExp(`\\{${f.id}\\}`, 'g'), val);
+  }
+  // Remove unfilled optional placeholders
+  cmd = cmd.replace(/\{[^}]+\}/g, '').trim().replace(/\s+/g, ' ');
+  return cmd;
+}
+
+function updatePreview() {
+  const cmd = buildCommand();
+  const preview = document.getElementById('cmd-preview');
+  const cmdText = document.getElementById('cmd-text');
+  if (preview && cmdText) {
+    cmdText.textContent = cmd;
+    preview.style.display = cmd ? '' : 'none';
+  }
+}
+
+// ── Run the command via the agent API ─────────────────────────────────────────
+async function runCommand() {
+  const cmd = buildCommand();
+  if (!cmd) return;
+
+  const btn = document.getElementById('run-btn');
+  const outputSection = document.getElementById('output-section');
+  const outputBox = document.getElementById('output-box');
+  btn.disabled = true;
+  outputSection.style.display = '';
+  outputBox.className = 'running';
+  outputBox.textContent = 'running...';
+
+  try {
+    const r = await fetch(`${API}/shell`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({command: cmd, cwd: '/agentOS/workspace'}),
+    });
+    const data = await r.json();
+    const out = (data.stdout || '') + (data.stderr ? `\n[stderr]\n${data.stderr}` : '');
+    outputBox.className = data.exit_code === 0 ? '' : 'error';
+    outputBox.textContent = out || '(no output)';
+  } catch (e) {
+    outputBox.className = 'error';
+    outputBox.textContent = `Error: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadWrappers();
+setInterval(loadWrappers, 15000);
+</script>
+</body>
+</html>

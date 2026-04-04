@@ -10,6 +10,9 @@ logs/*
 !logs/.gitkeep
 ollama/install.log
 
+# Store runtime data (wrappers stored here, not committed)
+store/data/
+
 # Python
 __pycache__/
 *.pyc

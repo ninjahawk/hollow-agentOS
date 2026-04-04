@@ -2,10 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /agentOS
 
-# System deps for ripgrep (used by semantic search) and curl
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps

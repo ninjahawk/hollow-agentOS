@@ -281,6 +281,7 @@ class TestConflictDetection:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.slow
+@pytest.mark.flaky_under_load
 class TestTimeoutAutoRollback:
     def test_timeout_rolls_back(self, auth_headers):
         """

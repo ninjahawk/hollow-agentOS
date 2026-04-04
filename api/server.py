@@ -1758,6 +1758,71 @@ async def tools_openai_schema(authorization: Optional[str] = Header(None)):
     return {"tools": tools, "count": len(tools), "format": "openai-function-calling"}
 
 
+# ── Wrap endpoint — trigger wrap_repo via HTTP ────────────────────────────────
+
+class WrapRequest(BaseModel):
+    url: str
+    upload: bool = True
+
+
+@app.post("/wrap")
+async def wrap_repo_endpoint(body: WrapRequest, authorization: Optional[str] = Header(None)):
+    """
+    Wrap a GitHub repo: clone → analyze → generate capability_map + interface_spec → save wrapper.json.
+    Optionally uploads to the community store.
+    This is the HTTP entry point for the Phase 3 wrapping pipeline.
+    """
+    _verify_any_token(authorization)
+    if not body.url:
+        raise HTTPException(status_code=400, detail="url required")
+
+    import asyncio
+    from agents.live_capabilities import wrap_repo
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: wrap_repo(url=body.url, upload=body.upload))
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("error", "wrap failed"))
+    return result
+
+
+@app.get("/wrappers")
+async def list_local_wrappers(authorization: Optional[str] = Header(None)):
+    """List all locally generated wrappers in the workspace."""
+    _verify_any_token(authorization)
+    wrappers_dir = Path("/agentOS/workspace/wrappers")
+    wrappers = []
+    if wrappers_dir.exists():
+        for d in sorted(wrappers_dir.iterdir()):
+            wf = d / "wrapper.json"
+            if wf.exists():
+                try:
+                    w = json.loads(wf.read_text())
+                    wrappers.append({
+                        "repo_name": d.name,
+                        "repo_url": w.get("repo_url"),
+                        "name": w.get("capability_map", {}).get("name"),
+                        "description": w.get("capability_map", {}).get("description"),
+                        "install_count": w.get("install_count", 0),
+                        "source_commit": w.get("source_commit"),
+                        "wrapped_at": w.get("wrapped_at"),
+                        "wrapper_path": str(wf),
+                    })
+                except Exception:
+                    pass
+    return {"total": len(wrappers), "wrappers": wrappers}
+
+
+@app.get("/wrappers/{repo_name}")
+async def get_local_wrapper(repo_name: str, authorization: Optional[str] = Header(None)):
+    """Get the full wrapper JSON for a locally wrapped repo."""
+    _verify_any_token(authorization)
+    wf = Path(f"/agentOS/workspace/wrappers/{repo_name}/wrapper.json")
+    if not wf.exists():
+        raise HTTPException(status_code=404, detail=f"No wrapper for {repo_name}")
+    return json.loads(wf.read_text())
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
