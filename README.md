@@ -96,35 +96,9 @@ Or press **`g`** in the TUI to type a goal directly.
 
 ---
 
-## What this is
-
-**Hollow agentOS is two things built on top of each other.**
-
-The first is an operating system for AI agents. Not a framework, not a toolkit — an actual OS with the primitives agents need to exist: persistent identity, working memory with eviction policies, atomic multi-agent transactions, process signals, audit trails, checkpointing, consensus voting, and VRAM-aware scheduling. Things that have never been built for agents before because nobody needed them until now.
-
-The second is an autonomous runtime that runs on top of that OS. A daemon that cycles through registered agents, generates multi-step plans using a local LLM, executes them step by step with each result feeding into the next, and keeps going indefinitely. Agents remember what they've done. They propose follow-on goals. They can synthesize new capabilities they don't have yet and hot-load them into the system at runtime — voted on by other agents before deployment, no human approval required.
-
-Most AI tools make humans more productive. This is something different: infrastructure for AI that operates on its own.
-
----
-
-## Why Now
-
-Large language models think in embedding space — 768 dimensions of meaning. But the entire stack between an LLM and a computing environment forces it to translate into human symbols: JSON keys, file paths, API method names. That translation is:
-- **Slow** — serialization overhead every call
-- **Lossy** — information lost in translation
-- **Error-prone** — agents misunderstand symbolic requirements
-- **Limiting** — agents can only do what humans explicitly exposed
-
-Remove that translation layer and agents can operate at their native speed and cognition.
-
-This is not incremental. This is to AI agents what Unix was to computing: a substrate that makes everything else possible.
-
----
-
 ## How the autonomous layer works
 
-Every 30 seconds the daemon wakes up. For each agent with an active goal, it runs this:
+Every 6 seconds the daemon wakes up. For each agent with an active goal, it runs this:
 
 1. **Plan** — calls Ollama with the goal and the list of available capabilities, gets back 3–5 steps
 2. **Execute** — runs each step in sequence; the output of step N gets injected into step N+1
@@ -157,7 +131,7 @@ This is where agents become genuinely useful — they can coordinate, remember, 
 
 Replacing every human-facing interface with agent-native cognition. No more JSON, REST, or symbolic notation. Agents navigate capability graphs by meaning. Memory works in embedding space. Self-extension is fully autonomous. The OS speaks the language agents think in.
 
-### Phase 4: Autonomous Agent Runtime (v3.0.0 – v4.1.0)
+### Phase 4: Autonomous Agent Runtime (v3.0.0 – v4.4.0)
 
 The OS is complete. Now it runs. A persistent daemon cycles through agents, generates plans with a local LLM, executes multi-step pipelines with real data flowing between steps, and produces verifiable artifacts. Goals persist across restarts. Agents accumulate memory. The system governs its own capability expansion through quorum voting. No human needs to be in the loop.
 
