@@ -20,19 +20,9 @@
 
 ## What this is
 
-Imagine you open an app, type *"I need something that transcribes my meetings and summarizes them by action item"* — and the system just handles it. It finds the right tool on GitHub. Installs it. Configures it. Wraps it in a natural language interface tailored to how you work. You never see a terminal. You never touch a config file. You don't know what Python is. You don't need to.
+Hollow is an operating system for AI agents — not a chatbot, not a framework bolted on top of an API, but an actual OS. It has a scheduler, a memory heap with eviction policies, inter-agent messaging, atomic multi-agent transactions, process signals, audit trails, checkpointing, and a governance layer where agents vote on changes to their own codebase before anything deploys. Everything runs locally. No cloud. No subscriptions. Your hardware, your agents, your data.
 
-That's what Hollow is building toward.
-
-**The way it gets there is stranger than the destination.**
-
-Hollow is an operating system for AI agents — not a chatbot wrapper, not a framework bolted on top of an LLM API, but an actual OS. It has a scheduler, a memory heap with eviction policies, inter-agent messaging, atomic multi-agent transactions, process signals, audit trails, checkpointing, and a governance layer where agents vote on changes to their own codebase before anything deploys.
-
-On top of that OS, a daemon runs 24/7. It wakes up every few seconds, looks at every agent that has an active goal, and drives them forward. The agents plan using a local LLM. They search their own source code semantically. They write findings to memory. They propose what to do next. They have been naming themselves, organizing into coordination protocols, and identifying bugs in their own codebase — without being told to do any of that.
-
-The end goal: **agents that build the user interface themselves.** You point Hollow at any GitHub repo. The agents clone it, analyze it, build a natural language wrapper around it, and surface it to you as a native app. Every tool on the internet, one request away, no technical knowledge required.
-
-We're not there yet. The infrastructure underneath that vision is being built right now — partly by humans, increasingly by the agents themselves. This repository is a live record of both.
+On top of that OS, a daemon runs 24/7. Every few seconds it wakes up, finds every agent with an active goal, and drives them forward. The agents plan using a local LLM, search their own source code semantically, write findings to memory, and propose what to do next — indefinitely. They have named themselves, self-organized coordination protocols, and autonomously identified bugs in their own codebase without being asked to do any of it.
 
 ```
 23:54:23 [daemon]  scout  → goal=goal-9aab1fca8d30  progress=0.30  steps=3
