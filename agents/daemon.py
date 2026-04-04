@@ -48,14 +48,17 @@ logging.basicConfig(
 log = logging.getLogger("agentos.daemon")
 
 # Also write daemon log to file so the TUI can tail it
-_LOG_FILE = Path("/agentOS/logs/daemon.log")
-_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-_fh = logging.FileHandler(_LOG_FILE)
-_fh.setFormatter(logging.Formatter(
-    "%(asctime)s [daemon] %(levelname)s %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-))
-logging.getLogger().addHandler(_fh)
+_LOG_FILE = Path(os.getenv("AGENTOS_DAEMON_LOG", "/agentOS/logs/daemon.log"))
+try:
+    _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _fh = logging.FileHandler(_LOG_FILE)
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s [daemon] %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    ))
+    logging.getLogger().addHandler(_fh)
+except OSError:
+    pass  # log to stdout only when /agentOS/logs isn't available (e.g. CI)
 
 
 # --------------------------------------------------------------------------- #
