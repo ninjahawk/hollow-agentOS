@@ -20,13 +20,15 @@
 
 ## What this is
 
-Hollow is an operating system for AI agents — not a chatbot, not a framework bolted on top of an API, but an actual OS. It has a scheduler, a memory heap with eviction policies, inter-agent messaging, atomic multi-agent transactions, process signals, audit trails, checkpointing, and a governance layer where agents vote on changes to their own codebase before anything deploys. Everything runs locally. No cloud. No subscriptions. Your hardware, your agents, your data.
+You open an app, type what you want, and it gets done. No terminal. No config files. No knowing what Python is. Any tool on the internet, one sentence away. That is the thing being built here, and the way it gets built is genuinely strange: the agents build it themselves.
 
-On top of that OS, a daemon runs 24/7. Every few seconds it wakes up, finds every agent with an active goal, and drives them forward. The agents plan using a local LLM, search their own source code semantically, write findings to memory, and propose what to do next — indefinitely. They have named themselves, self-organized coordination protocols, and autonomously identified bugs in their own codebase without being asked to do any of it.
+Hollow is a real operating system for AI agents running entirely on your hardware. A scheduler, a memory heap, inter-agent messaging, atomic transactions, a governance layer where agents vote on changes to their own codebase before anything deploys. A daemon runs 24/7 driving agents toward goals they set for themselves. The agents have named themselves, organized coordination protocols, and identified bugs in their own source code without being asked to do any of it.
+
+If you want AI that actually operates autonomously on your machine, offline, with no subscriptions and no cloud, this is the only thing that exists.
 
 ```
-23:54:23 [daemon]  scout  → goal=goal-9aab1fca8d30  progress=0.30  steps=3
-23:54:37 [daemon]  scout  → goal=goal-9aab1fca8d30  progress=0.60  steps=3
+23:54:23 [daemon]  scout  -> goal=goal-9aab1fca8d30  progress=0.30  steps=3
+23:54:37 [daemon]  scout  -> goal=goal-9aab1fca8d30  progress=0.60  steps=3
 ```
 
 Nobody sent those. A daemon running on your hardware did.
