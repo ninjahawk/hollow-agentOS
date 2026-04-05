@@ -261,7 +261,7 @@
       <button onclick="showTab('store')" id="tab-store" style="background:none;border:none;color:#555;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px">STORE</button>
     </div>
     <div id="search-bar" style="padding:6px 10px">
-      <input id="search-input" type="text" placeholder="filter apps..." oninput="filterList()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
+      <input id="search-input" type="text" placeholder="search..." oninput="filterList()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
     </div>
     <div id="app-entries" style="flex:1;overflow-y:auto">
       <div id="no-apps" style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">Loading...</div>
@@ -298,6 +298,9 @@ function showTab(tab) {
   document.getElementById('tab-local').style.borderBottom = tab === 'local' ? '1px solid #7fff7f' : 'none';
   document.getElementById('tab-store').style.color = tab === 'store' ? '#7fff7f' : '#555';
   document.getElementById('tab-store').style.borderBottom = tab === 'store' ? '1px solid #7fff7f' : 'none';
+  // Update placeholder to match tab context
+  const search = document.getElementById('search-input');
+  if (search) search.placeholder = tab === 'store' ? 'search store...' : 'filter local...';
   if (tab === 'local') loadLocalWrappers();
   else loadStoreWrappers();
 }
@@ -332,8 +335,10 @@ async function loadLocalWrappers() {
 
 // ── Load from community store ─────────────────────────────────────────────────
 async function loadStoreWrappers() {
+  const q = document.getElementById('search-input')?.value.trim();
+  const url = q ? `${STORE}/wrappers?sort=quality&limit=50&q=${encodeURIComponent(q)}` : `${STORE}/wrappers?sort=quality&limit=50`;
   try {
-    const r = await fetch(`${STORE}/wrappers?sort=quality&limit=50`);
+    const r = await fetch(url);
     if (!r.ok) { renderEmpty('Store unavailable'); return; }
     const data = await r.json();
     wrappers = [];
@@ -420,7 +425,10 @@ function renderDetail() {
             <a href="${esc(w.repo_url)}" target="_blank" style="color:#555">${esc(w.repo_url)}</a>
           </div>
         </div>
-        <button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap;flex-shrink:0" id="update-btn">↑ check updates</button>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          ${currentTab === 'store' ? `<button onclick="installFromStore()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="install-btn">↓ install</button>` : ''}
+          <button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap" id="update-btn">↑ updates</button>
+        </div>
       </div>
       <div id="update-status" style="font-size:10px;color:#555;margin-top:4px"></div>
     </div>
@@ -547,6 +555,45 @@ async function runCommand() {
   }
 }
 
+// ── Install from store ────────────────────────────────────────────────────────
+async function installFromStore() {
+  if (!activeWrapper || currentTab !== 'store') return;
+  const btn = document.getElementById('install-btn');
+  if (!btn) return;
+  const repoUrl = activeWrapper.repo_url;
+  if (!repoUrl) return;
+
+  btn.disabled = true;
+  btn.textContent = 'installing...';
+
+  // Trigger wrap_repo on the agent side (clones locally and saves wrapper)
+  try {
+    const r = await fetch(`${API}/wrap`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+      body: JSON.stringify({url: repoUrl}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      btn.style.color = '#7fff7f';
+      btn.textContent = '✓ installed';
+      // Also increment store install count
+      const repoId = wrappers.find(w => w.wrapper === activeWrapper)?.repo_id;
+      if (repoId) {
+        await fetch(`${STORE}/wrappers/${repoId}/install`, {method: 'POST'}).catch(() => {});
+      }
+      setTimeout(() => { btn.textContent = '✓ local'; btn.disabled = false; }, 2000);
+    } else {
+      btn.textContent = 'failed';
+      btn.style.color = '#ff6666';
+      setTimeout(() => { btn.textContent = '↓ install'; btn.style.color = '#7fff7f'; btn.disabled = false; }, 2000);
+    }
+  } catch (e) {
+    btn.textContent = 'error';
+    btn.disabled = false;
+  }
+}
+
 // ── Wrap new repo ─────────────────────────────────────────────────────────────
 async function wrapNewRepo() {
   const url = document.getElementById('wrap-input').value.trim();
@@ -622,14 +669,22 @@ async function checkWrapperVersion() {
   }
 }
 
-// ── Filter app list ──────────────────────────────────────────────────────────
+// ── Filter/search app list ────────────────────────────────────────────────────
+let _searchTimer = null;
 function filterList() {
-  const q = document.getElementById('search-input').value.toLowerCase();
-  document.querySelectorAll('.app-item').forEach(el => {
-    const name = el.querySelector('.app-name')?.textContent.toLowerCase() || '';
-    const desc = el.querySelector('.app-desc')?.textContent.toLowerCase() || '';
-    el.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
-  });
+  if (currentTab === 'local') {
+    // Client-side filter for local apps
+    const q = document.getElementById('search-input').value.toLowerCase();
+    document.querySelectorAll('.app-item').forEach(el => {
+      const name = el.querySelector('.app-name')?.textContent.toLowerCase() || '';
+      const desc = el.querySelector('.app-desc')?.textContent.toLowerCase() || '';
+      el.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
+    });
+  } else {
+    // Server-side search for store — debounced
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => loadStoreWrappers(), 400);
+  }
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────
