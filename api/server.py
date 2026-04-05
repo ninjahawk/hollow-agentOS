@@ -1823,6 +1823,23 @@ async def get_local_wrapper(repo_name: str, authorization: Optional[str] = Heade
     return json.loads(wf.read_text())
 
 
+@app.post("/version-check")
+async def trigger_version_check(authorization: Optional[str] = Header(None)):
+    """
+    Manually trigger a version check on all installed wrappers.
+    Detects new commits on GitHub and updates stale wrappers via Claude.
+    Normally runs automatically on a periodic interval in the daemon.
+    """
+    _verify_any_token(authorization)
+    try:
+        from agents.version_monitor import check_and_update_wrappers
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, check_and_update_wrappers)
+        return {"ok": True, **results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

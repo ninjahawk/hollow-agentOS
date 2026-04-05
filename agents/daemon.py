@@ -545,6 +545,19 @@ def main():
             except Exception as _se:
                 log.debug("[SEMANTIC] re-index error: %s", _se)
 
+        # Periodic wrapper version check (every CHECK_INTERVAL seconds, default 4h)
+        _version_check_interval_cycles = max(1, int(
+            int(os.getenv("HOLLOW_VERSION_CHECK_INTERVAL", str(4 * 3600))) / max(1, HEARTBEAT)
+        ))
+        if metrics.cycles % _version_check_interval_cycles == 0 and metrics.cycles > 0:
+            try:
+                from agents.version_monitor import check_and_update_wrappers
+                vr = check_and_update_wrappers()
+                log.info("[VERSION] checked=%d updated=%d errors=%d",
+                         vr.get("checked", 0), vr.get("updated", 0), vr.get("errors", 0))
+            except Exception as _ve:
+                log.debug("[VERSION] version check error: %s", _ve)
+
         # Periodic status report every 10 cycles
         if metrics.cycles % 10 == 0:
             log.info("[METRICS] %s", metrics.summary())

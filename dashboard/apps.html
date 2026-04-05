@@ -49,10 +49,12 @@
 
   /* ── App list (left) ── */
   #app-list {
-    width: 240px;
+    width: 260px;
     border-right: 1px solid #1e1e1e;
     overflow-y: auto;
     padding: 8px 0;
+    display: flex;
+    flex-direction: column;
   }
   #app-list h2 {
     color: #555;
@@ -75,6 +77,43 @@
   .app-item .app-name { color: #e0e0e0; font-weight: bold; font-size: 12px; }
   .app-item .app-desc { color: #555; font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .app-item .app-installs { color: #3a3; font-size: 10px; margin-top: 2px; }
+
+  /* ── Wrap new repo panel ── */
+  #wrap-panel {
+    padding: 8px 10px;
+    border-top: 1px solid #1a1a1a;
+    margin-top: auto;
+    flex-shrink: 0;
+  }
+  #wrap-input {
+    width: 100%;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    color: #e0e0e0;
+    padding: 5px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    outline: none;
+    border-radius: 2px;
+    margin-bottom: 4px;
+  }
+  #wrap-input:focus { border-color: #7fff7f; }
+  #wrap-input::placeholder { color: #333; }
+  #wrap-btn {
+    width: 100%;
+    background: #0e1a0e;
+    border: 1px solid #3a7a3a;
+    color: #7fff7f;
+    padding: 5px;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 2px;
+    letter-spacing: 1px;
+  }
+  #wrap-btn:hover { background: #1a2e1a; }
+  #wrap-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #wrap-status { font-size: 10px; color: #555; margin-top: 3px; min-height: 14px; }
 
   #no-apps {
     padding: 20px 12px;
@@ -219,8 +258,17 @@
       <button onclick="showTab('local')" id="tab-local" style="background:none;border:none;color:#7fff7f;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px;border-bottom:1px solid #7fff7f">LOCAL</button>
       <button onclick="showTab('store')" id="tab-store" style="background:none;border:none;color:#555;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px">STORE</button>
     </div>
-    <div id="app-entries">
+    <div id="search-bar" style="padding:6px 10px">
+      <input id="search-input" type="text" placeholder="filter apps..." oninput="filterList()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
+    </div>
+    <div id="app-entries" style="flex:1;overflow-y:auto">
       <div id="no-apps" style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">Loading...</div>
+    </div>
+    <div id="wrap-panel">
+      <div style="color:#333;font-size:10px;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Wrap New Repo</div>
+      <input id="wrap-input" type="text" placeholder="https://github.com/owner/repo" onkeydown="if(event.key==='Enter')wrapNewRepo()">
+      <button id="wrap-btn" onclick="wrapNewRepo()">+ WRAP</button>
+      <div id="wrap-status"></div>
     </div>
   </div>
 
@@ -351,13 +399,19 @@ function renderDetail() {
 
   detail.innerHTML = `
     <div id="app-header">
-      <h2>${esc(cm.name)}</h2>
-      <p>${esc(cm.description)}</p>
-      <div class="meta">
-        invoke: <span style="color:#3a7a3a">${esc(cm.invoke)}</span> &nbsp;·&nbsp;
-        commit: ${esc(w.source_commit || 'unknown')} &nbsp;·&nbsp;
-        <a href="${esc(w.repo_url)}" target="_blank" style="color:#555">${esc(w.repo_url)}</a>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+        <div>
+          <h2>${esc(cm.name)}</h2>
+          <p>${esc(cm.description)}</p>
+          <div class="meta">
+            invoke: <span style="color:#3a7a3a">${esc(cm.invoke)}</span> &nbsp;·&nbsp;
+            commit: <span id="current-commit">${esc(w.source_commit || 'unknown')}</span> &nbsp;·&nbsp;
+            <a href="${esc(w.repo_url)}" target="_blank" style="color:#555">${esc(w.repo_url)}</a>
+          </div>
+        </div>
+        <button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap;flex-shrink:0" id="update-btn">↑ check updates</button>
       </div>
+      <div id="update-status" style="font-size:10px;color:#555;margin-top:4px"></div>
     </div>
     <div id="cap-tabs">${tabs}</div>
     <div id="app-form"></div>
@@ -474,6 +528,91 @@ async function runCommand() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── Wrap new repo ─────────────────────────────────────────────────────────────
+async function wrapNewRepo() {
+  const url = document.getElementById('wrap-input').value.trim();
+  if (!url || !url.startsWith('http')) {
+    document.getElementById('wrap-status').textContent = 'enter a github url';
+    return;
+  }
+  const btn = document.getElementById('wrap-btn');
+  const status = document.getElementById('wrap-status');
+  btn.disabled = true;
+  status.style.color = '#555';
+  status.textContent = 'wrapping... (may take ~30s)';
+  try {
+    const r = await fetch(`${API}/wrap`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+      body: JSON.stringify({url}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.style.color = '#7fff7f';
+      status.textContent = `✓ ${d.repo_name} wrapped (${d.capability_count} caps)`;
+      document.getElementById('wrap-input').value = '';
+      setTimeout(() => { status.textContent = ''; loadWrappers(); }, 2000);
+    } else {
+      status.style.color = '#ff6666';
+      status.textContent = `✗ ${(d.error || 'failed').substring(0, 50)}`;
+    }
+  } catch (e) {
+    status.style.color = '#ff6666';
+    status.textContent = `✗ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Check wrapper for updates ─────────────────────────────────────────────────
+async function checkWrapperVersion() {
+  if (!activeWrapper) return;
+  const btn = document.getElementById('update-btn');
+  const status = document.getElementById('update-status');
+  btn.disabled = true;
+  btn.textContent = 'checking...';
+  status.style.color = '#555';
+  status.textContent = 'querying GitHub...';
+  try {
+    const r = await fetch(`${API}/version-check`, {
+      method: 'POST',
+      headers: {'Authorization': `Bearer ${TOKEN}`},
+    });
+    const d = await r.json();
+    const repoName = activeWrapper.capability_map?.name?.toLowerCase() || '';
+    const updated = (d.repos || []).find(x => x.name === repoName && x.status === 'updated');
+    const current = (d.repos || []).find(x => x.name === repoName && x.status === 'current');
+    if (updated) {
+      status.style.color = '#7fff7f';
+      status.textContent = `✓ updated: ${updated.from} → ${updated.to}`;
+      document.getElementById('current-commit').textContent = updated.to;
+      setTimeout(loadWrappers, 1500);
+    } else if (current) {
+      status.style.color = '#555';
+      status.textContent = `✓ up to date (${current.commit})`;
+    } else {
+      status.style.color = '#555';
+      status.textContent = `checked: ${d.checked || 0} wrappers, ${d.updated || 0} updated`;
+    }
+  } catch (e) {
+    status.style.color = '#ff6666';
+    status.textContent = `error: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↑ check updates';
+  }
+}
+
+// ── Filter app list ──────────────────────────────────────────────────────────
+function filterList() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  document.querySelectorAll('.app-item').forEach(el => {
+    const name = el.querySelector('.app-name')?.textContent.toLowerCase() || '';
+    const desc = el.querySelector('.app-desc')?.textContent.toLowerCase() || '';
+    el.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
+  });
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────

@@ -17,7 +17,10 @@ version: "3.9"
 
 services:
   api:
-    image: ghcr.io/ninjahawk/hollow-agentos:latest
+    # Use local build if available (hollow-agentos-local), otherwise pull from GHCR.
+    # To build locally: docker build -t hollow-agentos-local .
+    # Then: docker compose up -d
+    image: ${HOLLOW_API_IMAGE:-ghcr.io/ninjahawk/hollow-agentos:latest}
     build:
       context: .
       # 'image' above is used as-is when pulled from GHCR.

@@ -28,3 +28,6 @@ build/
 .idea/
 *.swp
 *.swo
+
+# Runtime env config (may contain secrets)
+.env

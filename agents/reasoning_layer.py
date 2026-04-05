@@ -152,17 +152,37 @@ def _get_claude_client():
 
 
 def _strip_code_fences(text: str) -> str:
-    """Strip markdown code fences Claude sometimes wraps around JSON."""
+    """
+    Extract JSON from LLM output, handling:
+    - Text that starts directly with the JSON object
+    - Markdown code fences (```json...```)
+    - Prose before the code fence ("Here's the wrapper:\n```json\n{...}\n```")
+    """
     text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        # drop opening fence (```json or ```) and closing ```
-        inner = []
-        for line in lines[1:]:
-            if line.strip() == "```":
+    # If there's a code fence anywhere, extract from the first one
+    if "```" in text:
+        # Find the first opening fence
+        fence_start = text.index("```")
+        after_fence = text[fence_start + 3:]
+        # Skip optional language tag (json, python, etc.)
+        first_newline = after_fence.find("\n")
+        if first_newline != -1:
+            after_fence = after_fence[first_newline + 1:]
+        # Find closing fence
+        close = after_fence.find("```")
+        if close != -1:
+            text = after_fence[:close].strip()
+        else:
+            text = after_fence.strip()
+    # If output starts with prose before a JSON object, find the first { or [
+    if text and not text.startswith(("{", "[")):
+        brace = -1
+        for i, ch in enumerate(text):
+            if ch in ("{", "["):
+                brace = i
                 break
-            inner.append(line)
-        text = "\n".join(inner).strip()
+        if brace >= 0:
+            text = text[brace:]
     return text
 
 
