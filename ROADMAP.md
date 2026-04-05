@@ -442,5 +442,29 @@ HollowOS is a minimal Linux distro that boots directly into a browser in kiosk m
 **Phase 4 success criteria progress:**
 - ✅ A repo updates on GitHub → wrapper updates automatically (version_monitor.py, untested on real update yet)
 - ⬜ Developer replaces 3 tools with Hollow-wrapped versions (need real user validation)  
-- ⬜ Store has 100+ pre-wrapped tools at launch (at 25+, continuing)
+- ⬜ Store has 100+ pre-wrapped tools at launch (at ~80+, continuing)
 - ✅ Bad wrapper cannot harm host (sandbox blocks dangerous patterns)
+
+---
+
+### 2026-04-05 — Phase 5 foundations: non-technical user layer
+**By:** AI (Claude Sonnet 4.6, autonomous session)
+**Decisions and what was built:**
+
+1. **Natural language discovery** (`POST /discover`) — User types "I want to search files fast". Agent routes to Claude Haiku for semantic ranking of installed wrappers. Falls back to keyword scoring if Claude unavailable. Ranked list returned with relevance scores.
+
+2. **Auto-installer** (`shell/installer.py`, `POST /tools/install`) — When an app's binary isn't installed, user clicks "Install automatically". Whitelist-only approach: cargo, pip, pip3, go, npm, apt-get patterns only. Parses install_hint from prose (regex extraction). Blocked packages list prevents dangerous installs. Returns ok/available/method/message.
+
+3. **Tool availability check** (`GET /tools/check`) — `selectApp()` in apps.html now checks if the app's binary is available before showing the form. If not found: shows friendly "Tool not installed" message with Install automatically button.
+
+4. **Custom interface per user** (`POST /wrappers/{name}/customize`) — User describes how they want to interact with a tool in plain English. Claude Sonnet re-generates interface_spec from preferences. Saved locally in wrapper.json. Re-renders form immediately.
+
+5. **Check Updates button** — apps.html STORE tab has a "Check Updates" button. Calls `POST /version-check` which runs version_monitor for all installed wrappers. Shows count of updated/checked/errors.
+
+6. **Store quality repair** — `scripts/repair_wrappers.py` repairs low-quality wrappers in bulk: adds param descriptions, field placeholders, enriches short descriptions. 16 wrappers improved.
+
+7. **Image rebuilt** — `hollow-agentos-local` rebuilt with Phase 5 foundations baked in (installer.py, updated server.py with all new endpoints).
+
+**Store catalog progress:** 80+ wrappers and growing. Target: 100+ at launch.
+
+**Phase 5 status:** Foundations built. Remaining: real-user validation, Claude auth in container, catalog to 100+.
