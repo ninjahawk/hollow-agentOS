@@ -1853,6 +1853,18 @@ class DiscoverRequest(BaseModel):
     limit: int = 5
 
 
+@app.get("/tools/check")
+async def check_tool_available(
+    invoke: str = Query(..., description="binary name to check"),
+    authorization: Optional[str] = Header(None),
+):
+    """Check if a CLI tool binary is available in the container PATH."""
+    _verify_any_token(authorization)
+    import shutil
+    found = shutil.which(invoke) is not None
+    return {"invoke": invoke, "available": found, "path": shutil.which(invoke)}
+
+
 @app.post("/discover")
 async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = Header(None)):
     """

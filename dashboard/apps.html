@@ -391,12 +391,27 @@ function renderList() {
 }
 
 // ── Select an app ─────────────────────────────────────────────────────────────
-function selectApp(idx) {
+async function selectApp(idx) {
   document.querySelectorAll('.app-item').forEach((el, i) => {
     el.classList.toggle('active', i === idx);
   });
   activeWrapper = wrappers[idx].wrapper;
   activeCap = activeWrapper.capability_map.capabilities[0];
+
+  // Check if the tool binary is available
+  const invoke = activeWrapper.capability_map?.invoke;
+  let toolAvailable = true;
+  if (invoke) {
+    try {
+      const r = await fetch(`${API}/tools/check?invoke=${encodeURIComponent(invoke)}`,
+        {headers: {Authorization: `Bearer ${TOKEN}`}});
+      if (r.ok) {
+        const d = await r.json();
+        toolAvailable = d.available;
+      }
+    } catch {}
+  }
+  activeWrapper._toolAvailable = toolAvailable;
   renderDetail();
 }
 
@@ -433,6 +448,10 @@ function renderDetail() {
       <div id="update-status" style="font-size:10px;color:#555;margin-top:4px"></div>
     </div>
     <div id="cap-tabs">${tabs}</div>
+    ${!w._toolAvailable ? `<div style="background:#1a0e0e;border:1px solid #4a2a2a;padding:10px 14px;border-radius:2px;margin-bottom:16px;font-size:11px;color:#cc8888">
+      <strong style="color:#ff9999">Tool not installed:</strong> <code style="color:#ffaaaa">${esc(cm.invoke)}</code> not found in container.<br>
+      <span style="color:#664444;margin-top:4px;display:block">Install hint: ${esc(cm.install_hint || 'see repo README')}</span>
+    </div>` : ''}
     <div id="app-form"></div>
     <div id="cmd-preview" style="display:none">$ <span id="cmd-text"></span></div>
     <div id="output-section" style="display:none">
@@ -481,9 +500,11 @@ function renderForm(cap, iface) {
     </div>`;
   }).join('');
 
+  const toolOk = activeWrapper._toolAvailable !== false;
   formEl.innerHTML = `
     ${fieldHtml}
-    <button id="run-btn" onclick="runCommand()">▶  Run</button>
+    <button id="run-btn" onclick="runCommand()" ${!toolOk ? 'disabled title="Tool not installed in container"' : ''}>▶  Run</button>
+    ${!toolOk ? '<span style="margin-left:8px;color:#664444;font-size:10px">tool not available</span>' : ''}
   `;
 
   updatePreview();
