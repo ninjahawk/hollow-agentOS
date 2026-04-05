@@ -333,26 +333,37 @@ async function loadLocalWrappers() {
   } catch (e) { renderEmpty('Failed to load local apps'); }
 }
 
-// ── Load from community store ─────────────────────────────────────────────────
-async function loadStoreWrappers() {
+let _storeOffset = 0;
+const _STORE_PAGE = 50;
+
+// ── Load from community store (lazy: list only, full wrapper fetched on select) ─
+async function loadStoreWrappers(append = false) {
   const q = document.getElementById('search-input')?.value.trim();
-  const url = q ? `${STORE}/wrappers?sort=quality&limit=50&q=${encodeURIComponent(q)}` : `${STORE}/wrappers?sort=quality&limit=50`;
+  if (!append) { _storeOffset = 0; }
+  const params = new URLSearchParams({sort:'quality', limit:_STORE_PAGE, offset:_storeOffset});
+  if (q) params.set('q', q);
+  const url = `${STORE}/wrappers?${params}`;
   try {
     const r = await fetch(url);
     if (!r.ok) { renderEmpty('Store unavailable'); return; }
     const data = await r.json();
-    wrappers = [];
-    for (const w of (data.wrappers || [])) {
-      try {
-        const wr = await fetch(`${STORE}/wrappers/${w.repo_id}`);
-        if (wr.ok) {
-          const fullWrapper = await wr.json();
-          fullWrapper.quality_score = w.quality_score;  // carry quality score through
-          wrappers.push({repo_id: w.repo_id, wrapper: fullWrapper, quality_score: w.quality_score});
-        }
-      } catch {}
-    }
-    renderList();
+    const stubs = (data.wrappers || []).map(w => ({
+      repo_id: w.repo_id,
+      quality_score: w.quality_score,
+      _stub: true,
+      _total: data.total,
+      wrapper: {
+        repo_url: w.repo_url || '',
+        capability_map: {name: w.name, description: w.description || '', invoke: '', capabilities: []},
+        interface_spec: {fields: []},
+        install_count: w.install_count || 0,
+        quality_score: w.quality_score,
+      },
+    }));
+    if (append) wrappers.push(...stubs);
+    else wrappers = stubs;
+    _storeOffset += stubs.length;
+    renderList(data.total);
   } catch (e) { renderEmpty('Store offline'); }
 }
 
@@ -368,13 +379,14 @@ function renderEmpty(msg) {
 }
 
 // ── Render left panel ────────────────────────────────────────────────────────
-function renderList() {
+function renderList(total) {
   const el = document.getElementById('app-entries');
   if (!wrappers.length) {
     el.innerHTML = '<div id="no-apps">No apps installed yet.<br><br>' +
       'Use <span style="color:#3a3">wrap_repo</span> to wrap a GitHub repo.</div>';
     return;
   }
+  const hasMore = currentTab === 'store' && total != null && wrappers.length < total;
   el.innerHTML = wrappers.map((w, i) => {
     const cm = w.wrapper.capability_map;
     const score = w.wrapper.quality_score || w.quality_score || '';
@@ -387,7 +399,9 @@ function renderList() {
         <span class="installs">${installs} installs</span>
       </div>
     </div>`;
-  }).join('');
+  }).join('') + (hasMore
+    ? `<div style="padding:8px 12px"><button onclick="loadStoreWrappers(true)" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#555;padding:5px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px">load more (${total - wrappers.length} remaining)</button></div>`
+    : '');
 }
 
 // ── Select an app ─────────────────────────────────────────────────────────────
@@ -395,8 +409,27 @@ async function selectApp(idx) {
   document.querySelectorAll('.app-item').forEach((el, i) => {
     el.classList.toggle('active', i === idx);
   });
-  activeWrapper = wrappers[idx].wrapper;
-  activeCap = activeWrapper.capability_map.capabilities[0];
+
+  const entry = wrappers[idx];
+
+  // Lazy-load full wrapper if we only have a stub (store tab)
+  if (entry._stub) {
+    const detail = document.getElementById('app-detail');
+    detail.className = '';
+    detail.innerHTML = '<div style="padding:24px 32px;color:#333">Loading...</div>';
+    try {
+      const wr = await fetch(`${STORE}/wrappers/${entry.repo_id}`);
+      if (wr.ok) {
+        const full = await wr.json();
+        full.quality_score = entry.quality_score;
+        entry.wrapper = full;
+        entry._stub = false;
+      }
+    } catch {}
+  }
+
+  activeWrapper = entry.wrapper;
+  activeCap = activeWrapper.capability_map.capabilities?.[0] || null;
 
   // Check if the tool binary is available
   const invoke = activeWrapper.capability_map?.invoke;
@@ -424,7 +457,8 @@ function renderDetail() {
   detail.className = '';
 
   // Cap tabs
-  const tabs = cm.capabilities.map((c, i) =>
+  const caps = cm.capabilities || [];
+  const tabs = caps.map((c, i) =>
     `<button class="cap-tab${i===0?' active':''}" onclick="selectCap(${i})">${esc(c.id)}</button>`
   ).join('');
 
@@ -485,10 +519,14 @@ function selectCap(idx) {
 function renderForm(cap, iface) {
   const formEl = document.getElementById('app-form');
   if (!formEl) return;
+  if (!cap) {
+    formEl.innerHTML = '<div style="color:#333;font-size:11px">No capabilities defined for this app.</div>';
+    return;
+  }
 
   // Match fields to this capability's params
   const capParamNames = new Set((cap.params || []).map(p => p.name));
-  const fields = iface.fields.filter(f => capParamNames.has(f.id) || !capParamNames.size);
+  const fields = (iface?.fields || []).filter(f => capParamNames.has(f.id) || !capParamNames.size);
 
   const fieldHtml = fields.map(f => {
     const req = f.required ? '<span class="required">*</span>' : '';
@@ -866,7 +904,8 @@ function esc(s) {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadWrappers();
-setInterval(loadWrappers, 15000);
+// Auto-refresh local tab only (store is largely static, don't disrupt browsing)
+setInterval(() => { if (currentTab === 'local') loadLocalWrappers(); }, 15000);
 </script>
 </body>
 </html>
