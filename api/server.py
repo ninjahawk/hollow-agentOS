@@ -1853,6 +1853,96 @@ class DiscoverRequest(BaseModel):
     limit: int = 5
 
 
+class CustomizeRequest(BaseModel):
+    repo_name: str
+    preference: str  # Natural language description of how the user wants to interact
+
+
+@app.post("/wrappers/{repo_name}/customize")
+async def customize_wrapper(
+    repo_name: str,
+    body: CustomizeRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Re-generate the interface_spec for a wrapper based on user preference.
+    'I want to just drag and drop files' → simpler form with file pickers.
+    'Show me only the search options I use daily' → condensed interface.
+    Saves to workspace/wrappers/{repo_name}/wrapper_custom.json
+    (does not overwrite the canonical wrapper.json).
+    """
+    _verify_any_token(authorization)
+    wf = Path(f"/agentOS/workspace/wrappers/{repo_name}/wrapper.json")
+    if not wf.exists():
+        raise HTTPException(status_code=404, detail=f"No wrapper for {repo_name}")
+
+    wrapper = json.load(open(wf))
+    cm = wrapper.get("capability_map", {})
+    iface = wrapper.get("interface_spec", {})
+
+    prompt = (
+        f"A user wants to customize how they interact with the '{cm.get('name', repo_name)}' tool.\n"
+        f"User preference: \"{body.preference}\"\n\n"
+        f"Current interface spec:\n{json.dumps(iface, indent=2)}\n\n"
+        f"Current capability map:\n{json.dumps(cm, indent=2)}\n\n"
+        f"Regenerate ONLY the interface_spec to match the user's preference.\n"
+        f"Keep all field ids consistent with the capability params.\n"
+        f"Return ONLY the updated interface_spec JSON object. No explanation."
+    )
+
+    async def _regenerate():
+        try:
+            from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
+            client = _get_claude_client()
+            if client:
+                msg = client.messages.create(
+                    model=CLAUDE_SMART_MODEL,
+                    max_tokens=1500,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                raw = _strip_code_fences(msg.content[0].text.strip())
+                return json.loads(raw)
+        except Exception:
+            pass
+        return None
+
+    loop = asyncio.get_event_loop()
+    new_iface = await loop.run_in_executor(None, lambda: asyncio.run(_regenerate()) if False else None)
+
+    # Sync fallback since we can't easily run async in executor
+    try:
+        from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
+        client = _get_claude_client()
+        if client:
+            msg = client.messages.create(
+                model=CLAUDE_SMART_MODEL,
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = _strip_code_fences(msg.content[0].text.strip())
+            new_iface = json.loads(raw)
+        else:
+            raise HTTPException(status_code=503, detail="Claude not available for customization")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Customization failed: {e}")
+
+    if not new_iface or not isinstance(new_iface, dict):
+        raise HTTPException(status_code=500, detail="Model returned invalid interface spec")
+
+    # Save as custom wrapper
+    custom_wrapper = {**wrapper, "interface_spec": new_iface, "customized": True,
+                      "preference": body.preference}
+    custom_wf = Path(f"/agentOS/workspace/wrappers/{repo_name}/wrapper_custom.json")
+    tmp = custom_wf.with_suffix(".tmp")
+    tmp.write_text(json.dumps(custom_wrapper, indent=2))
+    tmp.replace(custom_wf)
+
+    return {"ok": True, "repo_name": repo_name, "interface_spec": new_iface,
+            "saved_to": str(custom_wf)}
+
+
 @app.get("/tools/check")
 async def check_tool_available(
     invoke: str = Query(..., description="binary name to check"),

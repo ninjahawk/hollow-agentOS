@@ -442,10 +442,17 @@ function renderDetail() {
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
           ${currentTab === 'store' ? `<button onclick="installFromStore()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="install-btn">↓ install</button>` : ''}
+          <button onclick="showCustomize()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="customize-btn">✎ customize</button>
           <button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap" id="update-btn">↑ updates</button>
         </div>
       </div>
       <div id="update-status" style="font-size:10px;color:#555;margin-top:4px"></div>
+      <div id="customize-panel" style="display:none;margin-top:8px;border-top:1px solid #1a1a1a;padding-top:8px">
+        <div style="font-size:10px;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Customize interface</div>
+        <input id="customize-input" type="text" placeholder="describe how you want to use this tool..." onkeydown="if(event.key==='Enter')applyCustomize()" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#e0e0e0;padding:6px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px;margin-bottom:4px">
+        <button onclick="applyCustomize()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 12px;font:inherit;font-size:11px;cursor:pointer;border-radius:2px" id="apply-customize-btn">Apply with Claude</button>
+        <span id="customize-status" style="font-size:10px;color:#555;margin-left:8px"></span>
+      </div>
     </div>
     <div id="cap-tabs">${tabs}</div>
     ${!w._toolAvailable ? `<div style="background:#1a0e0e;border:1px solid #4a2a2a;padding:10px 14px;border-radius:2px;margin-bottom:16px;font-size:11px;color:#cc8888">
@@ -603,6 +610,67 @@ async function discoverTools() {
     renderList();
   } catch(e) {
     renderEmpty('Discovery failed: ' + e.message);
+  }
+}
+
+// ── Customize interface with Claude ──────────────────────────────────────────
+function showCustomize() {
+  const panel = document.getElementById('customize-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  if (panel.style.display !== 'none') {
+    document.getElementById('customize-input')?.focus();
+  }
+}
+
+async function applyCustomize() {
+  if (!activeWrapper) return;
+  const pref = document.getElementById('customize-input')?.value.trim();
+  if (!pref) return;
+  const repoName = activeWrapper.capability_map?.invoke ||
+                   Object.keys({...(window._wrapperRepoNames||{})}).find(k => window._wrapperRepoNames[k] === activeWrapper);
+
+  // Get repo_name from the wrappers list
+  const idx = wrappers.findIndex(w => w.wrapper === activeWrapper);
+  const repo_name = wrappers[idx]?.repo_id;
+  if (!repo_name) {
+    document.getElementById('customize-status').textContent = 'unknown repo name';
+    return;
+  }
+
+  const btn = document.getElementById('apply-customize-btn');
+  const status = document.getElementById('customize-status');
+  btn.disabled = true;
+  status.style.color = '#555';
+  status.textContent = 'asking Claude...';
+
+  try {
+    const r = await fetch(`${API}/wrappers/${repo_name}/customize`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+      body: JSON.stringify({repo_name, preference: pref}),
+    });
+    const d = await r.json();
+    if (d.ok && d.interface_spec) {
+      // Update the active wrapper's interface in-memory and re-render form
+      activeWrapper.interface_spec = d.interface_spec;
+      activeWrapper._customized = true;
+      status.style.color = '#7fff7f';
+      status.textContent = '✓ customized — re-rendering';
+      setTimeout(() => {
+        renderForm(activeCap, activeWrapper.interface_spec);
+        status.textContent = '✓ applied';
+        document.getElementById('customize-panel').style.display = 'none';
+      }, 500);
+    } else {
+      status.style.color = '#ff6666';
+      status.textContent = d.detail || 'failed';
+    }
+  } catch (e) {
+    status.style.color = '#ff6666';
+    status.textContent = e.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 
