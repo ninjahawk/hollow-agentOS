@@ -1823,6 +1823,31 @@ async def get_local_wrapper(repo_name: str, authorization: Optional[str] = Heade
     return json.loads(wf.read_text())
 
 
+class SandboxRequest(BaseModel):
+    command: str
+    cwd: Optional[str] = None
+    timeout: int = 30
+
+
+@app.post("/shell/sandbox")
+async def run_sandboxed_command(
+    body: SandboxRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Execute a command in the Hollow sandbox — safe execution for wrapped apps.
+    Applies blocklist filtering, timeout, output cap, and restricted environment.
+    Use this instead of POST /shell when running user-installed app commands.
+    """
+    _verify_any_token(authorization)
+    from shell.sandbox import run_sandboxed
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None, lambda: run_sandboxed(body.command, cwd=body.cwd, timeout=body.timeout)
+    )
+    return result
+
+
 @app.post("/version-check")
 async def trigger_version_check(authorization: Optional[str] = Header(None)):
     """

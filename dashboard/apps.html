@@ -76,7 +76,9 @@
   }
   .app-item .app-name { color: #e0e0e0; font-weight: bold; font-size: 12px; }
   .app-item .app-desc { color: #555; font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .app-item .app-installs { color: #3a3; font-size: 10px; margin-top: 2px; }
+  .app-item .app-meta { color: #3a3; font-size: 10px; margin-top: 2px; display: flex; gap: 8px; }
+  .app-item .quality { color: #3a6a3a; }
+  .app-item .installs { color: #4a8a4a; }
 
   /* ── Wrap new repo panel ── */
   #wrap-panel {
@@ -331,14 +333,18 @@ async function loadLocalWrappers() {
 // ── Load from community store ─────────────────────────────────────────────────
 async function loadStoreWrappers() {
   try {
-    const r = await fetch(`${STORE}/wrappers`);
+    const r = await fetch(`${STORE}/wrappers?sort=quality&limit=50`);
     if (!r.ok) { renderEmpty('Store unavailable'); return; }
     const data = await r.json();
     wrappers = [];
     for (const w of (data.wrappers || [])) {
       try {
         const wr = await fetch(`${STORE}/wrappers/${w.repo_id}`);
-        if (wr.ok) wrappers.push({repo_id: w.repo_id, wrapper: await wr.json()});
+        if (wr.ok) {
+          const fullWrapper = await wr.json();
+          fullWrapper.quality_score = w.quality_score;  // carry quality score through
+          wrappers.push({repo_id: w.repo_id, wrapper: fullWrapper, quality_score: w.quality_score});
+        }
       } catch {}
     }
     renderList();
@@ -366,10 +372,15 @@ function renderList() {
   }
   el.innerHTML = wrappers.map((w, i) => {
     const cm = w.wrapper.capability_map;
+    const score = w.wrapper.quality_score || w.quality_score || '';
+    const installs = w.wrapper.install_count || 0;
     return `<div class="app-item" onclick="selectApp(${i})">
       <div class="app-name">${esc(cm.name || w.repo_id)}</div>
       <div class="app-desc">${esc((cm.description || '').substring(0, 60))}</div>
-      <div class="app-installs">${w.wrapper.install_count || 0} installs</div>
+      <div class="app-meta">
+        ${score !== '' ? `<span class="quality">★ ${score}</span>` : ''}
+        <span class="installs">${installs} installs</span>
+      </div>
     </div>`;
   }).join('');
 }
@@ -510,18 +521,24 @@ async function runCommand() {
   outputBox.textContent = 'running...';
 
   try {
-    const r = await fetch(`${API}/shell`, {
+    const r = await fetch(`${API}/shell/sandbox`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${TOKEN}`,
       },
-      body: JSON.stringify({command: cmd, cwd: '/agentOS/workspace'}),
+      body: JSON.stringify({command: cmd, cwd: '/agentOS/workspace/sandbox', timeout: 30}),
     });
     const data = await r.json();
-    const out = (data.stdout || '') + (data.stderr ? `\n[stderr]\n${data.stderr}` : '');
-    outputBox.className = data.exit_code === 0 ? '' : 'error';
-    outputBox.textContent = out || '(no output)';
+    if (data.blocked) {
+      outputBox.className = 'error';
+      outputBox.textContent = `[BLOCKED] ${data.reason || 'unsafe command'}`;
+    } else {
+      const out = (data.stdout || '') + (data.stderr ? `\n[stderr]\n${data.stderr}` : '');
+      outputBox.className = data.exit_code === 0 ? '' : 'error';
+      outputBox.textContent = out || '(no output)';
+      if (data.timed_out) outputBox.textContent = '[timed out after 30s]\n' + outputBox.textContent;
+    }
   } catch (e) {
     outputBox.className = 'error';
     outputBox.textContent = `Error: ${e.message}`;

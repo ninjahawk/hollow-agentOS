@@ -1,5 +1,5 @@
 """
-Hollow Store Server — v1.0.0
+Hollow Store Server — v1.1.0
 
 Central store for Hollow app wrappers. One instance shared by all Hollow installs.
 First person to wrap a repo uploads it here. Everyone else downloads it free.
@@ -7,10 +7,17 @@ First person to wrap a repo uploads it here. Everyone else downloads it free.
 Endpoints:
   GET  /health                         liveness
   POST /wrappers                       upload a wrapper
-  GET  /wrappers                       list all wrappers (?limit=20&offset=0)
+  GET  /wrappers                       list all wrappers (?limit=20&offset=0&sort=installs|quality)
   GET  /wrappers/{repo_id}             download a wrapper
   POST /wrappers/{repo_id}/install     increment install count
   GET  /wrappers/{repo_id}/version     check if an update is available
+
+Quality scoring (0-100):
+  - Each capability has a shell_template: +10 pts (up to 4 caps)
+  - Each capability has params with descriptions: +5 pts
+  - interface_spec has >= 1 field: +10 pts
+  - Wrapper has a real description (not placeholder): +10 pts
+  - install_count bonus: log10(count+1) * 10, capped at 20
 
 Storage: plain JSON files at STORE_DATA_DIR/{repo_id}/wrapper.json
 No database. No auth for v1. Atomic writes (temp→rename).
@@ -18,6 +25,7 @@ No database. No auth for v1. Atomic writes (temp→rename).
 
 import hashlib
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -66,6 +74,48 @@ def _read_wrapper(repo_id: str) -> dict:
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"Wrapper {repo_id} not found")
     return json.loads(p.read_text())
+
+
+def _quality_score(wrapper: dict) -> float:
+    """
+    Score a wrapper 0-100 based on structural quality.
+    Higher = more complete, more useful, more popular.
+    """
+    score = 0.0
+    cm = wrapper.get("capability_map", {})
+    iface = wrapper.get("interface_spec", {})
+
+    # Capabilities with real shell templates
+    caps = cm.get("capabilities", [])
+    for cap in caps[:4]:
+        if cap.get("shell_template") and "{" in cap["shell_template"]:
+            score += 10
+        elif cap.get("shell_template"):
+            score += 5
+        # Params with descriptions
+        if any(p.get("description") for p in cap.get("params", [])):
+            score += 5
+
+    # Interface spec quality
+    fields = iface.get("fields", [])
+    if len(fields) >= 1:
+        score += 10
+    if len(fields) >= 2:
+        score += 5
+    if all(f.get("placeholder") for f in fields):
+        score += 5
+
+    # Description quality (penalize generic/placeholder text)
+    desc = cm.get("description", "")
+    placeholders = {"tool", "utility", "command-line", "application", "wrapper"}
+    if len(desc) > 30 and not all(p in desc.lower() for p in placeholders):
+        score += 10
+
+    # Popularity bonus: log scale so install_count=1000 → ~30pts, count=10 → ~10pts
+    install_count = wrapper.get("install_count", 0)
+    score += min(20, math.log10(install_count + 1) * 10)
+
+    return round(min(100.0, score), 1)
 
 
 def _write_wrapper(repo_id: str, data: dict) -> None:
@@ -140,12 +190,22 @@ def upload_wrapper(body: WrapperUpload):
         "interface_spec": body.interface_spec,
     }
     _write_wrapper(rid, wrapper)
-    return {"repo_id": rid, "status": "uploaded", "install_count": install_count}
+    return {
+        "repo_id": rid,
+        "status": "uploaded",
+        "install_count": install_count,
+        "quality_score": _quality_score(wrapper),
+    }
 
 
 @app.get("/wrappers")
-def list_wrappers(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
-    """List all wrappers sorted by install count descending."""
+def list_wrappers(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("quality", pattern="^(installs|quality|newest)$"),
+    q: Optional[str] = Query(None, description="Search by name or description"),
+):
+    """List wrappers. sort=quality (default), installs, or newest. q= for search."""
     STORE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     wrappers = []
     try:
@@ -154,25 +214,41 @@ def list_wrappers(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, g
             if wf.exists():
                 try:
                     w = json.loads(wf.read_text())
+                    name = w.get("capability_map", {}).get("name", "")
+                    description = w.get("capability_map", {}).get("description", "")
+                    # Search filter
+                    if q:
+                        needle = q.lower()
+                        if needle not in name.lower() and needle not in description.lower():
+                            continue
                     wrappers.append({
                         "repo_id": p.name,
                         "repo_url": w.get("repo_url"),
-                        "name": w.get("capability_map", {}).get("name"),
-                        "description": w.get("capability_map", {}).get("description"),
+                        "name": name,
+                        "description": description,
                         "install_count": w.get("install_count", 0),
                         "source_commit": w.get("source_commit"),
                         "wrapped_at": w.get("wrapped_at"),
+                        "quality_score": _quality_score(w),
+                        "capability_count": len(w.get("capability_map", {}).get("capabilities", [])),
                     })
                 except Exception:
                     pass
     except Exception:
         pass
 
-    wrappers.sort(key=lambda w: w["install_count"], reverse=True)
+    sort_key = {
+        "installs": lambda w: w["install_count"],
+        "quality": lambda w: w["quality_score"],
+        "newest": lambda w: w.get("wrapped_at", ""),
+    }.get(sort, lambda w: w["quality_score"])
+    wrappers.sort(key=sort_key, reverse=True)
+
     return {
         "total": len(wrappers),
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "wrappers": wrappers[offset: offset + limit],
     }
 
