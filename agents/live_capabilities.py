@@ -521,6 +521,35 @@ def wrap_repo(url: str = "", dest: str = "", upload: bool = True) -> dict:
     if not iface.get("fields"):
         return {"error": "interface_spec has no fields", "ok": False}
 
+    # ── Step 4b: auto-repair param/template mismatches ────────────────────────
+    # Extract {placeholder} names from shell_template and ensure params list matches.
+    # Models sometimes generate templates with placeholders but empty params lists.
+    import re as _re
+    existing_fields = {f["id"]: f for f in iface.get("fields", [])}
+    for cap in cap_map.get("capabilities", []):
+        template = cap.get("shell_template", "")
+        placeholders = _re.findall(r"\{(\w+)\}", template)
+        existing_param_names = {p["name"] for p in cap.get("params", [])}
+        for ph in placeholders:
+            if ph not in existing_param_names:
+                # Add missing param
+                cap.setdefault("params", []).append({
+                    "name": ph,
+                    "type": "string",
+                    "required": True,
+                    "description": ph.replace("_", " "),
+                    "default": None,
+                })
+                # Also add to interface_spec fields if missing
+                if ph not in existing_fields:
+                    iface.setdefault("fields", []).append({
+                        "id": ph,
+                        "label": ph.replace("_", " ").title(),
+                        "type": "text",
+                        "placeholder": ph.replace("_", " "),
+                        "required": True,
+                    })
+
     # ── Step 5: assemble and save ─────────────────────────────────────────────
     import time as _time
     wrapper = {
