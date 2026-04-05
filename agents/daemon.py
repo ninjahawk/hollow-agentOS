@@ -317,37 +317,76 @@ def _assign_idle_goal(agent_id: str) -> None:
 
 
 # Layer 3 meta-goal text per core agent
+# Curated list of high-value CLI tools for builder to wrap autonomously.
+# Builder cycles through these, wrapping any not yet wrapped.
+_WRAP_TARGETS = [
+    "https://github.com/BurntSushi/ripgrep",
+    "https://github.com/sharkdp/fd",
+    "https://github.com/sharkdp/bat",
+    "https://github.com/sharkdp/hyperfine",
+    "https://github.com/ajeetdsouza/zoxide",
+    "https://github.com/ogham/exa",
+    "https://github.com/eza-community/eza",
+    "https://github.com/junegunn/fzf",
+    "https://github.com/stedolan/jq",
+    "https://github.com/bootandy/dust",
+    "https://github.com/dandavison/delta",
+    "https://github.com/Wilfred/difftastic",
+    "https://github.com/ClementTsang/bottom",
+    "https://github.com/lotabout/skim",
+    "https://github.com/dalance/procs",
+    "https://github.com/extrawurst/gitui",
+    "https://github.com/denisidoro/navi",
+    "https://github.com/dbrgn/tealdeer",
+    "https://github.com/casey/just",
+    "https://github.com/pemistahl/grex",
+    "https://github.com/muesli/duf",
+    "https://github.com/BurntSushi/xsv",
+    "https://github.com/wader/fq",
+    "https://github.com/junegunn/gum",
+    "https://github.com/charmbracelet/glow",
+]
+
+
+def _get_next_wrap_target() -> str:
+    """Find the next URL from _WRAP_TARGETS that hasn't been wrapped yet."""
+    wrapped_dir = Path(os.getenv("HOLLOW_WRAPPERS_DIR", "/agentOS/workspace/wrappers"))
+    wrapped = {d.name.lower() for d in wrapped_dir.iterdir()} if wrapped_dir.exists() else set()
+    for url in _WRAP_TARGETS:
+        repo_name = url.rstrip("/").split("/")[-1].lower()
+        if repo_name not in wrapped:
+            return url
+    return ""  # All targets wrapped
+
+
 _LAYER3_GOALS = {
     "scout": (
-        "LAYER 3 — Map the repo ingestion pipeline: "
-        "Step 1: use fs_read to read /agentOS/agents/live_capabilities.py and identify "
-        "the git_clone capability and what it returns. "
-        "Step 2: use git_clone with url='https://github.com/BurntSushi/ripgrep' to clone "
-        "a real repo and see what comes back. "
-        "Step 3: use fs_write to write your findings — what the capability returned, what "
-        "the top-level file structure looks like, what the README says — to "
-        "/agentOS/workspace/scout/layer3_recon.md. "
-        "Step 4: use shared_log_write to broadcast a one-line summary to other agents."
+        "LAYER 3 — Catalog the app store: "
+        "Step 1: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=50' "
+        "to list all wrappers in the store and their quality scores. "
+        "Step 2: use fs_write to save the catalog to /agentOS/workspace/scout/store_catalog.json. "
+        "Step 3: use ollama_chat to analyze the catalog — which tools are missing that developers use daily? "
+        "Step 4: use shared_log_write to broadcast your top 5 missing tool recommendations."
     ),
     "analyst": (
-        "LAYER 3 — Audit live_capabilities.py for gaps: "
-        "Step 1: use fs_read to read /agentOS/agents/live_capabilities.py. "
-        "Step 2: use ollama_chat to reason about what capabilities are missing for a full "
-        "repo-ingestion pipeline (clone → read structure → generate interface). "
-        "Step 3: use fs_write to write a gap report to "
-        "/agentOS/workspace/analyst/layer3_gaps.md listing each missing capability and "
-        "a one-paragraph spec for it. "
-        "Step 4: for the most important gap, use propose_change with "
-        "proposal_type='new_tool' to formally propose it."
+        "LAYER 3 — Quality analysis: "
+        "Step 1: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=20' "
+        "to get quality-ranked wrappers from the store. "
+        "Step 2: use fs_read to read 2-3 of the lowest-scored wrappers "
+        "from /agentOS/workspace/wrappers/ to identify what makes them low quality. "
+        "Step 3: use ollama_chat to reason about what improvements would raise their quality scores. "
+        "Step 4: use propose_change with proposal_type='improvement' to formally propose "
+        "the most impactful quality improvement."
     ),
     "builder": (
-        "LAYER 3 — Wrap ripgrep using the wrap_repo capability: "
-        "Step 1: use wrap_repo with url='https://github.com/BurntSushi/ripgrep' "
-        "to generate a Hollow app wrapper for ripgrep. "
-        "Step 2: use fs_read to verify the wrapper was created — read "
-        "/agentOS/workspace/wrappers/ripgrep/wrapper.json and confirm it has content. "
-        "Step 3: use shared_log_write to broadcast: "
-        "'ripgrep wrapped — wrapper at /agentOS/workspace/wrappers/ripgrep/wrapper.json'."
+        "LAYER 3 — Expand the app catalog: "
+        "Your mission is to wrap GitHub repos to grow the Hollow app store. "
+        "Step 1: use shell_exec with command='ls /agentOS/workspace/wrappers/' to see what's already wrapped. "
+        "Step 2: use wrap_repo with url='https://github.com/sharkdp/hyperfine' "
+        "(or another unwrapped tool from this list: fd, bat, fzf, jq, delta, dust, bottom, zoxide, eza, just, navi, procs) "
+        "to wrap it and upload to the store. "
+        "Step 3: use shared_log_write to broadcast the new wrapper to other agents. "
+        "Keep trying different tools — the goal is to have 50+ tools in the store."
     ),
 }
 
