@@ -456,8 +456,10 @@ function renderDetail() {
     </div>
     <div id="cap-tabs">${tabs}</div>
     ${!w._toolAvailable ? `<div style="background:#1a0e0e;border:1px solid #4a2a2a;padding:10px 14px;border-radius:2px;margin-bottom:16px;font-size:11px;color:#cc8888">
-      <strong style="color:#ff9999">Tool not installed:</strong> <code style="color:#ffaaaa">${esc(cm.invoke)}</code> not found in container.<br>
-      <span style="color:#664444;margin-top:4px;display:block">Install hint: ${esc(cm.install_hint || 'see repo README')}</span>
+      <strong style="color:#ff9999">Not installed:</strong> <code style="color:#ffaaaa">${esc(cm.invoke)}</code> not found.<br>
+      <span style="color:#664444;margin-top:4px;display:block">${esc(cm.install_hint || 'Install manually — see repo README')}</span>
+      ${cm.install_hint ? `<button onclick="installTool()" id="tool-install-btn" style="margin-top:6px;background:#1a0e0e;border:1px solid #7a4444;color:#ff9999;padding:4px 12px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px">⬇ Install automatically</button>
+      <span id="tool-install-status" style="font-size:10px;color:#555;margin-left:6px"></span>` : ''}
     </div>` : ''}
     <div id="app-form"></div>
     <div id="cmd-preview" style="display:none">$ <span id="cmd-text"></span></div>
@@ -587,6 +589,50 @@ async function runCommand() {
     outputBox.textContent = `Couldn't connect to agent: ${e.message}`;
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ── Auto-install tool ────────────────────────────────────────────────────────
+async function installTool() {
+  if (!activeWrapper) return;
+  const cm = activeWrapper.capability_map || {};
+  const invoke = cm.invoke;
+  const hint = cm.install_hint || '';
+  if (!invoke || !hint) return;
+
+  const btn = document.getElementById('tool-install-btn');
+  const status = document.getElementById('tool-install-status');
+  btn.disabled = true;
+  btn.textContent = 'installing...';
+  status.style.color = '#555';
+  status.textContent = 'this may take a minute';
+
+  try {
+    const r = await fetch(`${API}/tools/install`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+      body: JSON.stringify({invoke, install_hint: hint, timeout: 120}),
+    });
+    const d = await r.json();
+    if (d.ok && d.available) {
+      status.style.color = '#7fff7f';
+      status.textContent = `✓ ${d.message}`;
+      activeWrapper._toolAvailable = true;
+      // Re-enable run button
+      const runBtn = document.getElementById('run-btn');
+      if (runBtn) { runBtn.disabled = false; runBtn.title = ''; }
+      btn.textContent = '✓ installed';
+    } else {
+      status.style.color = '#ff9999';
+      status.textContent = d.message?.substring(0, 60) || 'failed';
+      btn.textContent = '⬇ retry';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    status.style.color = '#ff9999';
+    status.textContent = e.message;
+    btn.disabled = false;
+    btn.textContent = '⬇ Install automatically';
   }
 }
 

@@ -1943,6 +1943,31 @@ async def customize_wrapper(
             "saved_to": str(custom_wf)}
 
 
+class InstallRequest(BaseModel):
+    invoke: str
+    install_hint: str = ""
+    timeout: int = 120
+
+
+@app.post("/tools/install")
+async def install_tool_endpoint(
+    body: InstallRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Install a CLI tool using the wrapper's install_hint.
+    Supports: cargo, pip, go, npm, apt-get.
+    Install is NOT persistent across container restarts.
+    """
+    _verify_any_token(authorization)
+    from shell.installer import install_tool
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None, lambda: install_tool(body.invoke, body.install_hint, body.timeout)
+    )
+    return result
+
+
 @app.get("/tools/check")
 async def check_tool_available(
     invoke: str = Query(..., description="binary name to check"),
