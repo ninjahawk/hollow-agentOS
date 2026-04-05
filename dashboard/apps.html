@@ -568,16 +568,23 @@ async function runCommand() {
     const data = await r.json();
     if (data.blocked) {
       outputBox.className = 'error';
-      outputBox.textContent = `[BLOCKED] ${data.reason || 'unsafe command'}`;
+      outputBox.textContent = `Command not allowed: ${data.reason || 'blocked for safety'}`;
+    } else if (data.timed_out) {
+      outputBox.className = 'error';
+      outputBox.textContent = 'Took too long (30s limit). Try a more specific command.';
+    } else if (data.exit_code !== 0 && data.stderr?.includes('command not found')) {
+      // Tool not installed — friendly error
+      const invoke = activeWrapper?.capability_map?.invoke || 'this tool';
+      outputBox.className = 'error';
+      outputBox.textContent = `"${invoke}" isn't installed yet.\n\nInstall hint: ${activeWrapper?.capability_map?.install_hint || 'see the repo README'}`;
     } else {
       const out = (data.stdout || '') + (data.stderr ? `\n[stderr]\n${data.stderr}` : '');
       outputBox.className = data.exit_code === 0 ? '' : 'error';
-      outputBox.textContent = out || '(no output)';
-      if (data.timed_out) outputBox.textContent = '[timed out after 30s]\n' + outputBox.textContent;
+      outputBox.textContent = out || '(no output — command ran successfully)';
     }
   } catch (e) {
     outputBox.className = 'error';
-    outputBox.textContent = `Error: ${e.message}`;
+    outputBox.textContent = `Couldn't connect to agent: ${e.message}`;
   } finally {
     btn.disabled = false;
   }
