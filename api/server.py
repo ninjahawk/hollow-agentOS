@@ -1848,6 +1848,100 @@ async def run_sandboxed_command(
     return result
 
 
+class DiscoverRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+
+@app.post("/discover")
+async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = Header(None)):
+    """
+    Natural language tool discovery.
+    Given a description of what the user wants, finds matching installed wrappers.
+    Phase 5 foundation: non-technical users describe needs in plain English.
+    """
+    _verify_any_token(authorization)
+    if not body.query:
+        raise HTTPException(status_code=400, detail="query required")
+
+    wrappers_dir = Path("/agentOS/workspace/wrappers")
+    candidates = []
+    if wrappers_dir.exists():
+        for d in wrappers_dir.iterdir():
+            wf = d / "wrapper.json"
+            if wf.exists():
+                try:
+                    w = json.load(open(wf))
+                    cm = w.get("capability_map", {})
+                    candidates.append({
+                        "repo_name": d.name,
+                        "name": cm.get("name", d.name),
+                        "description": cm.get("description", ""),
+                        "capabilities": [c.get("description", "") for c in cm.get("capabilities", [])],
+                        "invoke": cm.get("invoke", ""),
+                    })
+                except Exception:
+                    pass
+
+    if not candidates:
+        return {"query": body.query, "results": [], "note": "no local wrappers installed"}
+
+    # Build a quick relevance prompt for Claude/Ollama
+    catalog = "\n".join([
+        f"- {c['name']}: {c['description']}"
+        for c in candidates
+    ])
+    prompt = (
+        f"A user wants: \"{body.query}\"\n\n"
+        f"Available tools:\n{catalog}\n\n"
+        f"Return the top {min(body.limit, len(candidates))} most relevant tool names as a JSON array of strings. "
+        f"Only include tools that genuinely match what the user described. "
+        f"Example: [\"ripgrep\", \"fd\"]\n"
+        f"Return ONLY the JSON array, nothing else."
+    )
+
+    ranked_names = []
+    loop = asyncio.get_event_loop()
+
+    def _rank():
+        try:
+            from agents.reasoning_layer import _get_claude_client, CLAUDE_FAST_MODEL, _strip_code_fences
+            client = _get_claude_client()
+            if client:
+                msg = client.messages.create(
+                    model=CLAUDE_FAST_MODEL,
+                    max_tokens=200,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return json.loads(_strip_code_fences(msg.content[0].text.strip()))
+        except Exception:
+            pass
+        # Fallback: keyword match
+        q = body.query.lower()
+        scored = []
+        for c in candidates:
+            text = f"{c['name']} {c['description']} {' '.join(c['capabilities'])}".lower()
+            score = sum(word in text for word in q.split())
+            if score > 0:
+                scored.append((score, c['name']))
+        scored.sort(reverse=True)
+        return [name for _, name in scored[:body.limit]]
+
+    ranked_names = await loop.run_in_executor(None, _rank)
+    if not isinstance(ranked_names, list):
+        ranked_names = []
+
+    results = []
+    name_to_candidate = {c["repo_name"]: c for c in candidates}
+    name_map = {c["name"].lower(): c for c in candidates}
+    for name in ranked_names[:body.limit]:
+        c = name_to_candidate.get(name) or name_map.get(name.lower())
+        if c:
+            results.append(c)
+
+    return {"query": body.query, "results": results}
+
+
 @app.post("/version-check")
 async def trigger_version_check(authorization: Optional[str] = Header(None)):
     """

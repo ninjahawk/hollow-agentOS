@@ -261,7 +261,7 @@
       <button onclick="showTab('store')" id="tab-store" style="background:none;border:none;color:#555;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px">STORE</button>
     </div>
     <div id="search-bar" style="padding:6px 10px">
-      <input id="search-input" type="text" placeholder="search..." oninput="filterList()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
+      <input id="search-input" type="text" placeholder="search..." oninput="filterList()" onkeydown="if(event.key==='Enter' && currentTab==='local') discoverTools()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
     </div>
     <div id="app-entries" style="flex:1;overflow-y:auto">
       <div id="no-apps" style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">Loading...</div>
@@ -552,6 +552,36 @@ async function runCommand() {
     outputBox.textContent = `Error: ${e.message}`;
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ── Natural language tool discovery ──────────────────────────────────────────
+async function discoverTools() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  renderEmpty(`Finding tools for: "${q}"...`);
+  try {
+    const r = await fetch(`${API}/discover`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+      body: JSON.stringify({query: q, limit: 10}),
+    });
+    const d = await r.json();
+    if (!d.results?.length) {
+      renderEmpty(`No tools found for "${q}" — try wrapping one from the STORE tab`);
+      return;
+    }
+    // Replace wrappers list with discovery results then fetch full wrappers
+    wrappers = [];
+    for (const result of d.results) {
+      try {
+        const wr = await fetch(`${API}/wrappers/${result.repo_name}`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+        if (wr.ok) wrappers.push({repo_id: result.repo_name, wrapper: await wr.json()});
+      } catch {}
+    }
+    renderList();
+  } catch(e) {
+    renderEmpty('Discovery failed: ' + e.message);
   }
 }
 
