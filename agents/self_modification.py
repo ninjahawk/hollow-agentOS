@@ -171,49 +171,98 @@ class SelfModificationCycle:
     def flush_approved_proposals(self) -> List[str]:
         """
         Check pending proposals for approval and deploy approved ones.
+        Handles both self_modification pending files AND direct quorum-approved
+        capability proposals (from synthesize_capability live capability).
         Called by the daemon after each vote_on_pending() cycle.
         Returns list of deployed capability IDs.
         """
         deployed = []
+
+        # ── Path 1: deploy from self_modification pending queue ────────────
         try:
             pending_dir = SELF_MOD_PATH / "_pending"
-            if not pending_dir.exists():
-                return deployed
+            if pending_dir.exists():
+                for pending_file in list(pending_dir.glob("*.json")):
+                    try:
+                        data = json.loads(pending_file.read_text())
+                        proposal_id = data["proposal_id"]
+                        agent_id = data["agent_id"]
+                        synthesis_id = data["synthesis_id"]
+                        cap_data = data["capability"]
 
-            for pending_file in list(pending_dir.glob("*.json")):
-                try:
-                    data = json.loads(pending_file.read_text())
-                    proposal_id = data["proposal_id"]
-                    agent_id = data["agent_id"]
-                    synthesis_id = data["synthesis_id"]
-                    cap_data = data["capability"]
+                        approved = False
+                        if self._quorum and hasattr(self._quorum, "is_approved"):
+                            approved = self._quorum.is_approved(proposal_id)
 
-                    # Check if approved
-                    approved = False
-                    if self._quorum and hasattr(self._quorum, "is_approved"):
-                        approved = self._quorum.is_approved(proposal_id)
-                    elif self._quorum and hasattr(self._quorum, "get_proposal"):
-                        p = self._quorum.get_proposal(proposal_id)
-                        approved = p is not None and p.status == "approved"
+                        if not approved:
+                            continue
 
-                    if not approved:
-                        continue  # not yet approved
-
-                    # Reconstruct capability and deploy
-                    cap = SynthesizedCapability(**cap_data)
-                    deploy_result = self._deploy(agent_id, synthesis_id, cap)
-                    if deploy_result:
-                        deployment_id, cap_id = deploy_result
-                        self._update_gap(agent_id, cap_data.get("gap_id", ""), "deployed",
-                                         synthesis_id, deployment_id)
-                        deployed.append(cap_id)
-
-                    # Remove pending file whether deployed or not (don't retry rejected)
-                    pending_file.unlink()
-                except Exception:
-                    continue
+                        cap = SynthesizedCapability(**cap_data)
+                        deploy_result = self._deploy(agent_id, synthesis_id, cap)
+                        if deploy_result:
+                            deployment_id, cap_id = deploy_result
+                            self._update_gap(agent_id, cap_data.get("gap_id", ""), "deployed",
+                                             synthesis_id, deployment_id)
+                            deployed.append(cap_id)
+                        pending_file.unlink()
+                    except Exception:
+                        continue
         except Exception:
             pass
+
+        # ── Path 2: deploy directly from approved quorum proposals ─────────
+        # Handles proposals submitted via synthesize_capability live capability
+        try:
+            from agents.agent_quorum import AgentQuorum
+            from pathlib import Path as _Path
+            import json as _json
+
+            quorum = AgentQuorum()
+            proposals_file = _Path("/agentOS/memory/quorum/proposals.jsonl")
+            deployed_log = SELF_MOD_PATH / "_deployed_proposals.json"
+            already_deployed = set()
+            if deployed_log.exists():
+                already_deployed = set(_json.loads(deployed_log.read_text()))
+
+            if proposals_file.exists():
+                for line in proposals_file.read_text().strip().splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        p = _json.loads(line)
+                        if (p.get("proposal_type") != "capability"
+                                or p.get("status") != "approved"
+                                or p["proposal_id"] in already_deployed):
+                            continue
+
+                        payload = p.get("payload", {})
+                        code = payload.get("implementation_code", "")
+                        cap_name = payload.get("cap_id", f"synth_{p['proposal_id'][:8]}")
+                        description = payload.get("description", p.get("description", ""))
+                        agent_id = payload.get("agent_id", "root")
+                        synthesis_id = payload.get("synthesis_id", p["proposal_id"])
+
+                        cap = SynthesizedCapability(
+                            name=cap_name,
+                            description=description,
+                            input_schema={"kwargs": {"type": "dict"}},
+                            implementation_code=code,
+                            implementation_sketch=description,
+                            test_code="",
+                            confidence=0.8,
+                        )
+                        deploy_result = self._deploy(agent_id, synthesis_id, cap)
+                        if deploy_result:
+                            deployment_id, cap_id = deploy_result
+                            deployed.append(cap_id)
+                            already_deployed.add(p["proposal_id"])
+                            deployed_log.parent.mkdir(parents=True, exist_ok=True)
+                            deployed_log.write_text(_json.dumps(list(already_deployed)))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
         return deployed
 
     def _record_pending_deployment(self, agent_id: str, proposal_id: str,

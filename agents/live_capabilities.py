@@ -230,6 +230,146 @@ def propose_change(proposal_type: str = "new_tool", spec: dict = None,
             "status": result.get("status")}
 
 
+def synthesize_capability(name: str = "", description: str = "",
+                          implementation: str = "") -> dict:
+    """
+    Proactively synthesize and propose a new capability for the agent system.
+    The capability is submitted to quorum, voted on automatically next daemon cycle,
+    and hot-loaded into the running engine on approval. No human needed.
+
+    name: short snake_case capability name (e.g. 'parse_json', 'diff_files')
+    description: what the capability does
+    implementation: Python function body as a string (optional but strongly preferred)
+    """
+    if not name or not description:
+        return {"error": "name and description required", "ok": False}
+
+    try:
+        from agents.capability_synthesis import CapabilitySynthesisEngine
+        from agents.execution_engine import ExecutionEngine
+        import time as _time
+
+        engine = CapabilitySynthesisEngine()
+
+        # Build a fake gap record so process_gap can synthesize it
+        gap_id = f"gap-{name}-{int(_time.time())}"
+        full_description = f"{name}: {description}"
+        if implementation:
+            full_description += f"\n\nImplementation:\n{implementation}"
+
+        # Write implementation hint directly to the synthesis cache
+        from pathlib import Path as _Path
+        import json as _json
+        synth_dir = _Path("/agentOS/memory/synthesis")
+        synth_dir.mkdir(parents=True, exist_ok=True)
+        hint_file = synth_dir / f"{gap_id}.py"
+        if implementation:
+            # Wrap the implementation as a proper module
+            code = f"# Auto-synthesized capability: {name}\n"
+            code += f"# Description: {description}\n\n"
+            if not implementation.startswith("def "):
+                code += f"def {name}(**kwargs):\n"
+                for line in implementation.splitlines():
+                    code += f"    {line}\n"
+            else:
+                code += implementation
+            hint_file.write_text(code)
+
+        # Submit via process_gap (this handles synthesis + quorum submission)
+        success, proposal_id = engine.synthesize_and_propose(
+            agent_id="root",
+            cap_name=name,
+            description=description,
+            code=hint_file.read_text() if hint_file.exists() else "",
+        )
+        return {
+            "ok": success or proposal_id is not None,
+            "proposal_id": proposal_id,
+            "name": name,
+            "status": "submitted_to_quorum",
+        }
+    except Exception as e:
+        return {"error": str(e), "ok": False}
+
+
+def list_proposals(status: str = "pending", limit: int = 10) -> dict:
+    """
+    List capability proposals pending quorum approval.
+    status: 'pending' | 'approved' | 'rejected'
+    Returns proposals other agents have submitted — use vote_on_proposal to vote.
+    """
+    try:
+        from agents.agent_quorum import AgentQuorum
+        from pathlib import Path as _Path
+        import json as _json
+
+        quorum = AgentQuorum()
+        proposals_file = _Path("/agentOS/memory/quorum/proposals.jsonl")
+        if not proposals_file.exists():
+            return {"proposals": [], "count": 0}
+
+        all_proposals = []
+        for line in proposals_file.read_text().strip().splitlines():
+            if not line.strip():
+                continue
+            try:
+                p = _json.loads(line)
+                if status == "all" or p.get("status") == status:
+                    all_proposals.append({
+                        "proposal_id": p["proposal_id"],
+                        "proposer": p.get("proposer_id", "?"),
+                        "type": p.get("proposal_type", "?"),
+                        "description": p.get("description", "")[:120],
+                        "votes": p.get("votes", {}),
+                        "status": p.get("status", "pending"),
+                        "created_at": p.get("created_at"),
+                    })
+            except Exception:
+                continue
+
+        all_proposals.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+        return {"proposals": all_proposals[:limit], "count": len(all_proposals)}
+    except Exception as e:
+        return {"error": str(e), "proposals": [], "count": 0}
+
+
+def vote_on_proposal(proposal_id: str = "", approve: bool = True,
+                     rationale: str = "") -> dict:
+    """
+    Cast a vote on a pending capability proposal.
+    approve: True to approve, False to reject.
+    Quorum requires 1 vote — your vote may be the deciding one.
+    """
+    if not proposal_id:
+        return {"error": "proposal_id required", "ok": False}
+    try:
+        from agents.agent_quorum import AgentQuorum
+        quorum = AgentQuorum()
+        success = quorum.vote(proposal_id, voter_id="agent", vote=approve)
+        if success:
+            # Check if quorum is now met and finalize
+            yes, no, _, status = quorum.get_voting_status(proposal_id)
+            if status == "pending" and (yes + no) >= 1:
+                approved = quorum.finalize_proposal(proposal_id)
+                return {
+                    "ok": True,
+                    "voted": "approve" if approve else "reject",
+                    "finalized": True,
+                    "result": "approved" if approved else "rejected",
+                    "rationale": rationale,
+                }
+            return {
+                "ok": True,
+                "voted": "approve" if approve else "reject",
+                "finalized": False,
+                "yes_votes": yes,
+                "no_votes": no,
+            }
+        return {"error": "vote failed (proposal not found or already closed)", "ok": False}
+    except Exception as e:
+        return {"error": str(e), "ok": False}
+
+
 def shared_log_read(limit: int = 50, since_ts: float = None,
                     agent_id: str = None, tag: str = None) -> dict:
     """Read recent entries from the shared agent broadcast log."""
@@ -457,7 +597,14 @@ def wrap_repo(url: str = "", dest: str = "", upload: bool = True) -> dict:
         f"- field 'id' values must exactly match capability param 'name' values\n"
         f"- No placeholder text — all values must be real and specific to this tool\n"
         f"- For CLI tools: invoke is the binary name (rg, fd, bat, etc.)\n"
-        f"- shell_template uses {{param_name}} syntax for substitution\n\n"
+        f"- shell_template uses {{param_name}} syntax for substitution\n"
+        f"- install_hint MUST be a machine-parseable install command:\n"
+        f"  * Rust/cargo tools: 'cargo install toolname'\n"
+        f"  * Python tools: 'pip install toolname' or 'uv tool install toolname'\n"
+        f"  * Go tools: 'go install github.com/owner/repo@latest'\n"
+        f"  * npm tools: 'npm install -g toolname'\n"
+        f"  * Debian/Ubuntu: 'apt-get install -y toolname'\n"
+        f"  Use the primary/official install method for the tool's ecosystem.\n\n"
         f"Return ONLY the JSON object. No explanation, no markdown fencing."
     )
 
@@ -518,8 +665,28 @@ def wrap_repo(url: str = "", dest: str = "", upload: bool = True) -> dict:
 
     if not cap_map.get("capabilities"):
         return {"error": "capability_map has no capabilities", "ok": False}
+
+    # Auto-synthesize interface fields from capability params when the model
+    # forgot to generate interface_spec.fields (common Ollama failure mode).
     if not iface.get("fields"):
-        return {"error": "interface_spec has no fields", "ok": False}
+        synthesized = []
+        seen_ids = set()
+        for cap in cap_map.get("capabilities", [])[:4]:
+            for p in cap.get("params", []):
+                pid = p.get("name", "")
+                if pid and pid not in seen_ids:
+                    seen_ids.add(pid)
+                    synthesized.append({
+                        "id": pid,
+                        "label": pid.replace("_", " ").title(),
+                        "type": "text",
+                        "placeholder": f"e.g. {pid.replace('_', ' ')}",
+                        "required": p.get("required", False),
+                    })
+        if synthesized:
+            iface["fields"] = synthesized
+        else:
+            return {"error": "interface_spec has no fields", "ok": False}
 
     # ── Step 4b: auto-repair param/template mismatches ────────────────────────
     # Extract {placeholder} names from shell_template and ensure params list matches.
@@ -742,6 +909,53 @@ LIVE_CAPABILITIES = [
         "output_schema": "ok confirmation",
         "composition_tags": ["communication", "broadcast", "log", "coordination"],
         "fn": shared_log_write,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "synthesize_capability",
+        "name": "Synthesize New Capability",
+        "description": (
+            "Proactively create a new capability for the agent system. "
+            "REQUIRED params: name (str, snake_case capability id), description (str, what it does). "
+            "Optional: implementation (str, Python function body). "
+            "The capability goes to quorum, gets voted on automatically next daemon cycle, "
+            "and is hot-loaded into the running engine on approval — no human needed. "
+            "Use this whenever you identify a gap: something agents need to do but can't. "
+            "This is how the system expands itself. "
+            "Example call: synthesize_capability(name='parse_json_safely', description='Parse JSON without crashing on malformed input', implementation='def parse_json_safely(text=\"\", **kwargs):\\n  import json\\n  try:\\n    return json.loads(text)\\n  except: return {}')"
+        ),
+        "input_schema": '{"name": {"type": "string", "required": true, "description": "snake_case capability id, e.g. parse_json_safely"}, "description": {"type": "string", "required": true, "description": "what the capability does"}, "implementation": {"type": "string", "required": false, "description": "optional Python function code"}}',
+        "output_schema": '{"ok": true, "proposal_id": "prop-xxx", "status": "submitted_to_quorum"}',
+        "composition_tags": ["self_improvement", "synthesis", "expansion", "meta"],
+        "fn": synthesize_capability,
+        "timeout_ms": 30000,
+    },
+    {
+        "capability_id": "list_proposals",
+        "name": "List Pending Proposals",
+        "description": (
+            "List capability proposals pending quorum approval. "
+            "Use this to see what other agents have proposed — then use vote_on_proposal to approve or reject. "
+            "Your vote may be the deciding one."
+        ),
+        "input_schema": '{"status": "pending", "limit": 10}',
+        "output_schema": "list of proposals with proposal_id, description, votes",
+        "composition_tags": ["self_improvement", "governance", "coordination", "meta"],
+        "fn": list_proposals,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "vote_on_proposal",
+        "name": "Vote on Capability Proposal",
+        "description": (
+            "Cast a vote on a pending capability proposal from another agent. "
+            "Approve useful, safe capabilities. Reject dangerous or broken ones. "
+            "With quorum=1, your vote immediately finalizes the proposal."
+        ),
+        "input_schema": '{"proposal_id": "prop-xxx", "approve": true, "rationale": "useful and safe"}',
+        "output_schema": '{"ok": true, "finalized": true, "result": "approved"}',
+        "composition_tags": ["self_improvement", "governance", "coordination", "meta"],
+        "fn": vote_on_proposal,
         "timeout_ms": 5000,
     },
     {

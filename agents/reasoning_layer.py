@@ -350,17 +350,7 @@ class ReasoningLayer:
                 cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
             caps_text = "\n".join(cap_lines)
 
-            # Load agent identity preamble
-            identity_preamble = ""
-            try:
-                from agents.agent_identity import AgentIdentity
-                ident = AgentIdentity.load_or_create(agent_id)
-                identity_preamble = ident.preamble() + "\n\n"
-            except Exception:
-                pass
-
             prompt = (
-                f"{identity_preamble}"
                 f"Select the best capability for this agent intent and generate real params.\n"
                 f"Intent: {intent}\n\n"
                 f"Capabilities:\n{caps_text}\n\n"
@@ -485,7 +475,10 @@ class ReasoningLayer:
                 f"- NEVER use shell_exec 'which git' before git_clone — git is always available. Use git_clone directly with the real URL.\n"
                 f"- NEVER reference file paths that are not listed above unless using shell_exec to discover them first\n"
                 f"- Do NOT write Python or bash scripts as fs_write content — use shell_exec to RUN commands now and record the real output as findings.\n"
-                f"- When using git_clone, use a REAL, SPECIFIC GitHub URL (e.g. https://github.com/octocat/Hello-World). NEVER use placeholder URLs like https://github.com/owner/repo.git.\n\n"
+                f"- When using git_clone, use a REAL, SPECIFIC GitHub URL (e.g. https://github.com/octocat/Hello-World). NEVER use placeholder URLs like https://github.com/owner/repo.git.\n"
+                f"Self-improvement: if you discover a missing capability or a concrete improvement, use synthesize_capability to add it.\n"
+                f"  Use list_proposals to check pending proposals, vote_on_proposal to approve useful ones.\n"
+                f"  Prefer propose_change or synthesize_capability over writing analysis notes — acting > documenting.\n\n"
                 f'Respond ONLY with JSON: {{"steps":[{{"capability_id":"...","params":{{...}},"rationale":"..."}},...]}}'
             )
 
@@ -527,13 +520,9 @@ class ReasoningLayer:
         with self._lock:
             agent_dir = REASONING_PATH / agent_id
             agent_dir.mkdir(parents=True, exist_ok=True)
-
             history_file = agent_dir / "history.jsonl"
-            history_file.write_text(
-                history_file.read_text() + json.dumps(asdict(context)) + "\n"
-                if history_file.exists()
-                else json.dumps(asdict(context)) + "\n"
-            )
+            with open(history_file, "a") as f:
+                f.write(json.dumps(asdict(context)) + "\n")
 
     def learn_from_execution(self, agent_id: str, reasoning_id: str,
                             execution_result: dict, execution_status: str) -> None:
@@ -573,11 +562,8 @@ class ReasoningLayer:
             "timestamp": time.time(),
         }
 
-        patterns_file.write_text(
-            patterns_file.read_text() + json.dumps(pattern) + "\n"
-            if patterns_file.exists()
-            else json.dumps(pattern) + "\n"
-        )
+        with open(patterns_file, "a") as f:
+            f.write(json.dumps(pattern) + "\n")
 
     def get_reasoning_history(self, agent_id: str, limit: int = 50) -> List[ReasoningContext]:
         """Get reasoning history for an agent."""

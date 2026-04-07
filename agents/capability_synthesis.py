@@ -370,6 +370,55 @@ class CapabilitySynthesisEngine:
 
         return None
 
+    def synthesize_and_propose(self, agent_id: str, cap_name: str,
+                               description: str, code: str = "") -> tuple:
+        """
+        Shortcut: record a gap, write synthesized code, submit to quorum.
+        Returns (success, proposal_id).
+        Called by the synthesize_capability live capability.
+        """
+        try:
+            from agents.agent_quorum import AgentQuorum
+            import uuid as _uuid
+
+            # 1. Record the gap
+            gap_id = self.record_gap(agent_id, f"synthesize: {cap_name} — {description}",
+                                     context={"proactive": True}, priority=7)
+
+            # 2. Build a minimal SynthesisRecord with the provided code
+            synthesis_id = f"syn-{_uuid.uuid4().hex[:12]}"
+            from agents.capability_synthesis import SynthesizedCapability
+            synth_cap = SynthesizedCapability(
+                name=cap_name,
+                description=description,
+                input_schema={"kwargs": {"type": "dict", "desc": "keyword arguments"}},
+                implementation_code=code,
+                implementation_sketch=description,
+                test_code="",
+                confidence=0.8,
+            )
+
+            # 3. Submit to quorum directly
+            quorum = AgentQuorum()
+            code_preview = code[:300] if code else f"# {description}"
+            proposal_id = quorum.propose(
+                proposer_id=agent_id,
+                proposal_type="capability",
+                description=f"New capability: {cap_name} — {description}",
+                payload={
+                    "cap_id": cap_name,
+                    "description": description,
+                    "code_preview": code_preview,
+                    "implementation_code": code,
+                    "synthesis_id": synthesis_id,
+                    "agent_id": agent_id,
+                    "gap_id": gap_id,
+                },
+            )
+            return (True, proposal_id)
+        except Exception as e:
+            return (False, None)
+
     def list_syntheses(self, agent_id: str, status: str = "tested", limit: int = 100) -> List[SynthesisRecord]:
         """List synthesized capabilities for an agent."""
         with self._lock:
@@ -391,3 +440,4 @@ class CapabilitySynthesisEngine:
                 return syntheses[:limit]
             except Exception:
                 return []
+

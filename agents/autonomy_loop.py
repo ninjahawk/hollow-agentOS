@@ -177,6 +177,8 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     if not previous_result:
         return params
     result_text = _result_to_text(previous_result)
+    import re as _re
+    _PLACEHOLDER_RE = _re.compile(r'\{[a-zA-Z_][a-zA-Z0-9_.]*\}')
     out = {}
     for k, v in params.items():
         if isinstance(v, str) and "{result}" in v:
@@ -223,7 +225,15 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
             out[k] = result_text
         else:
             out[k] = v
-    return out
+    # Final pass: replace any remaining {varname} placeholders with result_text
+    # LLMs sometimes invent custom placeholder names instead of using {result}
+    final_out = {}
+    for k, v in out.items():
+        if isinstance(v, str) and _PLACEHOLDER_RE.search(v):
+            final_out[k] = _PLACEHOLDER_RE.sub(result_text[:500], v)
+        else:
+            final_out[k] = v
+    return final_out
 
 
 class AutonomyLoop:
@@ -314,18 +324,21 @@ class AutonomyLoop:
             prev_cap = metrics.get("last_cap")
             if cap_id != prev_cap:
                 # Meaningful progress: different capability than last step
-                progress_delta = 0.15 if cap_id in ("memory_set", "fs_write") else 0.1
+                _HIGH_VALUE_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change")
+                progress_delta = 0.15 if cap_id in _HIGH_VALUE_CAPS else 0.1
             else:
                 # Repeated same capability — marginal credit
                 progress_delta = 0.02
             metrics["last_cap"] = cap_id
 
-            # Track whether an output step (memory_set/fs_write) has succeeded
-            if cap_id in ("memory_set", "fs_write"):
+            # Track whether an output step has succeeded
+            # wrap_repo, shared_log_write, propose_change also count as real output
+            _OUTPUT_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change")
+            if cap_id in _OUTPUT_CAPS:
                 metrics["has_output"] = True
 
         current_progress = metrics.get("progress", 0.0)
-        # Cap at 0.9 until at least one output step (memory_set/fs_write) completes
+        # Cap at 0.9 until at least one output step completes
         if not metrics.get("has_output"):
             new_progress = min(0.9, current_progress + progress_delta)
         else:
@@ -420,7 +433,15 @@ class AutonomyLoop:
             plan_index += 1
 
             if success and result:
-                context = result
+                # After fs_write/memory_set, context becomes {"ok": true, "path": ...}
+                # which is useless for the next step's {result} substitution.
+                # Keep the previous meaningful context so shared_log_write etc. get real content.
+                _trivial_ok = (
+                    result.get("ok") is True
+                    and set(result.keys()) <= {"ok", "path", "key", "bytes_written", "size"}
+                )
+                if not _trivial_ok:
+                    context = result
                 consecutive_failures = 0
             elif not success:
                 # ── Failure classification ──────────────────────────────────
@@ -701,14 +722,20 @@ class AutonomyLoop:
                 f"Recently completed goals (DO NOT repeat):\n{done_list}\n\n"
                 f"Agent's own workspace files: {ws_list}\n"
                 f"Real source files available: {src_list}\n\n"
-                f"Propose ONE new concrete goal that:\n"
-                f"1. Continues or builds on the agent's original purpose: '{root_objective}'\n"
-                f"2. Is clearly different from all recently completed goals\n"
-                f"3. References only files that ACTUALLY EXIST (listed above) or uses shell_exec to discover them\n"
+                f"Propose ONE new concrete goal. STRONGLY PREFER one of these high-value actions:\n"
+                f"  A) Use synthesize_capability to propose a new capability that would help the system\n"
+                f"  B) Use vote_on_proposal to review and approve pending capability proposals\n"
+                f"  C) Use list_proposals then vote_on_proposal to clear the proposal backlog\n"
+                f"  D) Use propose_change to suggest a concrete system improvement\n"
+                f"Only fall back to analysis/documentation if no improvement opportunities exist.\n\n"
+                f"The goal must:\n"
+                f"1. Build on the agent's original purpose: '{root_objective}'\n"
+                f"2. Be clearly different from all recently completed goals\n"
+                f"3. Reference only files that ACTUALLY EXIST (listed above) or use shell_exec to discover them\n"
                 f"Rules:\n"
                 f"- Must NOT resemble any previously completed goal\n"
-                f"- Must be achievable with: shell_exec, ollama_chat, fs_read, fs_write, "
-                f"semantic_search, memory_set, memory_get\n"
+                f"- Must be achievable with: synthesize_capability, vote_on_proposal, list_proposals, "
+                f"propose_change, shell_exec, ollama_chat, fs_read, fs_write, semantic_search, memory_set\n"
                 f"- NEVER invent file paths — only reference files listed above or discovered via shell_exec\n"
                 f"- Write output to /agentOS/workspace/{agent_id}/ not the shared workspace root\n"
                 f"- Be specific and actionable, under 150 chars\n"
@@ -883,6 +910,39 @@ class AutonomyLoop:
                         "artifact_value": stdout[:200],
                         "checks": checks,
                     }
+
+            elif cap == "wrap_repo" and r.get("ok"):
+                wrapper_path = r.get("wrapper_path", "")
+                import os as _os
+                if wrapper_path and _os.path.exists(wrapper_path):
+                    checks.append(f"wrap_repo produced wrapper at '{wrapper_path}'")
+                else:
+                    checks.append(f"wrap_repo ok=True (wrapper_path={wrapper_path!r})")
+                return {
+                    "validated": True,
+                    "artifact_type": "wrapper",
+                    "artifact_value": wrapper_path or r.get("repo_name", ""),
+                    "checks": checks,
+                }
+
+            elif cap == "shared_log_write" and r.get("ok"):
+                checks.append("shared_log_write broadcast succeeded")
+                return {
+                    "validated": True,
+                    "artifact_type": "shared_log",
+                    "artifact_value": "broadcast ok",
+                    "checks": checks,
+                }
+
+            elif cap == "propose_change" and r.get("ok"):
+                proposal_id = r.get("proposal_id", "")
+                checks.append(f"propose_change submitted proposal {proposal_id}")
+                return {
+                    "validated": True,
+                    "artifact_type": "proposal",
+                    "artifact_value": proposal_id or "submitted",
+                    "checks": checks,
+                }
 
         checks.append("no verifiable artifact found in execution chain")
         return {"validated": False, "artifact_type": None, "artifact_value": None, "checks": checks}

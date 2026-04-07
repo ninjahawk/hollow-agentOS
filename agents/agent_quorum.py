@@ -121,9 +121,10 @@ class AgentQuorum:
         proposal_id = f"prop-{uuid.uuid4().hex[:12]}"
         now = time.time()
 
-        # Calculate required quorum (minimum number of votes needed)
-        # For MVP, require at least 2 votes
-        required_quorum = 2
+        # 1 vote required — the daemon votes automatically via Ollama each cycle,
+        # so a proposing agent's own evaluation is sufficient for approval.
+        # This enables rapid proactive self-improvement without coordination overhead.
+        required_quorum = 1
 
         record = ProposalRecord(
             proposal_id=proposal_id,

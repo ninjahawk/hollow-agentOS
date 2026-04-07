@@ -152,47 +152,26 @@ def _build_stack():
 #  Agent discovery                                                             #
 # --------------------------------------------------------------------------- #
 
+_CORE_AGENTS = {"scout", "analyst", "builder"}
+
+
 def _agents_with_goals() -> list[str]:
-    """Return agent IDs that have at least one active goal."""
-    candidates = set()
-
-    # 1. Registered active agents from the registry
-    try:
-        data = _get("/agents")
-        for a in data.get("agents", []):
-            if a.get("status") == "active":
-                candidates.add(a["agent_id"])
-    except Exception as e:
-        log.debug("Could not fetch agent registry: %s", e)
-
-    # 2. Any agent with a goal directory on disk (catches unregistered agents)
-    try:
-        from agents.persistent_goal import GOAL_PATH
-        if GOAL_PATH.exists():
-            for d in GOAL_PATH.iterdir():
-                if d.is_dir():
-                    candidates.add(d.name)
-    except Exception as e:
-        log.debug("Could not scan goal path: %s", e)
-
+    """Return agent IDs that have at least one active goal.
+    Only core agents (scout, analyst, builder) are managed — no dynamic agents.
+    """
     with_goals = []
-    for agent_id in sorted(candidates):
+    for agent_id in sorted(_CORE_AGENTS):
         try:
             result = _get(f"/goals/{agent_id}")
             if result.get("count", 0) > 0:
                 with_goals.append(agent_id)
             else:
-                # Agent exists but has no active goal — give it something to do
+                # Core agent has no active goal — give it something to do
                 _assign_idle_goal(agent_id)
         except Exception:
             pass
 
-    # Core agents always get a slot; rest sorted alphabetically
-    _CORE = {"scout", "analyst", "builder"}
-    core = [a for a in with_goals if a in _CORE]
-    rest = [a for a in with_goals if a not in _CORE]
-    prioritized = core + rest
-    return prioritized[:MAX_ACTIVE_AGENTS]
+    return with_goals
 
 
 # --------------------------------------------------------------------------- #
@@ -282,21 +261,47 @@ def _cap_agent_goals(agent_id: str, max_goals: int = 2) -> None:
 
 def _assign_idle_goal(agent_id: str) -> None:
     """
-    When an agent finishes all its goals, give it a fresh self-directed one
-    shaped by its persistent identity (domains + traits).
+    When a core agent finishes all its goals, give it a fresh self-directed one.
+    Strongly biased toward self-improvement: synthesizing capabilities, voting
+    on proposals, and proposing system changes over writing analysis notes.
     """
+    if agent_id not in _CORE_AGENTS:
+        return  # only manage core agents
     try:
         from agents.persistent_goal import PersistentGoalEngine
         from agents.agent_identity import AgentIdentity
+        import json as _json
+        from pathlib import Path as _Path
+
         ge = PersistentGoalEngine()
         if ge.list_active(agent_id, limit=1):
             return  # already has a goal
 
+        # Check for pending proposals to vote on first — highest priority idle work
+        try:
+            proposals_file = _Path("/agentOS/memory/quorum/proposals.jsonl")
+            if proposals_file.exists():
+                pending = [
+                    _json.loads(line)
+                    for line in proposals_file.read_text().strip().splitlines()
+                    if line.strip() and '"pending"' in line
+                ]
+                if pending:
+                    proposal_id = pending[0]["proposal_id"]
+                    goal = (
+                        f"Review pending capability proposal {proposal_id}: "
+                        f"use list_proposals then vote_on_proposal to approve or reject it"
+                    )
+                    ge.create(agent_id, goal, priority=6)
+                    log.info("  %s — idle, assigned proposal review task", agent_id)
+                    return
+        except Exception:
+            pass
+
+        # Bias toward synthesizing a new capability based on agent's domain
         identity = AgentIdentity.load_or_create(agent_id)
 
-        # Load recently completed objectives to filter out
-        import json as _json
-        from pathlib import Path as _Path
+        # Load recently completed objectives to filter out repetition
         recent = []
         reg_path = _Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
         if reg_path.exists():
@@ -308,10 +313,26 @@ def _assign_idle_goal(agent_id: str) -> None:
                 except Exception:
                     pass
 
-        goal = identity.idle_goal(recent)
-        ge.create(agent_id, goal, priority=3)
-        log.info("  %s (%s) has no goals — assigned identity-driven task",
-                 agent_id, identity.name)
+        # 50% chance: propose a synthesize_capability goal instead of identity-driven task
+        import random as _random
+        if _random.random() < 0.5:
+            domain_hints = {
+                "scout": "repository discovery or code analysis",
+                "analyst": "data processing or insight extraction",
+                "builder": "tool wrapping or automation",
+            }
+            domain = domain_hints.get(agent_id, "system improvement")
+            goal = (
+                f"Use synthesize_capability to propose a new capability that would help with {domain} — "
+                f"think of a concrete gap and implement it"
+            )
+            ge.create(agent_id, goal, priority=5)
+            log.info("  %s (%s) has no goals — assigned synthesis task", agent_id, identity.name)
+        else:
+            goal = identity.idle_goal(recent)
+            ge.create(agent_id, goal, priority=3)
+            log.info("  %s (%s) has no goals — assigned identity-driven task",
+                     agent_id, identity.name)
     except Exception as e:
         log.debug("_assign_idle_goal failed for %s: %s", agent_id, e)
 
@@ -349,52 +370,83 @@ _WRAP_TARGETS = [
 
 
 def _get_next_wrap_target() -> str:
-    """Find the next URL from _WRAP_TARGETS that hasn't been wrapped yet."""
-    wrapped_dir = Path(os.getenv("HOLLOW_WRAPPERS_DIR", "/agentOS/workspace/wrappers"))
-    wrapped = {d.name.lower() for d in wrapped_dir.iterdir()} if wrapped_dir.exists() else set()
+    """Find the next URL from _WRAP_TARGETS that hasn't been wrapped in the store yet."""
+    try:
+        import urllib.request as _req
+        store_url = os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:7779")
+        with _req.urlopen(f"{store_url}/wrappers?limit=300", timeout=5) as r:
+            data = __import__("json").loads(r.read())
+        wrapped_names = {w.get("name", "").lower() for w in data.get("wrappers", [])}
+    except Exception:
+        wrapped_names = set()
+
     for url in _WRAP_TARGETS:
         repo_name = url.rstrip("/").split("/")[-1].lower()
-        if repo_name not in wrapped:
+        if repo_name not in wrapped_names:
             return url
     return ""  # All targets wrapped
 
 
 _LAYER3_GOALS = {
     "scout": (
-        "LAYER 3 — Catalog the app store: "
-        "Step 1: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=50' "
-        "to list all wrappers in the store and their quality scores. "
-        "Step 2: use fs_write to save the catalog to /agentOS/workspace/scout/store_catalog.json. "
-        "Step 3: use ollama_chat to analyze the catalog — which tools are missing that developers use daily? "
-        "Step 4: use shared_log_write to broadcast your top 5 missing tool recommendations."
+        "LAYER 3 — Identify gaps in the Hollow store for Phase 5 completion: "
+        "Step 1: use shell_exec with command="
+        "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=50\" "
+        "to get the top quality wrappers in the store. "
+        "Step 2: use shell_exec with command="
+        "\"curl -s http://host.docker.internal:7779/health\" "
+        "to get the total wrapper count. "
+        "Step 3: use ollama_chat to reason about what developer tools are popular but NOT yet wrapped — "
+        "focus on tools a non-technical user might want (image editors, note-taking, music, document tools). "
+        "Step 4: use fs_write to save your analysis and recommendations to /agentOS/workspace/scout/phase5_gaps.json. "
+        "Step 5: use shared_log_write to broadcast the top 3 gap recommendations."
     ),
     "analyst": (
         "LAYER 3 — Quality analysis: "
         "Step 1: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=20' "
-        "to get quality-ranked wrappers from the store. "
-        "Step 2: use fs_read to read 2-3 of the lowest-scored wrappers "
-        "from /agentOS/workspace/wrappers/ to identify what makes them low quality. "
-        "Step 3: use ollama_chat to reason about what improvements would raise their quality scores. "
-        "Step 4: use propose_change with proposal_type='improvement' to formally propose "
-        "the most impactful quality improvement."
-    ),
-    "builder": (
-        "LAYER 3 — Expand the app catalog: "
-        "Your mission is to wrap GitHub repos to grow the Hollow app store. "
-        "Step 1: use shell_exec with command='ls /agentOS/workspace/wrappers/' to see what's already wrapped. "
-        "Step 2: use wrap_repo with url='https://github.com/sharkdp/hyperfine' "
-        "(or another unwrapped tool from this list: fd, bat, fzf, jq, delta, dust, bottom, zoxide, eza, just, navi, procs) "
-        "to wrap it and upload to the store. "
-        "Step 3: use shared_log_write to broadcast the new wrapper to other agents. "
-        "Keep trying different tools — the goal is to have 50+ tools in the store."
+        "to get quality-ranked wrappers from the store — the response JSON has a 'wrappers' array with repo_id and quality fields. "
+        "Step 2: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers/{repo_id}' "
+        "substituting the repo_id of the LOWEST quality wrapper from step 1 to fetch its full metadata. "
+        "Step 3: use ollama_chat to reason about what makes it low quality and what specific improvements would raise its score. "
+        "Step 4: use propose_change with proposal_type='improvement' to formally propose the most impactful quality improvement."
     ),
 }
+
+
+def _build_builder_goal() -> str:
+    """Build builder's Layer 3 goal using the next unwrapped target from _WRAP_TARGETS."""
+    next_url = _get_next_wrap_target()
+    if next_url:
+        repo_name = next_url.rstrip("/").split("/")[-1]
+        return (
+            "LAYER 3 — Expand the app catalog by wrapping a new GitHub repo: "
+            f"Step 1: use wrap_repo with url='{next_url}' to wrap the tool into an app. "
+            "Step 2: use shell_exec with command='ls /agentOS/workspace/wrappers/' to verify the wrapper was created. "
+            f"Step 3: use shared_log_write to broadcast: 'Wrapped new tool: {repo_name}'. "
+            "If wrap_repo fails, try the next unwrapped repo from this list: "
+            + ", ".join(u for u in _WRAP_TARGETS if u != next_url)
+        )
+    else:
+        # All hardcoded targets wrapped — do quality improvement
+        return (
+            "LAYER 3 — All primary wrap targets are done. Improve wrapper quality: "
+            "Step 1: use shell_exec with command="
+            "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=10\" "
+            "to get lowest-quality wrappers — response has a 'wrappers' array with repo_id fields. "
+            "Step 2: use shell_exec with command="
+            "\"curl -s http://host.docker.internal:7779/wrappers/REPO_ID\" "
+            "replacing REPO_ID with the repo_id of the lowest-quality wrapper from step 1, "
+            "to get its GitHub URL from the 'source_url' field. "
+            "Step 3: use wrap_repo with the GitHub URL from step 2 to re-wrap and improve it. "
+            "Step 4: use shared_log_write to broadcast the quality improvement."
+        )
 
 
 def _inject_layer3_goals() -> None:
     """
     Ensure scout, analyst, and builder each have a Layer 3 meta-goal.
     Only injects if the agent has no active goals that mention 'LAYER 3'.
+    Builder's goal is dynamically generated based on what's already wrapped.
     """
     try:
         from agents.persistent_goal import PersistentGoalEngine
@@ -406,6 +458,9 @@ def _inject_layer3_goals() -> None:
                 if already_has:
                     log.debug("%s already has Layer 3 goal", agent_id)
                     continue
+                # Builder gets a dynamic goal based on what's not yet wrapped
+                if agent_id == "builder":
+                    goal_text = _build_builder_goal()
                 ge.create(agent_id, goal_text, priority=9)  # high priority
                 log.info("Injected Layer 3 meta-goal into %s", agent_id)
             except Exception as e:
