@@ -22,7 +22,7 @@
 
 ## What this is
 
-A local AI OS that runs on your hardware. Type what you want ("open Blender," "scan my codebase for bugs") and agents find the tool, install it, wrap it in a natural language interface, and launch it. No terminal, no config files. 128+ tools in the built-in store. Agents run in the background, extend their own capabilities, and vote on changes before anything deploys. No cloud, no subscriptions, nothing leaves your machine.
+An operating system where AI agents do the computing. You say what you want, they figure out how. It runs entirely on your hardware, gets smarter over time, and never needs the cloud.
 
 ---
 
