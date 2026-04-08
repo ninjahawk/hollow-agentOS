@@ -184,70 +184,76 @@ function resize() {
 
 // ── Column state ──────────────────────────────────────────────────────────────
 const AGENTS = ['analyst', 'scout', 'builder'];
-const CH = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789ABCDEFGHIJKLMNOP<>[]{}|';
 
-let cols = []; // per column: { drop, speed, bright, zone, surfaceText, surfaceY, surfaceAlpha }
+// Actual Matrix half-width katakana + numbers
+const CH = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ012345678９';
 
-const zoneActivity = [0, 0, 0];   // 0-1 activity per zone
-const zoneProgress = [0, 0, 0];   // 0-1 progress per zone
+let cols = [];
+
+const zoneActivity = [0, 0, 0];   // 0-1 transient activity
+const zoneFlash    = [0, 0, 0];   // 0-1 flash pulse on action complete
 const zoneActive   = [false, false, false];
+
+// Gap columns between zones (1 col wide) — subtle natural separation
+const GAP = 1;
 
 function initColumns() {
   cols = [];
+  const usable = ncols - GAP * 2;
+  const zw     = Math.floor(usable / 3);
+
   for (let i = 0; i < ncols; i++) {
-    const zone = i < ncols/3 ? 0 : i < 2*ncols/3 ? 1 : 2;
+    const b1 = zw, b2 = zw + GAP, b3 = zw * 2 + GAP, b4 = zw * 2 + GAP * 2;
+    const isGap = (i === b1 || i === b2 || i === b3 || i === b4);
+    const zone  = i < b1 ? 0 : i < b2 ? -1 : i < b3 ? 1 : i < b4 ? -1 : 2;
+
     cols.push({
       x:      i * FS,
       drop:   Math.random() * -H,
-      speed:  0.2 + Math.random() * 0.6,
-      bright: 0.3 + Math.random() * 0.4,
+      speed:  0.5 + Math.random() * 0.8,   // faster base so idle looks alive
       zone,
-      surface: null,   // { chars, y, alpha, color }
+      gap:    zone === -1,
+      surface: null,
     });
   }
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function draw() {
-  // Fade trail
-  ctx.fillStyle = 'rgba(8,8,8,0.07)';
+  ctx.fillStyle = 'rgba(8,8,8,0.065)';
   ctx.fillRect(0, 0, W, H);
 
   ctx.font = `${FS}px 'JetBrains Mono', monospace`;
 
-  // Zone divider lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-  ctx.lineWidth = 1;
-  [1,2].forEach(z => {
-    ctx.beginPath();
-    ctx.moveTo(z * colW, 0);
-    ctx.lineTo(z * colW, H);
-    ctx.stroke();
-  });
-
   for (let i = 0; i < cols.length; i++) {
     const col  = cols[i];
-    const zone = col.zone;
-    const act  = zoneActivity[zone];
+    if (col.gap) continue;   // natural gap — no characters drawn
 
-    // Base speed scales with activity
-    const spd  = col.speed * (0.4 + act * 1.6);
-    col.drop  += spd * FS * 0.4;
-    if (col.drop > H && Math.random() > 0.975) col.drop = Math.random() * -H * 0.5;
+    const zone  = col.zone;
+    const act   = zoneActivity[zone];
+    const flash = zoneFlash[zone];
 
-    // Brightness by zone activity
-    const baseBright = 0.06 + act * 0.25;
-    const headBright = baseBright * 3.5;
+    // Speed: always moving, accelerates on activity
+    const spd = col.speed * (0.7 + act * 1.4);
+    col.drop += spd * FS * 0.38;
+    if (col.drop > H && Math.random() > 0.972) col.drop = Math.random() * -H * 0.4;
 
-    // Head character
+    // Brightness: always visible idle, surges on activity, peaks on flash
+    const idle       = 0.18;
+    const baseBright = idle + act * 0.3 + flash * 0.55;
+    const headBright = Math.min(1, baseBright * 3.2 + flash * 0.8);
+
     const ch = CH[Math.floor(Math.random() * CH.length)];
-    const g  = Math.floor(48 + act * 60);
 
-    ctx.fillStyle = `rgba(${40+act*80}, ${g+80}, ${40+act*40}, ${headBright})`;
+    // Flash shifts toward white; idle is pure Matrix green
+    const r = Math.floor(30  + act * 40  + flash * 180);
+    const g = Math.floor(180 + act * 60  + flash * 60);
+    const b = Math.floor(30  + act * 20  + flash * 180);
+
+    ctx.fillStyle = `rgba(${r},${g},${b},${headBright})`;
     ctx.fillText(ch, col.x, col.drop);
 
-    // Trail char slightly behind
-    ctx.fillStyle = `rgba(${30+act*40}, ${g+40}, ${30+act*20}, ${baseBright * 0.5})`;
+    ctx.fillStyle = `rgba(${Math.floor(r*0.4)},${Math.floor(g*0.5)},${Math.floor(b*0.4)},${baseBright * 0.45})`;
     ctx.fillText(CH[Math.floor(Math.random()*CH.length)], col.x, col.drop - FS);
 
     // Surface text: a word/action emerges in this column
@@ -325,16 +331,18 @@ async function api(path) {
   } catch(_) { return null; }
 }
 
-// ── Zone activity decay ───────────────────────────────────────────────────────
+// ── Zone activity + flash decay ───────────────────────────────────────────────
 setInterval(() => {
   for (let z = 0; z < 3; z++) {
-    zoneActivity[z] = Math.max(0, zoneActivity[z] - 0.04);
+    zoneActivity[z] = Math.max(0, zoneActivity[z] - 0.05);
+    zoneFlash[z]    = Math.max(0, zoneFlash[z]    - 0.06);
   }
-}, 300);
+}, 80);
 
-function activateZone(z, amount) {
+function activateZone(z, amount, flash) {
   zoneActivity[z] = Math.min(1, zoneActivity[z] + amount);
-  document.getElementById(`zl-${z}`).className = 'zlabel' + (zoneActivity[z] > 0.2 ? ' hot' : '');
+  if (flash) zoneFlash[z] = 1.0;
+  document.getElementById(`zl-${z}`).className = 'zlabel' + (zoneActivity[z] > 0.15 ? ' hot' : '');
 }
 
 // ── Progress bars ─────────────────────────────────────────────────────────────
@@ -404,7 +412,8 @@ async function pollActions() {
     let rand = Math.random() * total, zone = 0;
     for (let z = 0; z < 3; z++) { rand -= weights[z]; if (rand <= 0) { zone = z; break; } }
 
-    activateZone(zone, special ? 0.8 : 0.25);
+    const isFlash = special || a.action === 'fs_write' || a.action === 'capability_deployed';
+    activateZone(zone, special ? 0.9 : 0.3, isFlash);
     surface(zone, text, special);
     setAction(text, special);
   }
