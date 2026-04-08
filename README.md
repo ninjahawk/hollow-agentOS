@@ -22,7 +22,7 @@
 
 ## What this is
 
-An operating system where AI agents do the computing. You say what you want, they figure out how. It runs entirely on your hardware, gets smarter over time, and never needs the cloud.
+An operating system that runs itself. You say what you want, they figure out how. It runs entirely on your hardware, gets smarter over time, and never needs the cloud.
 
 ---
 
