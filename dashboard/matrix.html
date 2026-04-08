@@ -5,19 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hollow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&family=Noto+Sans+JP:wght@400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #080808; }
-body { font-family: 'JetBrains Mono', monospace; }
 
 canvas { position: fixed; inset: 0; display: block; }
 
-/* Token overlay */
 #overlay {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(8,8,8,0.92);
+  background: rgba(8,8,8,0.95);
   backdrop-filter: blur(30px);
 }
 #overlay.gone { display: none; }
@@ -25,109 +23,35 @@ canvas { position: fixed; inset: 0; display: block; }
   width: 300px; text-align: center;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 16px;
-  background: rgba(18,18,18,0.95);
+  background: rgba(18,18,18,0.98);
   padding: 28px 24px;
   box-shadow: 0 32px 80px rgba(0,0,0,0.9);
+  font-family: 'JetBrains Mono', monospace;
 }
-#sheet h2 { font-size: 14px; font-weight: 400; color: rgba(255,255,255,0.85); letter-spacing: 0.5px; margin-bottom: 5px; }
+#sheet h2 { font-size: 13px; font-weight: 400; color: rgba(255,255,255,0.8); letter-spacing: 2px; margin-bottom: 5px; }
 #sheet p  { font-size: 10px; color: rgba(255,255,255,0.25); margin-bottom: 18px; line-height: 1.6; }
 #ti {
   width: 100%; background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.08); border-radius: 9px;
-  color: rgba(255,255,255,0.85); font-family: inherit; font-size: 11px;
+  color: rgba(255,255,255,0.8); font-family: inherit; font-size: 11px;
   padding: 10px 12px; outline: none; margin-bottom: 10px;
   transition: border-color 0.2s;
 }
 #ti:focus { border-color: rgba(48,209,88,0.4); }
-#ti::placeholder { color: rgba(255,255,255,0.2); }
+#ti::placeholder { color: rgba(255,255,255,0.18); }
 #tb {
   width: 100%; background: #30d158; border: none; border-radius: 9px;
   color: #000; font-family: inherit; font-size: 12px; font-weight: 400;
   padding: 10px; cursor: pointer; transition: opacity 0.15s;
 }
 #tb:hover { opacity: 0.82; }
-
-/* HUD overlays — rendered on top of canvas via DOM */
-#hud {
-  position: fixed; inset: 0; z-index: 10;
-  pointer-events: none;
-  display: flex; flex-direction: column;
-  justify-content: space-between;
-}
-
-/* Zone labels */
-#zone-labels {
-  display: flex; padding: 18px 0 0;
-}
-.zlabel {
-  flex: 1; text-align: center;
-  font-size: 9px; font-weight: 400;
-  letter-spacing: 3px; text-transform: uppercase;
-  color: rgba(255,255,255,0.12);
-  transition: color 1s;
-}
-.zlabel.hot { color: rgba(255,255,255,0.35); }
-
-/* Zone dividers — drawn on canvas, but also faint DOM lines */
-.zdiv {
-  position: absolute; top: 0; bottom: 0;
-  width: 1px; background: rgba(255,255,255,0.03);
-}
-
-/* Bottom status bar */
-#statusbar {
-  padding: 0 24px 20px;
-  display: flex; align-items: flex-end; justify-content: space-between;
-}
-#current-action {
-  font-size: 11px; font-weight: 300;
-  color: rgba(255,255,255,0.7);
-  letter-spacing: 0.3px;
-  max-width: 60%;
-  transition: opacity 0.8s;
-}
-#current-action.fade { opacity: 0; }
-#meta {
-  text-align: right;
-  display: flex; flex-direction: column; gap: 3px; align-items: flex-end;
-}
-.meta-row { font-size: 9px; color: rgba(255,255,255,0.15); letter-spacing: 1px; }
-.meta-row b { color: rgba(255,255,255,0.3); font-weight: 400; }
-
-/* Progress arcs — drawn via canvas overlay, but pct text in DOM */
-#progress-wrap {
-  position: fixed; bottom: 60px; left: 0; right: 0;
-  z-index: 11; pointer-events: none;
-  display: flex;
-}
-.pzone {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; gap: 4px;
-}
-.pbar {
-  width: 60%; height: 1px;
-  background: rgba(255,255,255,0.06); border-radius: 1px;
-  overflow: hidden;
-}
-.pfill {
-  height: 100%; border-radius: 1px;
-  background: #30d158;
-  box-shadow: 0 0 6px #30d158;
-  transition: width 2s cubic-bezier(0.4,0,0.2,1);
-}
-.ppct {
-  font-size: 9px; color: rgba(48,209,88,0.5);
-  letter-spacing: 1px;
-  transition: opacity 0.5s;
-}
-.ppct.hidden { opacity: 0; }
 </style>
 </head>
 <body>
 
 <div id="overlay">
   <div id="sheet">
-    <h2>Hollow</h2>
+    <h2>HOLLOW</h2>
     <p>API token to connect.<br>Found in config.json</p>
     <input id="ti" type="password" placeholder="token" autocomplete="off"/>
     <button id="tb">Connect</button>
@@ -136,184 +60,248 @@ canvas { position: fixed; inset: 0; display: block; }
 
 <canvas id="c"></canvas>
 
-<div id="hud">
-  <div id="zone-labels">
-    <div class="zlabel" id="zl-0">analyst</div>
-    <div class="zlabel" id="zl-1">scout</div>
-    <div class="zlabel" id="zl-2">builder</div>
-  </div>
-  <div id="statusbar">
-    <div id="current-action">—</div>
-    <div id="meta">
-      <div class="meta-row"><b id="m-model">—</b></div>
-      <div class="meta-row"><b id="m-time">—</b></div>
-    </div>
-  </div>
-</div>
-
-<div id="progress-wrap">
-  <div class="pzone">
-    <div class="pbar"><div class="pfill" id="pf-0" style="width:0%"></div></div>
-    <div class="ppct hidden" id="pp-0"></div>
-  </div>
-  <div class="pzone">
-    <div class="pbar"><div class="pfill" id="pf-1" style="width:0%"></div></div>
-    <div class="ppct hidden" id="pp-1"></div>
-  </div>
-  <div class="pzone">
-    <div class="pbar"><div class="pfill" id="pf-2" style="width:0%"></div></div>
-    <div class="ppct hidden" id="pp-2"></div>
-  </div>
-</div>
-
 <script>
-// ── Canvas setup ──────────────────────────────────────────────────────────────
 const cv  = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-let W, H, FS, ncols, colW;
+// ── Zone color palettes ────────────────────────────────────────────────────────
+// Each agent has a base hue. Idle = dim, active = bright, flash = peak.
+// analyst  = green   (classic Matrix)
+// scout    = teal    (cooler, exploratory)
+// builder  = amber-green (warmer, constructive)
+const ZONE_COLOR = [
+  { r:30,  g:200, b:60  },   // analyst  — green
+  { r:20,  g:180, b:160 },   // scout    — teal
+  { r:120, g:200, b:30  },   // builder  — amber-green
+];
+
+// ── Characters ────────────────────────────────────────────────────────────────
+const KATAKANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+const NUMBERS  = '０１２３４５６７８９';
+const ALL_CH   = KATAKANA + NUMBERS;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let W, H, FS, ncols;
+const AGENTS = ['analyst', 'scout', 'builder'];
+const GAP    = 2;   // gap columns between zones
+const TRAIL  = 22;
+
+// Per-zone signals (0-1)
+const zAct    = [0, 0, 0];   // general activity level
+const zFlash  = [0, 0, 0];   // deploy/write flash
+const zOllama = [0, 0, 0];   // model thinking (slows + whitens head)
+const zShell  = [0, 0, 0];   // shell command pulse
+const zProg   = [0, 0, 0];   // goal progress 0-1
+
+let cols = [];
 
 function resize() {
   W = cv.width  = innerWidth;
   H = cv.height = innerHeight;
   FS    = 16;
   ncols = Math.floor(W / FS);
-  colW  = W / 3;
-  initColumns();
+  initCols();
 }
 
-// ── Column state ──────────────────────────────────────────────────────────────
-const AGENTS = ['analyst', 'scout', 'builder'];
-
-// Full-width katakana — requires a Japanese font to render correctly
-const CH = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン０１２３４５６７８９';
-
-let cols = [];
-
-const zoneActivity = [0, 0, 0];   // 0-1 transient activity
-const zoneFlash    = [0, 0, 0];   // 0-1 flash pulse on action complete
-const zoneActive   = [false, false, false];
-
-// Gap columns between zones (1 col wide) — subtle natural separation
-const GAP = 1;
-
-const TRAIL = 20;  // number of trail steps to keep
-
-function initColumns() {
+function initCols() {
   cols = [];
   const usable = ncols - GAP * 2;
   const zw     = Math.floor(usable / 3);
 
   for (let i = 0; i < ncols; i++) {
-    const b1 = zw, b2 = zw + GAP, b3 = zw * 2 + GAP, b4 = zw * 2 + GAP * 2;
-    const zone  = i < b1 ? 0 : i < b2 ? -1 : i < b3 ? 1 : i < b4 ? -1 : 2;
+    const b1 = zw, b2 = zw+GAP, b3 = zw*2+GAP, b4 = zw*2+GAP*2;
+    const zone = i < b1 ? 0 : i < b2 ? -1 : i < b3 ? 1 : i < b4 ? -1 : 2;
+    const gap  = zone < 0;
+
+    // Columns near zone boundary are slightly sparser
+    const boundaryDist = Math.min(
+      Math.abs(i - b1), Math.abs(i - b2),
+      Math.abs(i - b3), Math.abs(i - b4)
+    );
+    const sparse = !gap && boundaryDist < 2;
 
     cols.push({
       x:      i * FS,
-      drop:   Math.random() * -H,
-      speed:  0.5 + Math.random() * 0.8,
+      drop:   Math.random() * -H * 1.2,
+      speed:  0.4 + Math.random() * 0.7,
       zone,
-      gap:    zone === -1,
-      trail:  [],   // [{y, ch}] newest first
-      surface: null,
+      gap,
+      sparse,
+      trail:  [],
+      mode:   'kata',   // 'kata' | 'num' — switches during model calls
+      word:   null,     // { chars, y, alpha, color } — surfaces briefly
     });
   }
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function draw() {
-  // Full clear every frame — no accumulation, no ghost trails
   ctx.fillStyle = '#080808';
   ctx.fillRect(0, 0, W, H);
-
   ctx.font = `${FS}px 'Noto Sans JP', 'Yu Gothic', 'MS Gothic', monospace`;
 
   for (let i = 0; i < cols.length; i++) {
-    const col  = cols[i];
+    const col = cols[i];
     if (col.gap) continue;
 
-    const zone  = col.zone;
-    const act   = zoneActivity[zone];
-    const flash = zoneFlash[zone];
+    const z      = col.zone;
+    const act    = zAct[z];
+    const flash  = zFlash[z];
+    const ollama = zOllama[z];
+    const shell  = zShell[z];
+    const C      = ZONE_COLOR[z];
 
-    // Advance head
-    const spd = col.speed * (0.7 + act * 1.4);
-    col.drop += spd * FS * 0.38;
-    if (col.drop > H && Math.random() > 0.972) {
-      col.drop = Math.random() * -H * 0.4;
+    // Speed: slows during Ollama (thinking), speeds during activity
+    const thinkSlow = ollama * 0.6;
+    const spd = col.speed * Math.max(0.15, 0.6 + act * 1.2 - thinkSlow);
+    col.drop += spd * FS * 0.36;
+    if (col.drop > H && Math.random() > (col.sparse ? 0.96 : 0.972)) {
+      col.drop = Math.random() * -H * 0.5;
       col.trail = [];
     }
 
-    // Push new head position into trail
-    const headY = Math.floor(col.drop);
-    col.trail.unshift({ y: headY, ch: CH[Math.floor(Math.random() * CH.length)] });
+    // Character set: switches to numbers during model calls
+    const charset = ollama > 0.3 ? NUMBERS : KATAKANA;
+    const headCh  = charset[Math.floor(Math.random() * charset.length)];
+
+    col.trail.unshift({ y: Math.floor(col.drop), ch: headCh });
     if (col.trail.length > TRAIL) col.trail.length = TRAIL;
 
-    // Color tones: flash shifts toward white-green
-    const r = Math.floor(30  + act * 40  + flash * 160);
-    const g = Math.floor(185 + act * 55  + flash * 55);
-    const b = Math.floor(30  + act * 20  + flash * 160);
+    // ── Color computation ──────────────────────────────────────────────────
+    // Flash → white-shift entire column
+    // Ollama → head goes near-white (hot)
+    // Shell → brief brightness pulse
+    // Idle → dim zone color
 
-    // Draw trail from oldest to newest (so head paints on top)
+    const flashLift = flash * 180;
+    const r = Math.min(255, C.r + act * 30 + flashLift + shell * 40);
+    const g = Math.min(255, C.g + act * 30 + flashLift * 0.4 + shell * 30);
+    const b = Math.min(255, C.b + act * 20 + flashLift + shell * 40);
+
+    // Head brightness
+    const headBase  = 0.5 + act * 0.3 + flash * 0.35;
+    const headAlpha = ollama > 0 ? Math.min(1, headBase + ollama * 0.5) : headBase;
+
+    // Draw trail oldest→newest
     for (let t = col.trail.length - 1; t >= 0; t--) {
       const { y, ch } = col.trail[t];
-      const frac = 1 - t / TRAIL;           // 1 = head, 0 = tail
+      const frac  = 1 - t / TRAIL;
       const alpha = t === 0
-        ? Math.min(1, 0.55 + act * 0.35 + flash * 0.45)   // head: always bright
-        : frac * frac * (0.25 + act * 0.15 + flash * 0.3); // trail: quadratic falloff
+        ? Math.min(1, headAlpha)
+        : frac * frac * (0.18 + act * 0.12 + flash * 0.25);
 
-      ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+      if (alpha < 0.01) continue;
+
+      // Head during ollama shifts toward pure white
+      if (t === 0 && ollama > 0.2) {
+        const w = ollama;
+        ctx.fillStyle = `rgba(${Math.floor(r+(255-r)*w)},${Math.floor(g+(255-g)*w)},${Math.floor(b+(255-b)*w)},${alpha.toFixed(3)})`;
+      } else {
+        ctx.fillStyle = `rgba(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)},${alpha.toFixed(3)})`;
+      }
       ctx.fillText(ch, col.x, y);
     }
 
-    // Surface text: a word/action emerges in this column
-    if (col.surface) {
-      const s = col.surface;
-      s.alpha -= 0.008;
-      if (s.alpha <= 0) {
-        col.surface = null;
+    // ── Surfaced word ──────────────────────────────────────────────────────
+    if (col.word) {
+      const w = col.word;
+      w.alpha -= 0.012;
+      if (w.alpha <= 0) {
+        col.word = null;
       } else {
-        ctx.fillStyle = s.color.replace('A', s.alpha.toFixed(2));
-        for (let ci = 0; ci < s.chars.length; ci++) {
-          ctx.fillText(s.chars[ci], col.x, s.y + ci * FS);
+        ctx.fillStyle = `rgba(${w.r},${w.g},${w.b},${Math.min(1,w.alpha).toFixed(3)})`;
+        for (let ci = 0; ci < w.chars.length; ci++) {
+          ctx.fillText(w.chars[ci], col.x, w.y + ci * FS);
         }
       }
     }
   }
+
+  // Draw progress as a faint horizontal line near bottom of each zone
+  drawProgressLines();
 }
 
-// ── Surface text: make a word emerge from a zone ──────────────────────────────
-function surface(zoneIdx, text, isSpecial) {
-  const zoneCols = cols.filter(c => c.zone === zoneIdx);
+function drawProgressLines() {
+  const usable = ncols - GAP * 2;
+  const zw     = Math.floor(usable / 3);
+
+  for (let z = 0; z < 3; z++) {
+    const pct = zProg[z];
+    if (pct < 0.01) continue;
+    const C    = ZONE_COLOR[z];
+    const xStart = z === 0 ? 0 : z === 1 ? (zw+GAP)*FS : (zw*2+GAP*2)*FS;
+    const xEnd   = xStart + zw * FS * pct;
+    const y      = H - 3;
+
+    ctx.strokeStyle = `rgba(${C.r},${C.g},${C.b},0.35)`;
+    ctx.lineWidth   = 1;
+    ctx.shadowColor = `rgba(${C.r},${C.g},${C.b},0.6)`;
+    ctx.shadowBlur  = 4;
+    ctx.beginPath();
+    ctx.moveTo(xStart, y);
+    ctx.lineTo(xEnd,   y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── Surface a word in a zone ──────────────────────────────────────────────────
+function surfaceWord(z, text, bright) {
+  const zoneCols = cols.filter(c => c.zone === z);
   if (!zoneCols.length) return;
+  const mid = Math.floor(zoneCols.length / 2);
+  const col = zoneCols[Math.max(0, mid - 2 + Math.floor(Math.random() * 4))];
+  const C   = ZONE_COLOR[z];
 
-  // Pick a random column in zone, near center
-  const mid   = zoneCols[Math.floor(zoneCols.length / 2)];
-  const range = zoneCols.slice(
-    Math.max(0, zoneCols.length/2 - 4),
-    Math.min(zoneCols.length, zoneCols.length/2 + 4)
-  );
-  const col = range[Math.floor(Math.random() * range.length)];
+  const wr = bright ? 255 : Math.min(255, C.r + 80);
+  const wg = bright ? 255 : Math.min(255, C.g + 60);
+  const wb = bright ? 255 : Math.min(255, C.b + 80);
 
-  const chars  = text.slice(0, 18).split('');
-  const startY = H * 0.25 + Math.random() * H * 0.4;
-  const color  = isSpecial
-    ? 'rgba(255,214,10,A)'
-    : 'rgba(200,255,200,A)';
-
-  col.surface = { chars, y: startY, alpha: 1.0, color };
+  col.word = {
+    chars: text.slice(0, 16).split(''),
+    y:     H * 0.2 + Math.random() * H * 0.45,
+    alpha: 0.9,
+    r: wr, g: wg, b: wb,
+  };
 }
 
-// ── Status bar ────────────────────────────────────────────────────────────────
-const actionEl = document.getElementById('current-action');
-let   actionTimer = null;
+// ── Decay ─────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  for (let z = 0; z < 3; z++) {
+    zAct[z]    = Math.max(0, zAct[z]    - 0.04);
+    zFlash[z]  = Math.max(0, zFlash[z]  - 0.05);
+    zOllama[z] = Math.max(0, zOllama[z] - 0.03);
+    zShell[z]  = Math.max(0, zShell[z]  - 0.08);
+  }
+}, 80);
 
-function setAction(text, special) {
-  actionEl.classList.remove('fade');
-  actionEl.textContent = text;
-  actionEl.style.color = special ? 'rgba(255,214,10,0.85)' : 'rgba(255,255,255,0.65)';
-  clearTimeout(actionTimer);
-  actionTimer = setTimeout(() => actionEl.classList.add('fade'), 6000);
+function signal(z, type, text) {
+  switch (type) {
+    case 'shell':
+      zAct[z]   = Math.min(1, zAct[z]   + 0.3);
+      zShell[z] = Math.min(1, zShell[z] + 0.7);
+      break;
+    case 'ollama':
+      zAct[z]    = Math.min(1, zAct[z]    + 0.2);
+      zOllama[z] = Math.min(1, zOllama[z] + 0.9);
+      break;
+    case 'memory':
+      zAct[z] = Math.min(1, zAct[z] + 0.15);
+      break;
+    case 'write':
+      zAct[z]   = Math.min(1, zAct[z]   + 0.5);
+      zFlash[z] = Math.min(1, zFlash[z] + 0.8);
+      if (text) surfaceWord(z, text.split('/').pop(), false);
+      break;
+    case 'deploy':
+      zAct[z]   = 1.0;
+      zFlash[z] = 1.0;
+      if (text) surfaceWord(z, text, true);
+      break;
+    case 'goal':
+      zAct[z] = Math.min(1, zAct[z] + 0.4);
+      break;
+  }
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -331,8 +319,7 @@ function connect() {
   document.getElementById('overlay').classList.add('gone');
   start();
 }
-
-if (TOKEN) { document.getElementById('overlay').classList.add('gone'); }
+if (TOKEN) document.getElementById('overlay').classList.add('gone');
 
 async function api(path) {
   try {
@@ -341,64 +328,23 @@ async function api(path) {
   } catch(_) { return null; }
 }
 
-// ── Zone activity + flash decay ───────────────────────────────────────────────
-setInterval(() => {
-  for (let z = 0; z < 3; z++) {
-    zoneActivity[z] = Math.max(0, zoneActivity[z] - 0.05);
-    zoneFlash[z]    = Math.max(0, zoneFlash[z]    - 0.06);
-  }
-}, 80);
-
-function activateZone(z, amount, flash) {
-  zoneActivity[z] = Math.min(1, zoneActivity[z] + amount);
-  if (flash) zoneFlash[z] = 1.0;
-  document.getElementById(`zl-${z}`).className = 'zlabel' + (zoneActivity[z] > 0.15 ? ' hot' : '');
-}
-
-// ── Progress bars ─────────────────────────────────────────────────────────────
-function setProgress(z, pct, steps) {
-  document.getElementById(`pf-${z}`).style.width = pct + '%';
-  const pp = document.getElementById(`pp-${z}`);
-  if (pct > 0) {
-    pp.textContent = pct + '%';
-    pp.classList.remove('hidden');
-  } else {
-    pp.classList.add('hidden');
-  }
-}
-
 // ── Poll goals ────────────────────────────────────────────────────────────────
 async function pollGoals() {
-  for (let z = 0; z < AGENTS.length; z++) {
+  for (let z = 0; z < 3; z++) {
     const d = await api(`/goals/${AGENTS[z]}`);
     if (!d) continue;
-    const active = (d.goals||[]).filter(g=>g.status==='active');
-    const best   = active.sort((a,b)=>(b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
-
-    if (best) {
-      const pct = Math.round((best.metrics?.progress||0)*100);
-      setProgress(z, pct, best.metrics?.steps_completed||0);
-      if (!zoneActive[z]) {
-        activateZone(z, 0.4);
-        zoneActive[z] = true;
-      }
-    } else {
-      setProgress(z, 0, 0);
-      zoneActive[z] = false;
-    }
+    const active = (d.goals||[]).filter(g => g.status==='active');
+    const best   = active.sort((a,b) => (b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
+    zProg[z] = best ? (best.metrics?.progress||0) : 0;
+    if (best) zAct[z] = Math.max(zAct[z], 0.1);
   }
 }
 
 // ── Poll actions ──────────────────────────────────────────────────────────────
 let lastTs = null;
 
-const ACTION_FMT = {
-  shell_command: d => ({ text: d.command ? d.command.slice(0,60) : 'shell', zone: -1, special: false }),
-  ollama_chat:   d => ({ text: d.prompt  ? d.prompt.slice(0,60)  : 'model call', zone: -1, special: false }),
-  memory_set:    d => ({ text: `store ${d.key||''}`, zone: -1, special: false }),
-  fs_write:      d => ({ text: `write ${d.path||''}`, zone: -1, special: false }),
-  goal_created:  d => ({ text: (d.objective||'new goal').slice(0,60), zone: -1, special: false }),
-  capability_deployed: d => ({ text: `deployed: ${d.name||'capability'}`, zone: -1, special: true }),
+const ACTION_ZONE_HINT = {
+  // If we can't tell which agent, distribute by round-robin weighted by activity
 };
 
 async function pollActions() {
@@ -407,61 +353,50 @@ async function pollActions() {
 
   const newOnes = lastTs
     ? d.actions.filter(a => new Date(a.timestamp) > new Date(lastTs))
-    : d.actions.slice(-8);
+    : d.actions.slice(-10);
   if (!newOnes.length) return;
   lastTs = newOnes[newOnes.length-1].timestamp;
 
   for (const a of newOnes) {
-    const fmt = ACTION_FMT[a.action];
-    if (!fmt) continue;
-    const { text, special } = fmt(a.details||{});
-
-    // Pick a zone at random, weighted by activity
-    const weights = zoneActivity.map(v => 0.2 + v);
+    // Weight zone selection by current activity
+    const weights = zAct.map(v => 0.15 + v);
     const total   = weights.reduce((s,v)=>s+v,0);
-    let rand = Math.random() * total, zone = 0;
-    for (let z = 0; z < 3; z++) { rand -= weights[z]; if (rand <= 0) { zone = z; break; } }
+    let rand = Math.random()*total, z = 0;
+    for (let i=0;i<3;i++) { rand -= weights[i]; if (rand<=0){z=i;break;} }
 
-    const isFlash = special || a.action === 'fs_write' || a.action === 'capability_deployed';
-    activateZone(zone, special ? 0.9 : 0.3, isFlash);
-    surface(zone, text, special);
-    setAction(text, special);
+    switch (a.action) {
+      case 'shell_command':
+        signal(z, 'shell', a.details?.command); break;
+      case 'ollama_chat':
+        signal(z, 'ollama', null); break;
+      case 'memory_set':
+      case 'memory_get':
+        signal(z, 'memory', null); break;
+      case 'fs_write':
+        signal(z, 'write', a.details?.path); break;
+      case 'capability_deployed':
+        signal(z, 'deploy', a.details?.name||'capability'); break;
+      case 'goal_created':
+        signal(z, 'goal', null); break;
+    }
   }
 }
 
-// ── Poll state ────────────────────────────────────────────────────────────────
-async function pollState() {
-  const d = await api('/state?fields=ollama');
-  if (!d) return;
-  const model = d.ollama?.running?.[0];
-  document.getElementById('m-model').textContent =
-    typeof model === 'string' ? model : (model?.name || '—');
-}
-
-function clock() {
-  document.getElementById('m-time').textContent = new Date().toTimeString().slice(0,8);
-}
-
-// ── Main loop ─────────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 let tick = 0;
 async function loop() {
   tick++;
-  clock();
   await Promise.all([pollGoals(), pollActions()]);
-  if (tick % 8 === 0) pollState();
 }
 
 function start() {
-  pollState();
   loop();
   setInterval(loop, 4000);
-  setInterval(clock, 1000);
 }
 
 resize();
 addEventListener('resize', resize);
 
-// Wait for Japanese font to load before drawing so katakana renders correctly
 document.fonts.load(`16px 'Noto Sans JP'`).finally(() => {
   requestAnimationFrame(function frame() { draw(); requestAnimationFrame(frame); });
 });
