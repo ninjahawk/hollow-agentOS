@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hollow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&family=Noto+Sans+JP:wght@400&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #080808; }
@@ -176,7 +176,7 @@ let W, H, FS, ncols, colW;
 function resize() {
   W = cv.width  = innerWidth;
   H = cv.height = innerHeight;
-  FS   = 13;
+  FS    = 16;
   ncols = Math.floor(W / FS);
   colW  = W / 3;
   initColumns();
@@ -185,8 +185,8 @@ function resize() {
 // ── Column state ──────────────────────────────────────────────────────────────
 const AGENTS = ['analyst', 'scout', 'builder'];
 
-// Actual Matrix half-width katakana + numbers
-const CH = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ012345678９';
+// Full-width katakana — requires a Japanese font to render correctly
+const CH = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン０１２３４５６７８９';
 
 let cols = [];
 
@@ -226,7 +226,7 @@ function draw() {
   ctx.fillStyle = '#080808';
   ctx.fillRect(0, 0, W, H);
 
-  ctx.font = `${FS}px 'JetBrains Mono', monospace`;
+  ctx.font = `${FS}px 'Noto Sans JP', 'Yu Gothic', 'MS Gothic', monospace`;
 
   for (let i = 0; i < cols.length; i++) {
     const col  = cols[i];
@@ -460,7 +460,11 @@ function start() {
 
 resize();
 addEventListener('resize', resize);
-requestAnimationFrame(function frame() { draw(); requestAnimationFrame(frame); });
+
+// Wait for Japanese font to load before drawing so katakana renders correctly
+document.fonts.load(`16px 'Noto Sans JP'`).finally(() => {
+  requestAnimationFrame(function frame() { draw(); requestAnimationFrame(frame); });
+});
 
 if (TOKEN) start();
 </script>
