@@ -18,6 +18,8 @@
 
 ---
 
+![Hollow AgentOS demo](demo/hollow-demo.gif)
+
 ## What this is
 
 Hollow is a local AI operating system that runs entirely on your hardware. You type what you want — "open Blender," "scan my codebase for bugs," "set up a Python environment" — and AI agents figure out the rest: finding the tool, installing it, wrapping it in a natural language interface, and launching it. No terminal knowledge required. No config files. No knowing what any of it is. A built-in store has 128+ tools ready to install the same way. While you use it, agents run silently in the background, extending their own capabilities, voting on changes before anything deploys, and improving the system over time — all without cloud calls, subscriptions, or your data leaving your machine.
