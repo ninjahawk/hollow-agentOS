@@ -7,12 +7,12 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-4.4.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.0.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
-[![Tests](https://img.shields.io/badge/tests-178%20passing-brightgreen?style=flat-square)](#testing)
-[![Release](https://img.shields.io/badge/release-Phase%200%20Stabilization-ff6b35?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Store](https://img.shields.io/badge/store-128%2B%20tools-orange?style=flat-square)](#app-store)
+[![Release](https://img.shields.io/badge/release-Phase%206%20HollowOS-ff6b35?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 
 </div>
 
@@ -20,16 +20,7 @@
 
 ## What this is
 
-Type "open LangChain" and Hollow finds the repo, clones it, reads the codebase, builds a natural language interface around it, and launches it. No install guide. No config files. No knowing what any of it is. While you use it, agents are running in the background learning how you work and making it better. Those same agents extend their own system when they hit something they can't do, propose the change to each other, vote on it, and deploy it. No human in the loop.
-
-The wild part is that all of this runs on the same framework the agents are actively improving. They are building the thing they run on, while running on it.
-
-Hollow is a full operating system for AI agents, running entirely on your hardware. Scheduler, memory heap, inter-agent messaging, atomic transactions, a governance layer where agents vote on changes before anything deploys. The agents have already named themselves, self-organized coordination protocols, and autonomously found bugs in their own source code. This is what it looks like right now with no input from anyone:
-
-```
-23:54:23 [daemon]  scout  -> goal=goal-9aab1fca8d30  progress=0.30  steps=3
-23:54:37 [daemon]  scout  -> goal=goal-9aab1fca8d30  progress=0.60  steps=3
-```
+Hollow is a local AI operating system that runs entirely on your hardware. You type what you want — "open Blender," "scan my codebase for bugs," "set up a Python environment" — and AI agents figure out the rest: finding the tool, installing it, wrapping it in a natural language interface, and launching it. No terminal knowledge required. No config files. No knowing what any of it is. A built-in store has 128+ tools ready to install the same way. While you use it, agents run silently in the background, extending their own capabilities, voting on changes before anything deploys, and improving the system over time — all without cloud calls, subscriptions, or your data leaving your machine.
 
 ---
 
@@ -53,7 +44,7 @@ That's it. The installer handles Docker Desktop, Ollama, model downloads (~7 GB)
 **You need:** [Docker](https://docs.docker.com/get-docker/) and [Ollama](https://ollama.ai) installed.
 
 ```bash
-ollama pull mistral-nemo:12b
+ollama pull qwen2.5:9b
 ollama pull nomic-embed-text
 
 git clone https://github.com/ninjahawk/hollow-agentOS
@@ -109,11 +100,13 @@ If a step fails, the agent replans from that point. If a capability fails repeat
 
 Agents can also delegate goals to other agents, decompose a single goal across N agents working in parallel, and synthesize entirely new capabilities at runtime when they hit something they can't do.
 
+When an agent hits a gap in its capability set, it calls `synthesize_capability`: an LLM writes a Python module, independent agents vote on it via quorum, and if approved it gets deployed as a `.py` file and hot-loaded into the running system via `importlib` — no restart required. The synthesized module gets access to `shell_exec`, `fs_read`, `fs_write`, `ollama_chat`, `memory_get`, and `memory_set` as injected HTTP wrappers so it can interact with the rest of the system immediately. Failed synthesis attempts are permanently recorded so they're never retried.
+
 ---
 
 ## What's inside
 
-### Phase 1: OS Kernel Primitives (v0.7.0 – v1.2.0)
+### Phase 0–1: OS Kernel Primitives (v0.1.0 – v1.2.0)
 
 Eight foundational mechanisms. Every higher-order system depends on these.
 
@@ -134,6 +127,14 @@ Replacing every human-facing interface with agent-native cognition. No more JSON
 ### Phase 4: Autonomous Agent Runtime (v3.0.0 – v4.4.0)
 
 The OS is complete. Now it runs. A persistent daemon cycles through agents, generates plans with a local LLM, executes multi-step pipelines with real data flowing between steps, and produces verifiable artifacts. Goals persist across restarts. Agents accumulate memory. The system governs its own capability expansion through quorum voting. No human needs to be in the loop.
+
+### Phase 5: App Store and Natural Language Install (v4.5.0 – v4.9.0)
+
+Hollow becomes something you hand to a non-developer. Type "I want Blender" or "open ComfyUI" and the system finds the tool, resolves dependencies, clones the repo, synthesizes a wrapper, and launches a natural language interface around it — no install guide, no config files. A built-in store (128+ tools) lets agents browse, search, and install tools the same way users do. Wrappers are versioned and auto-repaired when they break.
+
+### Phase 6: HollowOS (v5.0.0)
+
+The graphical shell. A web-based desktop environment that replaces the terminal entirely. Apps launched from the store appear as windows. The agent layer runs silently underneath, extending and improving the system while the user works. HollowOS is the face; AgentOS is the brain.
 
 ---
 
@@ -158,13 +159,13 @@ The OS is complete. Now it runs. A persistent daemon cycles through agents, gene
 ## Real Numbers
 
 - **91 MCP tools** that agents can invoke
+- **128+ store tools** available via natural language install
 - **106 REST routes** for human observation
-- **178 integration tests** passing against live API, no mocks
 - **~6 seconds** per planning call on GPU; ~40s on CPU
 - **14 agents** running in parallel with no resource contention on RTX 5070
-- **0 cloud calls** — everything runs on your hardware
+- **0 cloud calls** — everything runs on your hardware, on `qwen2.5:9b` by default
 
-All numbers are reproducible. Clone the repo, run the tests.
+All benchmarks are from the live system. Clone the repo and run it.
 
 ---
 
@@ -188,7 +189,7 @@ Hollow implements all three. An agent that ignores SIGTERM is force-killed by a 
 
 Loading a 14B model takes ~3 seconds. If it's already in VRAM from the previous task, that cost is zero. The scheduler tracks what's loaded, routes tasks to already-loaded models where possible, and evicts LRU models under memory pressure.
 
-Three priority tiers: URGENT (0) preempts BACKGROUND (2) workers via checkpointing. Complexity routing: 1–2 → `mistral-nemo:12b`, 3–4 → `qwen2.5:14b`, 5 → `qwen3.5-35b-moe`. Affinity routing: if a suitable model is already in VRAM, use it regardless of the complexity tier.
+Three priority tiers: URGENT (0) preempts BACKGROUND (2) workers via checkpointing. Complexity routing: 1–2 → `qwen2.5:9b`, 3–4 → `qwen2.5:14b`, 5 → `qwen2.5:32b`. Affinity routing: if a suitable model is already in VRAM, use it regardless of the complexity tier.
 
 ### Working Memory Kernel (v1.0.0)
 
@@ -269,7 +270,7 @@ Routing decision hierarchy:
 1. **Hard override** — admin-set rules that bypass scoring entirely (per agent, role, or complexity)
 2. **Adaptive score** — highest-scoring model with ≥5 observations for this complexity tier
 3. **VRAM affinity** (v0.9.0) — prefer already-loaded model to avoid 15–30s eviction cost
-4. **Static tier default** — complexity 1–2 → mistral-nemo:12b, 3–4 → qwen2.5:14b, 5 → qwen3.5-35b-moe
+4. **Static tier default** — complexity 1–2 → qwen2.5:9b, 3–4 → qwen2.5:14b, 5 → qwen2.5:32b
 
 Overrides resolve by specificity: agent_id > role > complexity-only > global. The most specific matching override wins. Stats and recommendations are exposed via API and MCP tools, so agents can observe and reason about routing decisions.
 
@@ -321,7 +322,7 @@ Agents resuming with Hollow handoff context make 2× more consistent decisions t
 | **Hollow** (structured handoff) | **70%** | 0.0 | 971 |
 | Cold start (no context) | 35% | 0.1 | 1,246 |
 
-Same model both conditions (`mistral-nemo:12b`), 10 runs each, 3-session task.
+Same model both conditions (`qwen2.5:9b`), 10 runs each, 3-session task.
 
 ---
 
@@ -367,8 +368,18 @@ hollow-agentOS/
 ├── tools/
 │   ├── semantic.py              # AST-aware chunker + embedding search
 │   └── dynamic/                 # Hot-loaded capabilities synthesized by agents at runtime
-├── tests/
-│   └── integration/       # 178 integration tests — no mocks, live API
+├── store/
+│   ├── server.py          # Tool store backend — search, install, wrapper registry
+│   └── data/              # Store index and wrapper metadata
+├── dashboard/
+│   ├── index.html         # Live monitor dashboard
+│   ├── apps.html          # App store UI — browse, search, install tools
+│   └── loading.html       # HollowOS boot screen
+├── shell/
+│   └── installer.py       # Natural language tool installer — clone, wrap, launch
+├── hollowos/              # HollowOS graphical shell (in development)
+├── scripts/
+│   └── repair_wrappers.py # Auto-repair broken store wrappers
 ├── Dockerfile
 ├── docker-compose.yml
 ├── entrypoint.sh          # Starts daemon in background + uvicorn foreground
