@@ -128,8 +128,9 @@ def _build_stack():
         self_mod = SelfModificationCycle(
             execution_engine=engine,
             synthesis_engine=synthesis_engine,
-            quorum=cap_quorum,   # pass CapabilityQuorum so daemon's vote_on_pending picks it up
+            quorum=cap_quorum,
             semantic_memory=memory,
+            capability_graph=graph,
         )
         log.info("Self-modification cycle initialized")
     except Exception as e:
@@ -143,9 +144,101 @@ def _build_stack():
         semantic_memory=memory,
         self_modification=self_mod,
     )
+    # Hot-load any previously deployed dynamic capabilities from disk
+    _hotload_dynamic_tools(graph, engine)
+
     _stack = (graph, engine, reasoning, loop, goal_engine, cap_quorum, self_mod)
-    log.info("Autonomy stack ready: %d capabilities registered", len(graph._embedder and [] or []))
+    log.info("Autonomy stack ready: %d capabilities registered", len(engine._implementations))
     return _stack
+
+
+def _hotload_dynamic_tools(graph, engine) -> None:
+    """
+    On startup, scan /agentOS/tools/dynamic/ and load all .py files into the
+    execution engine and capability graph so deployed capabilities survive restarts.
+    """
+    import importlib.util as _ilu, inspect as _ins, ast as _ast
+    from pathlib import Path as _P
+    from agents.capability_graph import CapabilityRecord
+
+    tools_dir = _P("/agentOS/tools/dynamic")
+    if not tools_dir.exists():
+        return
+
+    loaded = 0
+    for path in sorted(tools_dir.glob("*.py")):
+        try:
+            # Read header comments for name/description
+            lines = path.read_text().splitlines()
+            cap_name = path.stem
+            description = ""
+            for line in lines[:4]:
+                if "capability:" in line:
+                    cap_name = line.split("capability:")[-1].strip()
+                if "Description:" in line:
+                    description = line.split("Description:")[-1].strip()
+
+            # Syntax check
+            _ast.parse(path.read_text())
+
+            # Import module, injecting agent-system helpers so synthesized code
+            # can call shell_exec, fs_read, fs_write, ollama_chat, etc.
+            spec = _ilu.spec_from_file_location(path.stem, path)
+            mod = _ilu.module_from_spec(spec)
+            try:
+                import requests as _req, json as _json_mod, os as _os
+                _api = "http://localhost:7777"
+                try:
+                    _cfg = _json_mod.loads(open(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json")).read())
+                    _tok = _cfg.get("api", {}).get("token", "")
+                except Exception:
+                    _tok = ""
+                _hdrs = {"Authorization": f"Bearer {_tok}"} if _tok else {}
+                mod.shell_exec = lambda command, cwd="/agentOS", **kw: _req.post(f"{_api}/shell", json={"command": command, "cwd": cwd}, timeout=30, headers=_hdrs).json()
+                mod.fs_read = lambda path, **kw: _req.get(f"{_api}/fs/read", params={"path": path}, timeout=10, headers=_hdrs).json()
+                mod.fs_write = lambda path, content, **kw: _req.post(f"{_api}/fs/write", json={"path": path, "content": content}, timeout=10, headers=_hdrs).json()
+                mod.ollama_chat = lambda prompt, model=None, **kw: _req.post(f"{_api}/ollama/chat", json={"prompt": prompt, **({"model": model} if model else {})}, timeout=120, headers=_hdrs).json()
+                mod.memory_get = lambda key, **kw: _req.get(f"{_api}/memory/{key}", timeout=10, headers=_hdrs).json()
+                mod.memory_set = lambda key, value, **kw: _req.post(f"{_api}/memory/{key}", json={"value": value}, timeout=10, headers=_hdrs).json()
+                mod.json = _json_mod
+            except Exception:
+                pass
+            spec.loader.exec_module(mod)
+
+            # Find public functions
+            public_fns = [(n, f) for n, f in _ins.getmembers(mod, _ins.isfunction)
+                          if not n.startswith("_")]
+            if not public_fns:
+                continue
+
+            exact = [(n, f) for n, f in public_fns if n == cap_name]
+            fn_name, func = exact[0] if exact else public_fns[0]
+
+            # Register in execution engine (allow override — we own this dir)
+            with engine._lock:
+                engine._implementations[fn_name] = func
+                engine._timeouts[fn_name] = 10000
+                engine._requires_approval[fn_name] = False
+                engine._enabled[fn_name] = True
+
+            # Register in capability graph
+            sig = str(_ins.signature(func))
+            rec = CapabilityRecord(
+                capability_id=fn_name,
+                name=fn_name,
+                description=description or f"synthesized: {fn_name}",
+                input_schema=f"args{sig}",
+                output_schema="dict",
+                introduced_by="system",
+                confidence=0.7,
+            )
+            graph.register(rec)
+            loaded += 1
+        except Exception as e:
+            log.debug("_hotload_dynamic_tools: skipped %s — %s", path.name, e)
+
+    if loaded:
+        log.info("Hot-loaded %d dynamic capabilities from disk", loaded)
 
 
 # --------------------------------------------------------------------------- #
@@ -334,10 +427,10 @@ def _assign_idle_goal(agent_id: str) -> None:
             if dyn.exists():
                 for f in dyn.glob("*.py"):
                     try:
-                        first_line = f.read_text().splitlines()[1]  # "# Auto-synthesized capability: NAME"
-                        name = first_line.split(":")[-1].strip()
-                        if name:
-                            avoid_names.append(name)
+                        # Extract actual function names — more reliable than comments
+                        import re as _re2
+                        fns = _re2.findall(r'^def ([a-z_][a-zA-Z0-9_]*)\s*\(', f.read_text(), _re2.MULTILINE)
+                        avoid_names.extend(fns)
                     except Exception:
                         avoid_names.append(f.stem)
         except Exception:

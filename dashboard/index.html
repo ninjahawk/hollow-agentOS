@@ -63,6 +63,7 @@
   <!-- LEFT: System State -->
   <div class="panel">
     <div class="panel-title">System State</div>
+    <div id="service-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1a1a1a"></div>
     <div id="state-content"><div class="empty">Loading...</div></div>
 
     <div class="panel-title sep">Run Command</div>
@@ -373,8 +374,26 @@ function renderTasks(tasks) {
   }).join('');
 }
 
+function renderServiceBar(status) {
+  if (!status || status.error) return '';
+  const checks = status.checks || {};
+  const chip = (label, ok, note) => {
+    const col = ok ? '#7fff7f' : '#ff6666';
+    const bg  = ok ? '#0a1a0a' : '#1a0a0a';
+    return `<span title="${note || ''}" style="display:inline-flex;align-items:center;gap:4px;background:${bg};border:1px solid ${ok?'#224422':'#442222'};color:${col};padding:2px 7px;border-radius:2px;font-size:10px;cursor:default">
+      <span style="width:6px;height:6px;border-radius:50%;background:${col};display:inline-block"></span>${label}
+    </span>`;
+  };
+  let html = '';
+  if (checks.claude) html += chip('Claude', checks.claude.ok, checks.claude.message);
+  if (checks.ollama) html += chip('Ollama', checks.ollama.ok, checks.ollama.message);
+  if (checks.store)  html += chip(`Store (${checks.store.wrappers||0})`, checks.store.ok, checks.store.message);
+  if (checks.local_apps) html += chip(`${checks.local_apps.count||0} installed`, true, checks.local_apps.message);
+  return html;
+}
+
 async function refresh() {
-  const [state, actionsData, decisionsData, handoffData, wmapFull, agentsData, tasksData] = await Promise.all([
+  const [state, actionsData, decisionsData, handoffData, wmapFull, agentsData, tasksData, sysStatus] = await Promise.all([
     apiFetch('/state'),
     apiFetch('/memory/actions?n=100'),
     apiFetch('/decisions'),
@@ -382,8 +401,10 @@ async function refresh() {
     apiFetch('/memory/context'),
     apiFetch('/agents'),
     apiFetch('/tasks'),
+    apiFetch('/system/status'),
   ]);
 
+  document.getElementById('service-bar').innerHTML = renderServiceBar(sysStatus);
   document.getElementById('state-content').innerHTML = renderState(state);
 
   const actions = actionsData.actions || [];

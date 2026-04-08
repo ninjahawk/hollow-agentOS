@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-AgentOS MCP Server v1.3.7
+AgentOS MCP Server v1.4.0
 Exposes AgentOS as native tools to Claude Code and any MCP-compatible agent.
 
 Claude Code launches this via: wsl python3 /agentOS/mcp/server.py
 All tool calls hit the AgentOS REST API on localhost:7777.
 
-Tools (91 total):
+Tools (96 total):
   System:    state, state_diff, state_history
   Shell:     shell_exec
   FS:        fs_read, fs_write, fs_list, fs_batch_read, read_context
@@ -45,6 +45,8 @@ Tools (91 total):
   Bench:     benchmark_run, benchmark_results, benchmark_compare (v1.3.6)
   Proposals: proposal_submit, proposal_status, proposal_approve,
              proposal_reject, tools_reload                       (v1.3.7)
+  Phase 5:   hollow_wrap, hollow_discover, hollow_install_tool,
+             hollow_check_tool, hollow_system_status             (v1.4.0)
 """
 
 import asyncio
@@ -1469,6 +1471,88 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id", "limits"]
             }
         ),
+
+        # ── Phase 5: Wrapping, Discovery, Install (v1.4.0) ───────────────────
+        Tool(
+            name="hollow_wrap",
+            description=(
+                "Wrap a GitHub repo into a usable Hollow app. "
+                "Clones the repo, reads the README and source, calls Claude to generate "
+                "a capability_map and interface_spec, saves wrapper.json locally, and "
+                "uploads to the community store. Returns repo_name, capability_count, invoke command. "
+                "Use this to add any public GitHub tool to Hollow."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url":    {"type": "string", "description": "GitHub repo URL, e.g. https://github.com/BurntSushi/ripgrep"},
+                    "upload": {"type": "boolean", "description": "Upload to community store (default true)", "default": True},
+                },
+                "required": ["url"]
+            }
+        ),
+        Tool(
+            name="hollow_discover",
+            description=(
+                "Find Hollow apps matching a natural language description. "
+                "Searches locally installed wrappers first, then the community store. "
+                "Uses Claude (or keyword fallback) to rank by relevance. "
+                "Returns list of matching tools with installed=true/false. "
+                "Examples: 'search files fast', 'JSON processor', 'git UI'."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query":         {"type": "string", "description": "Natural language description of what you want"},
+                    "limit":         {"type": "integer", "description": "Max results (default 5)", "default": 5},
+                    "include_store": {"type": "boolean", "description": "Also search community store (default true)", "default": True},
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="hollow_install_tool",
+            description=(
+                "Install a CLI tool binary inside the Hollow container. "
+                "Parses the wrapper's install_hint and runs the appropriate package manager "
+                "(cargo, pip, go, npm, apt-get). Whitelist-only for safety. "
+                "Returns ok=true when the binary is available after install."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "invoke":       {"type": "string", "description": "Binary name to install (e.g. 'ripgrep', 'bat')"},
+                    "install_hint": {"type": "string", "description": "Install hint from the wrapper (e.g. 'cargo install ripgrep')"},
+                    "timeout":      {"type": "integer", "description": "Max install time in seconds (default 120)", "default": 120},
+                },
+                "required": ["invoke", "install_hint"]
+            }
+        ),
+        Tool(
+            name="hollow_check_tool",
+            description=(
+                "Check if a CLI tool binary is available in the Hollow container PATH. "
+                "Returns available=true/false and the binary path if found. "
+                "Use before running a wrapped app to see if it needs installing first."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "invoke": {"type": "string", "description": "Binary name to check (e.g. 'ripgrep', 'bat', 'fd')"},
+                },
+                "required": ["invoke"]
+            }
+        ),
+        Tool(
+            name="hollow_system_status",
+            description=(
+                "Get the health status of all Hollow subsystems in plain English. "
+                "Reports: Claude auth method and status, Ollama availability and models, "
+                "community store connection, and locally installed app count. "
+                "Use to diagnose why wrapping or discovery might not be working."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
     ]
 
 
@@ -2069,6 +2153,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return _out(await _post(
                 f"/agents/{arguments['agent_id']}/rate-limits", body
             ))
+
+        # ── Phase 5: Wrapping, Discovery, Install (v1.4.0) ───────────────────
+        elif name == "hollow_wrap":
+            return _out(await _post("/wrap", {
+                "url": arguments["url"],
+                "upload": arguments.get("upload", True),
+            }))
+
+        elif name == "hollow_discover":
+            return _out(await _post("/discover", {
+                "query": arguments["query"],
+                "limit": arguments.get("limit", 5),
+                "include_store": arguments.get("include_store", True),
+            }))
+
+        elif name == "hollow_install_tool":
+            return _out(await _post("/tools/install", {
+                "invoke": arguments["invoke"],
+                "install_hint": arguments.get("install_hint", ""),
+                "timeout": arguments.get("timeout", 120),
+            }))
+
+        elif name == "hollow_check_tool":
+            return _out(await _get("/tools/check", {"invoke": arguments["invoke"]}))
+
+        elif name == "hollow_system_status":
+            return _out(await _get("/system/status"))
 
         else:
             return _out({"error": f"Unknown tool: {name}"})

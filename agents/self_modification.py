@@ -23,11 +23,14 @@ Storage:
 """
 
 import json
+import logging
 import os
 import threading
 import time
 import uuid
 from dataclasses import dataclass, asdict, field
+
+log = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple
 
@@ -93,13 +96,15 @@ class SelfModificationCycle:
     """Autonomous capability synthesis, testing, proposal, and deployment."""
 
     def __init__(self, autonomy_loop=None, execution_engine=None,
-                 synthesis_engine=None, quorum=None, semantic_memory=None):
+                 synthesis_engine=None, quorum=None, semantic_memory=None,
+                 capability_graph=None):
         """
         autonomy_loop: AutonomyLoop instance
         execution_engine: ExecutionEngine instance
         synthesis_engine: CapabilitySynthesis instance
         quorum: AgentQuorum instance
         semantic_memory: SemanticMemory instance
+        capability_graph: CapabilityGraph instance (for registering deployed caps)
         """
         self._lock = threading.RLock()
         self._autonomy_loop = autonomy_loop
@@ -107,6 +112,7 @@ class SelfModificationCycle:
         self._synthesis_engine = synthesis_engine
         self._quorum = quorum
         self._semantic_memory = semantic_memory
+        self._capability_graph = capability_graph
         SELF_MOD_PATH.mkdir(parents=True, exist_ok=True)
 
     # ── API ────────────────────────────────────────────────────────────────
@@ -220,27 +226,62 @@ class SelfModificationCycle:
             quorum = AgentQuorum()
             proposals_file = _Path("/agentOS/memory/quorum/proposals.jsonl")
             deployed_log = SELF_MOD_PATH / "_deployed_proposals.json"
-            already_deployed = set()
+            # Track two sets: proposals that succeeded vs failed
+            # {"ok": [...], "failed": [...]}
+            log_data = {"ok": [], "failed": []}
             if deployed_log.exists():
-                already_deployed = set(_json.loads(deployed_log.read_text()))
+                try:
+                    raw = _json.loads(deployed_log.read_text())
+                    if isinstance(raw, list):
+                        # Migrate old format (plain list = all were ok)
+                        log_data = {"ok": raw, "failed": []}
+                    else:
+                        log_data = raw
+                except Exception:
+                    pass
+            deployed_ok = set(log_data.get("ok", []))
+            deployed_failed = set(log_data.get("failed", []))
+
+            def _save_log():
+                deployed_log.parent.mkdir(parents=True, exist_ok=True)
+                deployed_log.write_text(_json.dumps({"ok": list(deployed_ok), "failed": list(deployed_failed)}))
 
             if proposals_file.exists():
+                tools_dir_check = _Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")).parent / "tools" / "dynamic"
                 for line in proposals_file.read_text().strip().splitlines():
                     if not line.strip():
                         continue
                     try:
                         p = _json.loads(line)
                         if (p.get("proposal_type") != "capability"
-                                or p.get("status") != "approved"
-                                or p["proposal_id"] in already_deployed):
+                                or p.get("status") != "approved"):
                             continue
+
+                        pid = p["proposal_id"]
+
+                        # Permanently skip known-failed proposals (reject, stub, syntax error)
+                        if pid in deployed_failed:
+                            continue
+
+                        # Skip successfully deployed ones — unless the file went missing (restart)
+                        if pid in deployed_ok:
+                            payload_check = p.get("payload", {})
+                            cap_id_check = payload_check.get("cap_id", "")
+                            syn_id_check = payload_check.get("synthesis_id", pid)
+                            file_exists = any(
+                                (tools_dir_check / f"{x}.py").exists()
+                                for x in [f"synth_{syn_id_check[:8]}", cap_id_check]
+                            )
+                            if file_exists:
+                                continue
+                            # File missing after restart — re-deploy (don't mark failed)
 
                         payload = p.get("payload", {})
                         code = payload.get("implementation_code", "")
-                        cap_name = payload.get("cap_id", f"synth_{p['proposal_id'][:8]}")
+                        cap_name = payload.get("cap_id", f"synth_{pid[:8]}")
                         description = payload.get("description", p.get("description", ""))
                         agent_id = payload.get("agent_id", "root")
-                        synthesis_id = payload.get("synthesis_id", p["proposal_id"])
+                        synthesis_id = payload.get("synthesis_id", pid)
 
                         cap = SynthesizedCapability(
                             synthesis_id=synthesis_id,
@@ -255,11 +296,13 @@ class SelfModificationCycle:
                         )
                         deploy_result = self._deploy(agent_id, synthesis_id, cap)
                         if deploy_result:
+                            deployed_ok.add(pid)
                             deployment_id, cap_id = deploy_result
                             deployed.append(cap_id)
-                            already_deployed.add(p["proposal_id"])
-                            deployed_log.parent.mkdir(parents=True, exist_ok=True)
-                            deployed_log.write_text(_json.dumps(list(already_deployed)))
+                        else:
+                            # Permanently record failure — never retry
+                            deployed_failed.add(pid)
+                        _save_log()
                     except Exception:
                         continue
         except Exception:
@@ -494,13 +537,14 @@ class SelfModificationCycle:
     def _deploy(self, agent_id: str, synthesis_id: str, capability: SynthesizedCapability) -> Optional[str]:
         """
         Deploy approved capability via hot-loading.
-        Writes code to /agentOS/tools/dynamic/, imports it, registers in engine.
-        Falls back to lambda wrapper if no real code available.
+        Writes code to /agentOS/tools/dynamic/, imports it, registers in engine
+        under both the internal cap_id AND the human-readable function name so
+        agents can discover and call it by name.
         """
         if not self._execution_engine:
             return None
 
-        import os, importlib.util
+        import ast as _ast, inspect as _inspect, os, importlib.util
         from pathlib import Path
 
         deployment_id = f"deploy-{uuid.uuid4().hex[:12]}"
@@ -508,48 +552,166 @@ class SelfModificationCycle:
 
         code = capability.implementation_code
         func = None
+        fn_name = capability.name  # human-readable name to register under
 
         if code:
-            # Hot-load: write to dynamic tools dir and import
+            # ── Quality gate: reject bad code before writing ────────────────
+            stub_signals = ["...", "pass\n    pass", "# TODO", "# placeholder",
+                            '{"ok": true', "raise NotImplementedError"]
+            if any(sig in code for sig in stub_signals):
+                log.warning("[DEPLOY] %s rejected (stub): %s", cap_id, capability.name)
+                return None
+            try:
+                _ast.parse(code)
+            except SyntaxError as e:
+                log.warning("[DEPLOY] %s rejected (syntax error): %s", cap_id, e)
+                return None
+
+            # ── Hot-load ────────────────────────────────────────────────────
             try:
                 tools_dir = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")).parent / "tools" / "dynamic"
                 tools_dir.mkdir(parents=True, exist_ok=True)
                 module_path = tools_dir / f"{cap_id}.py"
-                module_path.write_text(code)
+                # Write header comment so dedup can identify by name later
+                header = (
+                    f"# Auto-synthesized capability: {capability.name}\n"
+                    f"# Description: {capability.description}\n"
+                )
+                module_path.write_text(header + code)
 
                 spec = importlib.util.spec_from_file_location(cap_id, module_path)
                 mod = importlib.util.module_from_spec(spec)
+
+                # Inject agent-system helpers so synthesized code can call them
+                # These make HTTP calls to the local API — safe, sandboxed, no extra deps
+                try:
+                    import requests as _req, json as _json_mod
+                    _api = "http://localhost:7777"
+                    try:
+                        _cfg = _json_mod.loads(open(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json")).read())
+                        _tok = _cfg.get("api", {}).get("token", "")
+                    except Exception:
+                        _tok = ""
+                    _hdrs = {"Authorization": f"Bearer {_tok}"} if _tok else {}
+
+                    def _shell_exec(command, cwd="/agentOS", **kw):
+                        try:
+                            r = _req.post(f"{_api}/shell", json={"command": command, "cwd": cwd}, timeout=30, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "stdout": "", "stderr": str(_e), "exit_code": 1, "success": False}
+
+                    def _fs_read(path, **kw):
+                        try:
+                            r = _req.get(f"{_api}/fs/read", params={"path": path}, timeout=10, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "error": str(_e)}
+
+                    def _fs_write(path, content, **kw):
+                        try:
+                            r = _req.post(f"{_api}/fs/write", json={"path": path, "content": content}, timeout=10, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "error": str(_e)}
+
+                    def _ollama_chat(prompt, model=None, **kw):
+                        try:
+                            payload = {"prompt": prompt}
+                            if model:
+                                payload["model"] = model
+                            r = _req.post(f"{_api}/ollama/chat", json=payload, timeout=120, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "error": str(_e)}
+
+                    def _memory_get(key, **kw):
+                        try:
+                            r = _req.get(f"{_api}/memory/{key}", timeout=10, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "error": str(_e)}
+
+                    def _memory_set(key, value, **kw):
+                        try:
+                            r = _req.post(f"{_api}/memory/{key}", json={"value": value}, timeout=10, headers=_hdrs)
+                            return r.json()
+                        except Exception as _e:
+                            return {"ok": False, "error": str(_e)}
+
+                    mod.shell_exec = _shell_exec
+                    mod.fs_read = _fs_read
+                    mod.fs_write = _fs_write
+                    mod.ollama_chat = _ollama_chat
+                    mod.memory_get = _memory_get
+                    mod.memory_set = _memory_set
+                    mod.json = _json_mod
+                except Exception:
+                    pass  # Injecting helpers failed — function may still work without them
+
                 spec.loader.exec_module(mod)
 
-                func = getattr(mod, capability.name, None)
+                # Find the best matching public function in the module
+                public_fns = [(n, f) for n, f in _inspect.getmembers(mod, _inspect.isfunction)
+                              if not n.startswith("_")]
+                if public_fns:
+                    # Prefer exact name match, else first public function
+                    exact = [(n, f) for n, f in public_fns if n == capability.name]
+                    fn_name, func = exact[0] if exact else public_fns[0]
             except Exception as e:
-                pass  # Fall through to lambda wrapper
+                log.warning("[DEPLOY] %s import failed: %s", cap_id, e)
+                return None  # Don't deploy broken code as a lambda stub
 
         if func is None:
-            # Fallback: lambda wrapper that returns the sketch as context
-            sketch = capability.implementation_sketch[:200]
-            func = lambda **kwargs: {"ok": True, "synthesized": True,
-                                     "capability": capability.name, "note": sketch}
-
-        # Register in execution engine
-        registered = self._execution_engine.register(cap_id, func)
-
-        if not registered:
+            log.warning("[DEPLOY] %s has no implementation — skipping", cap_id)
             return None
+
+        # ── Register under both cap_id and the human-readable name ──────────
+        # cap_id: internal reference (synth_syn-xxxx)
+        # fn_name: discoverable by agents via semantic search
+        self._execution_engine.register(cap_id, func)
+        if fn_name != cap_id:
+            # Also register under the readable name — allow override if name exists
+            with self._execution_engine._lock:
+                self._execution_engine._implementations[fn_name] = func
+                self._execution_engine._timeouts[fn_name] = 10000
+                self._execution_engine._requires_approval[fn_name] = False
+                self._execution_engine._enabled[fn_name] = True
+
+        # ── Also register in the capability graph for semantic discovery ─────
+        if self._capability_graph:
+            try:
+                from agents.capability_graph import CapabilityRecord
+                import inspect as _ins
+                sig = str(_ins.signature(func)) if func else "()"
+                rec = CapabilityRecord(
+                    capability_id=fn_name,
+                    name=fn_name,
+                    description=capability.description,
+                    input_schema=f"args{sig}",
+                    output_schema="dict",
+                    introduced_by=agent_id,
+                    confidence=0.7,
+                )
+                self._capability_graph.register(rec)
+            except Exception as e:
+                log.debug("[DEPLOY] capability graph registration failed: %s", e)
+
+        log.info("[DEPLOY] '%s' hot-loaded and registered as '%s'", cap_id, fn_name)
 
         # Record deployment
         record = DeploymentRecord(
             deployment_id=deployment_id,
             agent_id=agent_id,
             synthesis_id=synthesis_id,
-            capability_id=cap_id,
+            capability_id=fn_name,
             name=capability.name,
             description=capability.description,
             deployed_at=time.time(),
         )
 
         self._record_deployment(agent_id, record)
-        return (deployment_id, cap_id)
+        return (deployment_id, fn_name)
 
     # ── Storage ────────────────────────────────────────────────────────────
 

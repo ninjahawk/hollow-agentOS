@@ -7,6 +7,7 @@ Re-uploads each repaired wrapper.
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -14,12 +15,16 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 
-STORE = "http://localhost:7779"
-API = "http://localhost:7777"
-TOKEN = "ci-test-token-replace-in-production"
+# When running inside Docker API container, use host.docker.internal.
+# When running on the host directly, localhost works.
+STORE = os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:7779")
+API = os.getenv("HOLLOW_API_URL", "http://localhost:7777")
+TOKEN = os.getenv("HOLLOW_API_TOKEN", "ci-test-token-replace-in-production")
 
-# Direct disk access to store data (bypasses commit-SHA dedup check)
-STORE_DATA_DIR = Path(__file__).parent.parent / "store" / "data"
+# Direct disk write: only works if store/data is accessible at this path.
+# Mount ./store/data into the API container or run from the host.
+_STORE_DATA_ENV = os.getenv("HOLLOW_STORE_DATA")
+STORE_DATA_DIR = Path(_STORE_DATA_ENV) if _STORE_DATA_ENV else Path(__file__).parent.parent / "store" / "data"
 
 
 def _repo_id(url: str) -> str:
@@ -73,13 +78,70 @@ def _quality_score(wrapper):
     return round(min(100.0, score), 1)
 
 
+_TOOL_DESCRIPTIONS = {
+    "hyperfine": "Benchmark shell commands and compare execution speed across runs",
+    "xsv": "Fast CSV data manipulation: slice, filter, join, sort, and analyze tabular files",
+    "dog": "User-friendly DNS client — query DNS records from the command line",
+    "zoxide": "Smarter cd command — jump to frequently-used directories by typing part of the name",
+    "cheat": "Create and display cheatsheets for terminal commands",
+    "jq": "Slice, filter, and transform JSON data from the command line",
+    "bottom": "Graphical process/system monitor for the terminal — like htop but better",
+    "sk": "Fuzzy finder — interactively filter and select from any list of items",
+    "choose": "Human-friendly cut and awk alternative for selecting fields from text",
+    "fq": "Like jq but for binary formats: pcap, zip, mp4, and 100+ more",
+    "eza": "Modern, colorful ls replacement with Git status, icons, and tree view",
+    "gitui": "Fast, keyboard-driven Git UI in the terminal",
+    "mise": "Polyglot runtime manager — install and switch between versions of any language",
+    "lsd": "Next-gen ls with icons, colors, and tree view",
+    "helix": "Post-modern modal text editor — Vim-like, built-in LSP, tree-sitter",
+    "fd": "Fast, user-friendly alternative to find — simpler syntax, respects .gitignore",
+    "navi": "Interactive cheatsheet tool — browse and run commands with fuzzy search",
+    "duf": "Disk usage and free space utility — prettier alternative to df",
+    "ripgrep": "Blazingly fast recursive grep — searches directory trees for regex patterns",
+    "bat": "Cat clone with syntax highlighting, line numbers, and Git diff integration",
+    "nushell": "Modern shell that treats all data as structured — pipelines of tables, not text",
+    "starship": "Minimal, blazing-fast, configurable cross-shell prompt",
+    "broot": "New way to see and navigate directory trees — fuzzy find + preview",
+    "atuin": "Replace shell history with a database — searchable, synced across machines",
+    "mods": "AI on the command line — pipe text to Claude/GPT and get answers",
+    "jrnl": "Simple journal application for the command line",
+    "lazygit": "Simple terminal UI for git commands",
+    "pueue": "Task scheduler and manager for long-running shell commands",
+    "pastel": "Generate, analyze, and manipulate colors in the terminal",
+    "hexyl": "Command-line hex viewer with colored output",
+    "tokei": "Count lines of code across a codebase — by language, with statistics",
+    "scc": "Fast, accurate code counter with complexity estimation",
+    "miniserve": "Serve files over HTTP from the command line — no configuration needed",
+    "oha": "HTTP load testing tool — bombardier/wrk alternative with a TUI",
+    "lychee": "Fast link checker — find broken URLs in files, websites, or documents",
+    "git-cliff": "Highly customizable changelog generator from Git history",
+    "vhs": "Write terminal GIFs as code — record terminal sessions to animated GIFs",
+    "mprocs": "Run multiple commands simultaneously — shows their output in split panels",
+    "yq": "Portable YAML, JSON, and XML processor — like jq for YAML",
+    "typos": "Fast source code spell checker — finds typos in identifiers and strings",
+    "rip": "Safe rm alternative — moves files to system trash instead of deleting",
+    "vivid": "LS_COLORS generator — create beautiful, configurable file-type color themes",
+    "silicon": "Create beautiful images of your source code — like Carbon but local",
+    "dive": "Explore Docker image layers — find what's bloating your images",
+    "so": "Terminal interface for Stack Overflow search",
+    "ctop": "Top-like interface for container metrics",
+    "ruff": "Extremely fast Python linter and formatter — replaces flake8, black, isort",
+    "pixi": "Fast, cross-platform package manager for conda packages",
+    "uv": "Extremely fast Python package installer and resolver — replaces pip",
+    "hurl": "Run and test HTTP requests defined in a plain text format",
+    "ugit": "Undo git commands — a safety net for git mistakes",
+}
+
+
 def _nice_description(name: str, existing: str) -> str:
     """Return a richer description if existing is thin."""
-    if len(existing) > 40:
+    if len(existing) > 50:
         return existing
+    # Use curated description if available
+    if name.lower() in _TOOL_DESCRIPTIONS:
+        return _TOOL_DESCRIPTIONS[name.lower()]
     base = existing or f"Command-line tool: {name}"
-    # append generic but specific-sounding suffix
-    return f"{base}. Fast, efficient terminal tool for developers."
+    return f"{base}. Efficient terminal utility for developers and power users."
 
 
 def _infer_placeholder(field_id: str, field_label: str) -> str:
@@ -179,21 +241,32 @@ def repair_wrapper(wrapper: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def main():
-    # Fetch all wrappers
-    data = _req("GET", f"{STORE}/wrappers?limit=100")
-    wrappers = data["wrappers"]
-    print(f"Total wrappers: {data['total']}")
+    # Fetch all wrappers (in pages if needed)
+    all_wrappers = []
+    offset = 0
+    while True:
+        data = _req("GET", f"{STORE}/wrappers?limit=100&offset={offset}")
+        batch = data.get("wrappers", [])
+        all_wrappers.extend(batch)
+        if len(all_wrappers) >= data.get("total", 0) or not batch:
+            break
+        offset += len(batch)
+
+    print(f"Total wrappers: {data.get('total', len(all_wrappers))}, fetched: {len(all_wrappers)}")
+
+    # Target: repair anything below 70 (was 60 — too conservative)
+    REPAIR_THRESHOLD = 70
 
     repaired = 0
     skipped = 0
     failed = 0
 
-    for entry in wrappers:
+    for entry in all_wrappers:
         name = entry.get("name", "?")
         repo_id = entry.get("repo_id", "")
         before_score = entry.get("quality_score", 0)
 
-        if before_score >= 60:
+        if before_score >= REPAIR_THRESHOLD:
             skipped += 1
             continue
 

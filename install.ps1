@@ -165,7 +165,7 @@ try {
 # ─────────────────────────────────────────────────────────────────────────────
 _head "Step 3/6 — LLM models"
 
-$models = @("mistral-nemo:12b", "nomic-embed-text")
+$models = @("qwen2.5:9b", "nomic-embed-text")
 foreach ($model in $models) {
     # Check if model already exists
     $list = (ollama list 2>&1) -join " "
@@ -207,10 +207,29 @@ if (Test-Path $ClaudeCredentials) {
         "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
     }
 } else {
-    _info "Claude Code not detected — agents will use Ollama for reasoning"
-    _info "To use Claude (recommended), install Claude Code from claude.ai/code"
+    _info "Claude Code not detected — checking for Anthropic API key"
+
     if (-not (Test-Path $EnvFile)) {
         "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
+    }
+
+    # Check if API key already in .env
+    $envContent = if (Test-Path $EnvFile) { Get-Content $EnvFile -Raw } else { "" }
+    if ($envContent -match "ANTHROPIC_API_KEY=.+") {
+        _ok "ANTHROPIC_API_KEY already set in .env"
+    } else {
+        Write-Host ""
+        Write-Host "  Claude API access unlocks high-quality tool wrapping (Sonnet/Haiku)." -ForegroundColor Cyan
+        Write-Host "  Without it, Hollow uses local Ollama models (lower quality)." -ForegroundColor DarkGray
+        Write-Host "  Get a key at: console.anthropic.com — or press Enter to skip." -ForegroundColor DarkGray
+        Write-Host ""
+        $apiKey = Read-Host "  Anthropic API key (sk-ant-...) or Enter to skip"
+        if ($apiKey -and $apiKey.StartsWith("sk-")) {
+            Add-Content $EnvFile "ANTHROPIC_API_KEY=$apiKey" -Encoding UTF8
+            _ok "API key saved — agents will use Claude for tool wrapping"
+        } else {
+            _info "Skipped — agents will use local Ollama (you can add ANTHROPIC_API_KEY to .env later)"
+        }
     }
 }
 
@@ -236,6 +255,16 @@ if (Test-Path $ConfigDest) {
     $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigDest -Encoding UTF8
     _ok "config.json created with a unique API token"
 }
+
+# Ensure runtime directories exist before docker compose tries to mount them
+foreach ($dir in @("memory", "workspace", "workspace\wrappers", "workspace\sandbox",
+                    "workspace\bin", "logs", "store\data")) {
+    $path = Join-Path $HollowDir $dir
+    if (-not (Test-Path $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
+}
+_ok "Runtime directories ready"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 5 — Start the AgentOS stack

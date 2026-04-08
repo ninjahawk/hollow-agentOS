@@ -259,6 +259,21 @@ def synthesize_capability(name: str = "", description: str = "",
     if not name:
         return {"error": "name must contain at least one alphanumeric character", "ok": False}
 
+    # Quality gate: validate implementation before submitting
+    if implementation:
+        import ast as _ast
+        # Reject stubs
+        stub_signals = ["...", "pass\n    pass", "# TODO", "# placeholder",
+                        '{"ok": true', "raise NotImplementedError"]
+        if any(sig in implementation for sig in stub_signals):
+            return {"ok": False, "error": "implementation looks like a stub — provide real code"}
+        try:
+            # Wrap in function if needed for parse check
+            test_code = implementation if implementation.strip().startswith("def ") else f"def {name}(**kw):\n    " + "\n    ".join(implementation.splitlines())
+            _ast.parse(test_code)
+        except SyntaxError as e:
+            return {"ok": False, "error": f"implementation has syntax error: {e}"}
+
     try:
         from agents.capability_synthesis import CapabilitySynthesisEngine
         from agents.execution_engine import ExecutionEngine

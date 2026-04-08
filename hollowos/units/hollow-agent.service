@@ -1,0 +1,26 @@
+[Unit]
+Description=Hollow AgentOS Daemon
+Documentation=https://github.com/ninjahawk/hollow-agentos
+After=network-online.target docker.service hollow-first-boot.service
+Wants=network-online.target
+Requires=docker.service hollow-first-boot.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hollow
+ExecStartPre=/usr/bin/docker compose pull --quiet
+ExecStart=/usr/bin/docker compose up --no-build
+ExecStop=/usr/bin/docker compose down
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hollow-agent
+
+# Environment
+Environment=HOLLOW_DATA_DIR=/var/hollow
+EnvironmentFile=-/etc/hollow/hollow.env
+
+[Install]
+WantedBy=multi-user.target

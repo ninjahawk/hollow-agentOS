@@ -200,7 +200,7 @@ def upload_wrapper(body: WrapperUpload):
 
 @app.get("/wrappers")
 def list_wrappers(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
     offset: int = Query(0, ge=0),
     sort: str = Query("quality", pattern="^(installs|quality|newest)$"),
     q: Optional[str] = Query(None, description="Search by name or description"),

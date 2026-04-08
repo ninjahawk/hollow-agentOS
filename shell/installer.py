@@ -13,6 +13,7 @@ the tool was added to the Dockerfile. This is a known limitation.
 For persistence, add frequently-used tools to the Dockerfile and rebuild.
 """
 
+import json
 import os
 import re
 import shutil
@@ -24,11 +25,55 @@ from typing import Optional
 INSTALL_DIR = Path(os.getenv("HOLLOW_INSTALL_DIR", "/agentOS/workspace/bin"))
 INSTALL_TIMEOUT = int(os.getenv("HOLLOW_INSTALL_TIMEOUT", "120"))  # seconds
 
+# Persistent install manifest — survives container restarts via volume mount
+_MANIFEST = INSTALL_DIR.parent / "installed_tools.json"
+
+
+def _load_manifest() -> dict:
+    """Load the persistent tool install manifest."""
+    try:
+        if _MANIFEST.exists():
+            return json.loads(_MANIFEST.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+def _save_manifest(manifest: dict) -> None:
+    """Atomically write the persistent tool install manifest."""
+    _MANIFEST.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _MANIFEST.with_suffix(".tmp")
+    tmp.write_text(json.dumps(manifest, indent=2))
+    tmp.replace(_MANIFEST)
+
+
+def restore_installed_tools() -> dict:
+    """
+    Re-install all tools recorded in the manifest.
+    Call at server startup to restore tools across container restarts.
+    Returns {restored: int, skipped: int, failed: int}.
+    """
+    manifest = _load_manifest()
+    restored = skipped = failed = 0
+    for invoke, entry in manifest.items():
+        if shutil.which(invoke):
+            skipped += 1
+            continue
+        hint = entry.get("install_hint", "")
+        result = install_tool(invoke, hint, timeout=180)
+        if result.get("ok") and result.get("available"):
+            restored += 1
+        else:
+            failed += 1
+    return {"restored": restored, "skipped": skipped, "failed": failed}
+
 # Allowed install commands — whitelist approach (much safer than blocklist)
 _ALLOWED_PATTERNS = [
     re.compile(r"^cargo install [\w-]+$"),
     re.compile(r"^pip install [\w\-\[\]\.]+$"),
     re.compile(r"^pip3 install [\w\-\[\]\.]+$"),
+    re.compile(r"^uv tool install [\w\-\.]+$"),   # uv: fast Python tool installer
+    re.compile(r"^uv pip install [\w\-\[\]\.]+$"),
     re.compile(r"^go install [\w\./@]+$"),
     re.compile(r"^npm install -g [\w@/\-]+$"),
     re.compile(r"^apt-get install -y [\w\-]+$"),
@@ -54,6 +99,8 @@ def _parse_install_hint(install_hint: str) -> Optional[str]:
 
     # Try to extract a command from prose
     patterns = [
+        r"(uv tool install [\w\-\.]+)",
+        r"(uv pip install [\w\-\[\]\.]+)",
         r"(cargo install [\w-]+)",
         r"(pip3? install [\w\-\[\]\.]+)",
         r"(go install [\w\./@]+)",
@@ -144,6 +191,17 @@ def install_tool(
         if proc.returncode == 0:
             # Verify it's now available
             if shutil.which(invoke):
+                # Record in persistent manifest for restore on next container start
+                try:
+                    manifest = _load_manifest()
+                    manifest[invoke] = {
+                        "install_hint": install_hint,
+                        "install_cmd": install_cmd,
+                        "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    }
+                    _save_manifest(manifest)
+                except Exception:
+                    pass
                 return {
                     "ok": True,
                     "available": True,

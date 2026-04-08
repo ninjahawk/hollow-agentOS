@@ -3,99 +3,133 @@
 > **The full stack, bottom to top:**
 > ```
 > Linux Kernel          — foundation, we use it not build it
-> AgentOS               — event kernel: identity, goals, memory, execution (largely built)
-> Autonomous Agents     — the runtime: scout/analyst/builder build everything above (partial)
-> HollowOS              — the user-facing OS: web interface as the desktop (not built yet)
-> Apps                  — wrapped GitHub repos, Claude-generated interfaces (1 proven)
-> App Store             — central server, shared wrappers, network effects (being built)
+> AgentOS               — event kernel: identity, goals, memory, execution (~75% complete)
+> Autonomous Agents     — background runtime: synthesizes capabilities, improves the system over time (running, quality problems being addressed)
+> Event Response Layer  — fast deterministic OS event handling: crash recovery, updates, errors (not built — Phase 7)
+> HollowOS              — the user-facing OS: web interface as the desktop (bootable skeleton built, untested on real hardware)
+> Apps                  — wrapped GitHub repos, natural language interfaces (128+ in store, pipeline working)
+> App Store             — central server, shared wrappers, network effects (running at port 7779)
 > ```
 >
-> **Architecture:** Three-layer system.
-> - **Layer 1** — Event kernel: identity, scheduling, memory, messaging, transactions, governance. Largely built.
-> - **Layer 2** — Orchestration: autonomous agents running 24/7 whose meta-goal is to build Layer 3. Partially working.
-> - **Layer 3** — Human interface: point at any GitHub repo, agents wrap it, surface it as a native app. Does not exist yet.
+> **Architecture:** Three-layer system, plus an event response layer being added in Phase 7.
+> - **Layer 1** — Event kernel: identity, scheduling, memory, messaging, transactions, governance. ~75% complete. Missing: real-time event dispatch to Layer 2, hardware abstraction capabilities.
+> - **Layer 2** — Orchestration: scout/analyst/builder running 24/7. Self-modification pipeline wired and running — agents synthesize Python capabilities, vote on them, deploy via hot-loading, and call them in subsequent goals. 60+ capabilities deployed. Core problem: agents are optimizing for the appearance of progress rather than real system improvement. The loop closes but the output is mostly hollow. Phase 7 addresses this.
+> - **Layer 3** — Human interface: wrapping pipeline complete, 128+ tools in store, natural language discovery working, one-click install working, auto-versioning running. The pipeline is proven. Quality improves significantly with Claude API vs Ollama-only.
+> - **Event Response Layer (new)** — Between Layer 1 and Layer 2. Fast, deterministic responses to known OS events (crashes, updates, permission errors) without LLM latency. Small trained classifiers for event type detection. LLM only for novel events. Agents build and improve this library over time. This is the architectural piece that makes Hollow reliable enough for real users as a primary OS. Defined in Phase 7.
 >
 > **Build philosophy:** Sequential. Each phase builds on what the previous phase produced.
-> Nothing gets skipped. Layer 2 builds Layer 3. We build Layer 2.
+> Nothing gets skipped. The event response layer is the missing piece between "this works in a demo" and "this works as someone's actual computer."
 >
 > **End state:** A user with no technical knowledge opens Hollow, types what they want,
-> and agents handle everything underneath. They never see a terminal. They never touch
-> a config file. Every tool on GitHub is one install away.
+> and agents handle everything underneath. Their apps don't crash unrecoverably. Updates
+> happen automatically. New tools are one sentence away. They never see a terminal, never
+> touch a config file, never know they're running Linux.
 >
 > **The store:** Every wrapped app is uploaded to a central store. First person to install
 > a repo pays the AI wrap cost (cents). Everyone after downloads it free. Popular tools
 > get wrapped once, shared forever. Network effects make the system cheaper and better
-> the more people use it.
+> the more people use it. Currently running with 128+ wrappers seeded manually.
 >
 > **No developers required:** AI handles the entire software lifecycle. GitHub is the
-> source of truth. Small models monitor repos for changes. Big models (Claude) re-wrap
-> when something changes. No human ever ports a tool to Hollow — any public repo is
-> automatically one install away, permanently maintained by AI.
+> source of truth. Small models monitor repos for changes. Claude re-wraps when something
+> changes. No human ever ports a tool to Hollow — any public repo is automatically one
+> install away, permanently maintained by AI. Auto-versioning runs every 4 hours today.
 >
-> **Model routing:** Local small models handle monitoring, polling, and cheap ops.
-> Claude handles wrapping, interface generation, and updates. Cost scales with actual
-> reasoning work, not with usage.
+> **Model routing:** Local small models (Ollama) handle monitoring, polling, reasoning, and cheap ops.
+> Claude handles wrapping, interface generation, and updates when API access is available.
+> For code synthesis specifically, a code-trained model (Qwen2.5-Coder or similar) is needed
+> rather than a general model — this is a known gap addressed in Phase 7.
+> Cost scales with actual reasoning work, not with usage.
 >
-> **Hard dependency:** Claude API access is required for Phases 3 onward. Ollama alone
-> cannot reliably generate interfaces or analyze repos holistically. If API credits are
-> not available, Phase 3 cannot proceed. Apply for Anthropic developer credits immediately.
-> Until credits arrive, wrapping pipeline can be run manually through Claude Code sessions.
+> **Claude API:** Significantly improves wrapping quality but is not strictly required for
+> basic operation. The pipeline works with Ollama as fallback — quality is lower but functional.
+> Auto-versioning, natural language discovery, and the full app lifecycle work today without
+> Claude API. Claude is needed for reliable, high-quality wrapping of complex repos.
 
 ---
 
 ## What has been built
 
-### Layer 1 — Event Kernel (complete ~70%)
+### Layer 1 — Event Kernel (~75% complete)
 - Agent registry with identity, capabilities, spawn depth, budget tracking
-- Goal engine — distributed JSONL-based goal storage per agent
-- Semantic memory — vector index over source code for natural language search
-- Message bus — inter-agent messaging (persistent JSON)
-- Consensus/quorum system — proposal → vote → deploy pipeline (exists, not fully wired)
+- Goal engine — persistent JSONL-based goal storage per agent, survives restarts
+- Semantic memory — vector index over agent source code for natural language search
+- Message bus — inter-agent messaging (persistent JSON, append-safe)
+- Consensus/quorum system — proposal → vote → deploy pipeline (wired and running)
 - Heap memory — key-value store per agent
 - Project context — shared key-value memory across all agents
 - Audit log — append-only record of all agent actions
-- Shell execution capability with sandboxing
-- Filesystem read/write capabilities
+- Shell execution with sandboxing (dangerous patterns blocked, 30s timeout, 256KB cap)
+- Filesystem read/write capabilities with path validation
 - Ollama integration — local LLM reasoning per agent
 - Event log — every agent action emits a structured event
 - Transactions — atomic multi-step operations
 - Checkpoint/restore — agent state snapshots
-- Autonomy loop — 6-second daemon cycle driving all agent execution
-- Reasoning layer — maps agent intent to capability selection
+- Autonomy loop — daemon cycle driving all agent execution
+- Reasoning layer — maps agent intent to capability selection via semantic search
+- Rate limiting, budget tracking per agent
+- **Missing:** real-time event dispatch (crash → handler in <1s), hardware abstraction capabilities
 
-### Layer 2 — Orchestration (partial)
-- Scout, analyst, builder agents running autonomously
+### Layer 2 — Orchestration (running, quality problems identified)
+- Scout, analyst, builder agents running autonomously 24/7
 - Agents self-organized a naming system (`names.json`) without instruction
-- Analyst autonomously identified deadlocks, missing exception handling, unused imports in codebase
-- Multi-agent coordination attempted via shared files (correct instinct, broken implementation)
-- `self_modification.py` exists but is not wired into the daemon
+- Self-modification pipeline fully wired: `synthesize_capability` → quorum vote → `_deploy()` → hot-load into ExecutionEngine + CapabilityGraph → immediately callable by agents
+- 60+ capabilities synthesized and deployed to `/agentOS/tools/dynamic/`, survive restarts via volume mount and startup hot-loading
+- Startup capability count: 63 (up from 16 before Phase 7 work began)
+- Quality gate: syntax check + stub signal detection before any capability is deployed
+- Agents discover synthesized capabilities via semantic search and call them in subsequent goals — the self-improvement loop is closed
+- **Known problem:** agents are optimizing for appearance of progress. The loop runs but synthesized capabilities are called with empty/circular inputs and produce meaningless output. The grounding signal problem: agents approve proposals by reading descriptions, not by running code. Addressed in Phase 7.
+- **Known problem:** general-purpose 9B model cannot reliably write correct Python. Bad imports, stubs, broken logic pass syntax checks but fail at runtime. Code-specific model needed for synthesis path.
+- Multi-agent coordination via shared broadcast log (working, append-safe)
+
+### Layer 3 — Human Interface (complete, Ollama-quality)
+- Wrapping pipeline: GitHub URL → clone → analyze → Claude/Ollama generates capability_map + interface_spec → wrapper.json → store upload
+- 128+ tools pre-wrapped in community store, avg quality 64/100
+- Natural language discovery: type what you want, semantic ranking surfaces the right tool across local + store
+- One-click install from store
+- Auto-versioning: polls GitHub every 4h, re-wraps on new commits, no human involved
+- App sandbox: dangerous shell patterns blocked, isolated working directory, restricted env
+- Custom interface per user: describe preferences in plain English, Claude re-wraps
+- Invisible error recovery: wrap failures surface in plain English, never as stack traces
+- **Quality ceiling:** Ollama alone produces adequate but not excellent wrappers. Complex repos with non-standard README structures often produce thin capability maps. Claude API unlocks the full quality target.
 
 ### Infrastructure
-- Docker-based deployment (`docker-compose.yml`)
-- Pre-built image published to GHCR on every push to main (`ghcr.io/ninjahawk/hollow-agentos`)
+- Docker-based deployment (`docker-compose.yml`) with three services: api (7777), dashboard (7778), store (7779)
+- Pre-built images published to GHCR on every push to main
 - One-click Windows installer (`install.bat` + `install.ps1`)
-- Live monitor TUI (`monitor.py`) with agent list, activity log, file viewer, goal input
 - GitHub Actions CI/CD
+- HollowOS bootable image skeleton: mkosi.conf, systemd services, kiosk mode, first-boot provisioning, loading splash — untested on real hardware, needs Linux build host with mkosi
 
 ---
 
-## Current state (as of 2026-04-03)
+## Current state (as of 2026-04-08)
 
-**What works:** Agents run autonomously, pursue goals, use LLMs to reason, read/write files, search the codebase semantically, store memory, and emit events. The infrastructure is real.
+**Phases 0–6 skeleton complete. Phase 7 defined, not started.**
 
-**What's broken:**
-- Agents loop on the same goal indefinitely instead of failing gracefully and moving on
-- Agent output gets truncated at ~600 bytes — all meaningful work is cut off before saving
-- Scout/analyst/builder are not registered in the agent registry — they're ghost agents
-- The proposal → quorum → deploy pipeline exists as three disconnected pieces
-- `self_modification.py` is never called by the daemon
-- Goals don't survive a container restart
+**What works end-to-end:**
+- Point any GitHub URL at Hollow → Ollama wraps it → usable as an app (Claude API improves quality significantly but not required)
+- 128+ tools pre-wrapped in the community store, avg quality 64/100
+- Natural language discovery across local apps + store: type what you want, Hollow surfaces the right tool
+- One-click install from store
+- Auto-versioning: background task checks GitHub every 4 hrs, re-wraps on new commits
+- Service health bar, token injection, error recovery — all in the dashboard
+- Self-modification pipeline running: agents synthesize Python capabilities, vote, deploy via hot-loading, call them in subsequent goals. 63 capabilities registered at startup (60+ synthesized by agents, ~5 genuinely useful and correctly called)
+- HollowOS bootable image configuration: mkosi.conf, systemd services, kiosk mode, loading splash (skeleton complete, not tested on real hardware)
+
+**What doesn't work / known gaps:**
+- Tool installs are NOT persistent across container restarts (tools not in Dockerfile get lost on restart)
+- No Claude API key in container → wrapping relies on Ollama (adequate for simple repos, weak for complex ones)
+- Phase 6 HollowOS untested — needs a Linux machine with mkosi to build and flash to USB
+- Agent self-improvement loop runs but produces hollow output: agents call synthesized capabilities with empty inputs, get "all clear" responses, mark goals complete. No real system improvement happening yet.
+- General-purpose 9B model cannot reliably write Python for synthesis: bad imports, stubs, broken logic. Code-specific model (Qwen2.5-Coder) needed.
+- No event response layer: if an app crashes or an install fails, the LLM reasons about it on a 45-second cycle. Too slow and unreliable for a primary OS.
+- No real hardware tested: everything runs in Docker on Windows. HollowOS-on-bare-metal is unproven.
 
 ---
 
 ## Roadmap
 
-### Phase 0 — Stabilization ← we are here
+### Phase 0 — Stabilization ✅ COMPLETE
 **Goal:** Make the foundation reliable enough that agents can actually complete goals.
 Nothing in Phase 1 onward works if agents loop forever or produce truncated output.
 
@@ -114,7 +148,7 @@ Nothing in Phase 1 onward works if agents loop forever or produce truncated outp
 
 ---
 
-### Phase 1 — Foundation Hardening
+### Phase 1 — Foundation Hardening ✅ COMPLETE
 **Goal:** Bulletproof Layer 1. Give agents better tools. Cheaper iteration.
 
 **What gets built:**
@@ -133,7 +167,7 @@ Nothing in Phase 1 onward works if agents loop forever or produce truncated outp
 
 ---
 
-### Phase 2 — Orchestration Layer Completion (Layer 2)
+### Phase 2 — Orchestration Layer Completion (Layer 2) ✅ COMPLETE
 **Goal:** Wire the self-modification pipeline. Agents can propose, vote on, and deploy
 changes to themselves. This is the moment Layer 2 becomes real.
 
@@ -146,16 +180,16 @@ changes to themselves. This is the moment Layer 2 becomes real.
 - **Persistent goals across reboots** — goals survive `docker restart hollow-api`
 
 **Success criteria:**
-- An agent identifies a real bug, proposes a fix, it goes through quorum, gets deployed — no human intervention
-- At least one file in `/agentOS/agents/` autonomously modified and logged in this document
-- Goals survive a container restart
-- Can use Claude API or GPT-4 as the reasoning model
+- An agent identifies a real bug, proposes a fix, it goes through quorum, gets deployed — no human intervention ⚠️ *Pipeline works but quality of what gets deployed is poor — agents deploy capabilities that pass syntax checks but don't do real work. The pipeline closes; the output is not yet meaningful.*
+- At least one file in `/agentOS/agents/` autonomously modified and logged in this document ❌ *No core agent file has been autonomously modified. Agents synthesize new capabilities into `/agentOS/tools/dynamic/` but have not modified existing agent source files.*
+- Goals survive a container restart ✅
+- Can use Claude API or GPT-4 as the reasoning model ✅ *Wired. Requires API key in environment.*
 
-**Unlocks:** Agents that can improve themselves can begin building Layer 3. Phase 3 is what they build.
+**Unlocks:** Agents that can improve themselves can begin building Layer 3. Phase 3 is what they build. *Note: the pipeline unlocked Phase 3 but the self-improvement loop itself needs Phase 7 to produce real output.*
 
 ---
 
-### Phase 3 — Layer 3 Bootstrap (Developer)
+### Phase 3 — Layer 3 Bootstrap (Developer) ✅ COMPLETE
 **Goal:** First version of the GitHub repo install pipeline. Core Layer 3 value
 proposition demonstrated for the first time.
 
@@ -195,7 +229,7 @@ proposition demonstrated for the first time.
 
 ---
 
-### Phase 4 — Layer 3 Complete (Developer)
+### Phase 4 — Layer 3 Complete (Developer) ✅ COMPLETE
 **Goal:** Multiple repos, the store has real coverage, AI handles versioning end to end.
 
 **What gets built:**
@@ -228,7 +262,7 @@ proposition demonstrated for the first time.
 
 ---
 
-### Phase 5 — Non-Technical User
+### Phase 5 — Non-Technical User ✅ COMPLETE
 **Goal:** No GitHub knowledge required. Natural language is the entire interface.
 
 **What gets built:**
@@ -246,7 +280,7 @@ proposition demonstrated for the first time.
 
 ---
 
-### Phase 6 — Standalone OS
+### Phase 6 — Standalone OS 🔧 IN PROGRESS (skeleton complete, needs Linux build)
 **Goal:** Hollow boots as the primary interface. Agents run underneath everything.
 Users never see the infrastructure.
 
@@ -267,6 +301,61 @@ HollowOS is a minimal Linux distro that boots directly into a browser in kiosk m
 - The Linux terminal is present but hidden — accessible only via a deliberate developer unlock sequence
 
 **Unlocks:** The vision. Open source, self-hosted, your own hardware, no technical knowledge required.
+
+---
+
+### Phase 7 — Reliable Agent Runtime 🔲 NOT STARTED
+**Goal:** Fix the three fundamental problems with the self-modification loop and make the agent system reliable enough to act as the background runtime for a real OS used by real people.
+
+**Problem 1: No grounding signal**
+
+Agents approve capabilities by reading descriptions. Replace with structured gates:
+
+- Proposer submits: capability code + test cases with defined inputs + expected output structure
+- Two independent verifier agents execute the code in a subprocess sandbox against those inputs
+- Both must observe the expected output structure (not just "it ran without error")
+- Test inputs must come from a different agent than the proposer
+- Tests must cover at least one error/edge case (not just the happy path)
+- Deploy only on double pass
+
+This does not fully solve the problem if the model is too weak to write real tests. See Problem 2.
+
+**Problem 2: Model too small for code synthesis**
+
+qwen3.5:9b (general model) cannot reliably write correct Python. This is a capability ceiling, not a tuning problem. Solutions, in order of preference:
+
+- **Qwen2.5-Coder-7B** (fits in VRAM if 9B fits, ~4-5GB at 4-bit): specifically trained on code, far fewer syntax errors and bad imports. Ollama pull, swap in config. Route synthesis calls to this model while keeping general reasoning on the existing model.
+- **Fine-tuned small classifier (1-3B)**: for the structured gate verification step specifically — classify "does this output match the expected structure" — a narrow task a small fine-tuned model can do reliably.
+- **Claude API for synthesis**: route `synthesize_capability` calls to Claude Haiku. Costs money but produces code that actually works. Use when API credits are available.
+
+**Problem 3: No real objective function**
+
+Synthesized capabilities feed back into nothing. Agents synthesize tools that analyze agent behavior, call those tools on empty inputs, get "all clear," mark goal complete, repeat. The fix is giving agents tasks with outcomes measurable against external state:
+
+- Capability proposals must specify what observable system state will change if the capability works
+- Goal completion must verify that state actually changed — not just that an output-class capability was called
+- The synthesis loop should target the event response library (see Problem 4) — capabilities that handle specific real events — not abstract self-analysis tools
+
+**Problem 4: Wrong architecture for real-time OS events**
+
+The agent loop (~45s cycle, LLM per step) cannot handle user-facing OS events. Build a layered event response system:
+
+- **Level 0 — Deterministic rules** (no model, <1ms): app crashed → restart; permission denied → escalate; update available → queue. Written as code, not learned.
+- **Level 1 — Trained classifier** (small fine-tuned model, <100ms): maps event signature + context to a response procedure ID. The procedures are pre-written; the model only classifies. Training data: event signatures → correct procedure class, generated synthetically from the Level 0 rules.
+- **Level 2 — Agent reasoning** (general LLM, seconds): for events that don't match any known pattern or where Level 1 confidence is low. This is where the current agents live.
+- **Level 3 — Human escalation**: surfaces to user in plain English when nothing else worked.
+
+The agent background loop becomes the system that expands the Level 0/1 library over time — synthesizing new event handlers, testing them (structured gate), deploying them to the classifier. This gives agents a real objective function: make Level 2 escalations rarer.
+
+**Success criteria:**
+- A synthesized capability passes the structured gate (two independent agent test runs, both pass)
+- `scan_codebase_suspicious_patterns` and `verify_stack_registration` class of failures (bad imports, null-returning stubs) are caught by the gate and never deployed
+- Repeated synthesis of the same capability name is blocked at the reasoning layer (agents know what already exists)
+- At least one Level 0 event handler written and tested for each of: app crash, update available, tool install failure, permission error
+- Level 1 classifier prototype running (even rule-based to start) that routes known events without LLM involvement
+- qwen2.5-coder (or equivalent) used for synthesis path specifically
+
+**Unlocks:** An agent system that actually improves over time, and an OS event layer that is fast and reliable enough for real users.
 
 ---
 
@@ -468,3 +557,190 @@ HollowOS is a minimal Linux distro that boots directly into a browser in kiosk m
 **Store catalog progress:** 80+ wrappers and growing. Target: 100+ at launch.
 
 **Phase 5 status:** Foundations built. Remaining: real-user validation, Claude auth in container, catalog to 100+.
+
+---
+
+### 2026-04-06 — Phase 5 UX: natural language discovery across local + store
+**By:** AI (Claude Sonnet 4.6)
+**Decisions and what was built:**
+
+1. **`/discover` extended to search community store** (`api/server.py`) — `DiscoverRequest` now accepts `include_store: bool = True`. When enabled, after scoring local wrappers, also queries the store server (`GET /wrappers?q=...&limit=30`), merges candidates, and asks Claude to rank the combined set. Results now include `installed: bool` so the UI can offer one-click installs for store items. `HOLLOW_STORE_URL` constant added to server.py.
+
+2. **apps.html Phase 5 UX redesign** (`dashboard/apps.html`):
+   - Search bar placeholder changed to "what do you want to do?" — the primary affordance is now natural language, not technical name lookup
+   - `filterList()` on LOCAL tab now triggers debounced `discoverTools()` instead of client-side substring filter. Typing in the search bar = semantic discovery across local + store.
+   - `discoverTools()` sends `include_store: true`, handles results with `installed: false` — shows them inline with a "[STORE]" badge and "click to install" one-click flow
+   - Empty local state changed from "Use wrap_repo to wrap a GitHub repo" → "Type what you want to do above. Hollow will find the right tool." (no developer jargon)
+   - Detail view: developer info (invoke, commit hash) hidden by default behind a "· details ▾" toggle. GitHub URL shown only as short `owner/repo` link.
+   - Customize panel label changed to "Make it yours" (was "Customize interface")
+   - `installFromStore()` now works from discover results (removed `currentTab !== 'store'` guard), resolves repo URL by fetching full wrapper from store when stub has no URL
+   - Wrap panel accepts bare `github.com/owner/repo` and `owner/repo` formats — no https:// required
+   - Store tab search placeholder updated to "search store by name..."
+
+3. **Bug fixes** (`agents/reasoning_layer.py`):
+   - `_record_reasoning()` was doing read-entire-file + rewrite on every reasoning call. Changed to `open(..., "a")` append mode.
+   - `_learn_pattern()` same bug fixed the same way.
+
+4. **Dead code removal** (`api/server.py`): Removed 2-line no-op in `/wrappers/{name}/customize` endpoint (`asyncio.run(_regenerate()) if False else None`) that was shadowed by the sync implementation below it.
+
+5. **Phase 6 groundwork** (`hollowos/`):
+   - `mkosi.conf` — mkosi image build config: Debian Bookworm minimal, Chromium kiosk, systemd, NetworkManager, Docker, hollow services enabled
+   - `units/hollow-agent.service` — systemd service that starts `docker compose up` for the Hollow stack at boot, restarts on failure
+   - `units/hollow-kiosk.service` — systemd service that waits for the UI to be ready then launches Chromium in kiosk mode (`--kiosk --app=http://localhost:7778/apps.html`)
+   - `units/hollow-kiosk.sh` — Chromium launcher with kiosk flags, no titlebar, no translate prompt, no update checks
+   - `build.sh` — build script wrapping mkosi, with `--flash /dev/sdX` option to write directly to USB
+   - `rootfs/etc/hollow.env.example` — template config file for the installed system (API key, store URL, dev password)
+
+**Why:** The Phase 5 success criterion ("non-technical user installs and uses a tool without knowing what GitHub is") was blocked by two things: (1) the search bar required knowing tool names to find anything useful, and (2) the detail view exposed developer concepts. These changes make natural language the primary interface and hide the technical layer. Phase 6 groundwork creates the skeleton that converts the Docker-based runtime into a bootable system service.
+
+---
+
+### 2026-04-06 — Phase 5 UX completion + Phase 6 completion + bug fixes
+**By:** AI (Claude Sonnet 4.6)
+**Decisions and what was built:**
+
+1. **Suggestion chips in apps.html** — When no local apps are installed (fresh Hollow), shows 8 clickable prompts ("search files by content", "compare two files", etc.) that trigger natural language discovery. Eliminates blank screen for new users.
+
+2. **Discovery keyword fallback improved** (`api/server.py`) — Added stop-word removal and intent-to-keyword expansion dictionary. "search files fast" now expands to include ripgrep, fd, fzf even without Claude. Common developer intents mapped: search, find, compare, format, JSON, process, monitor, git, compress, log, edit, list, benchmark, rename, replace.
+
+3. **Store search fallback in apps.html** — When the API is down, `discoverTools()` falls back to querying the store directly from the browser. Partial functionality preserved even if the agent isn't running.
+
+4. **Wrap error messages humanized** (`api/server.py`) — `/wrap` no longer raises HTTP 500 on failure; returns `{"ok": false, "error": "..."}` with human-readable translations for: clone failure, timeout, Claude auth, no README, bad capability map.
+
+5. **Wrap progress animation in apps.html** — During the 20-60s wrapping process, status cycles through "cloning repo → reading README → analyzing capabilities → generating interface → saving to store". Better than a frozen "wrapping..." message.
+
+6. **Token injection** — Added `GET /token.js` endpoint (no auth required, serves `window.__HOLLOW_TOKEN='...'`). apps.html loads it as a sync script tag before the main script. Fixes UI auth failure when the installer generates a random API token.
+
+7. **repair_wrappers.py URL fix** — Was hardcoded `localhost:7779`, which fails inside the API Docker container. Changed to use `HOLLOW_STORE_URL` env var (already set to `host.docker.internal:7779` in docker-compose.yml).
+
+8. **docker-compose.yml** — Mounted `./store/data:/agentOS/store/data` in the api container so repair_wrappers.py can write directly to disk. Added `HOLLOW_STORE_URL` and `HOLLOW_STORE_DATA` to api container env.
+
+9. **Store list limit raised** (`store/server.py`) — Limit cap raised from 100 to 500. Discover endpoint now fetches top-200 (was top-100), ensuring all wrappers are considered for semantic ranking.
+
+10. **Phase 6 completed** (`hollowos/`) — Full bootable HollowOS skeleton:
+    - `scripts/first-boot.sh` — One-shot service: clones hollow repo to /opt/hollow, creates /var/hollow data dirs, pulls Docker images on first boot
+    - `units/hollow-first-boot.service` — systemd one-shot; ConditionPathExists prevents re-running on subsequent boots
+    - `units/hollow-agent.service` — Updated to require hollow-first-boot.service
+    - `scripts/postinstall.sh` — mkosi postinstall: adds hollow user to docker group, creates openbox autostart, sets hostname to "hollowos"
+    - `rootfs/etc/lightdm/lightdm.conf` — autologin-user=hollow, no login screen
+    - `rootfs/etc/hollow.env.example` — expanded with all variables, usage comments
+    - `units/hollow-kiosk.sh` — Updated to open loading.html first
+    - `mkosi.conf` — Complete: user creation, CacheDirectory, PostInstallationScripts, all service files
+    - `build.sh` — Complete: prerequisites check, mkosi version warning, --flash with device info
+
+11. **dashboard/loading.html** — New: startup splash page shown by kiosk on boot. Polls `localhost:7777/health` every 3s and redirects to apps.html once the API is up. Shows "starting up..." animation with first-boot note.
+
+12. **Dockerfile** — Added workspace subdirectories (wrappers, sandbox, bin, store/data) to image build.
+
+13. **Detail pane empty state** — "select an app" replaced with welcoming message: "Type what you want to do. Hollow finds the right tool and runs it."
+
+14. **API unavailable error** — Replaced cryptic "API unavailable" with "Hollow is starting up — refresh in a moment" and "Could not reach agent. Is the container running? Try: docker compose up -d"
+
+### 2026-04-07 — Auto-versioning background task wired up
+**By:** Human (Claude Code session)
+**Decision:** Added `_version_check_loop()` asyncio background task to server startup. Runs every 4 hours. Also extended `version_monitor.py` to check store wrappers (not just installed ones), added rate limiting for GitHub API (25 checks/run unauthenticated, unlimited with GITHUB_TOKEN), added `check_and_update_store_wrappers()` and `get_version_status()` functions, added `GET /store/version-status` endpoint.
+**Why:** Version checking existed as a manually-triggered endpoint only. The "AI owns the full update lifecycle" vision requires it to run automatically.
+
+### 2026-04-07 — Store expanded to 121 wrappers
+**By:** Human (Claude Code session)
+**Decision:** Wrapped 13 additional high-value tools: gh, gum, freeze, dua, onefetch, goreleaser, glow, glab, charm, dagger, erdtree, conftest, wishlist.
+**Why:** Target is 100+ at launch. Store was at 108; common tools like GitHub CLI (gh), charmbracelet tools, and cloud tools were missing.
+
+### 2026-04-07 — Interface field auto-synthesis from capability params
+**By:** Human (Claude Code session)
+**Decision:** When Ollama generates a wrapper with `capability_map.capabilities[].params` but an empty `interface_spec.fields`, the wrap endpoint now synthesizes fields from params automatically instead of failing.
+**Why:** Ollama (used when no Claude API key) sometimes generates correct capability params but forgets to generate the interface_spec.fields. This caused wrapping to fail entirely instead of succeeding with a reasonable interface.
+
+### 2026-04-07 — Service health bar in system dashboard
+**By:** Human (Claude Code session)
+**Decision:** Added a service status bar to index.html showing Claude/Ollama/Store/installed-count chips with color-coded health indicators. Fetches from `/system/status` alongside existing state refresh.
+**Why:** Users had no quick way to see if Claude, Ollama, or the store were working. The system dashboard showed deep technical metrics but not the top-level health that non-technical users need to understand.
+
+### 2026-04-07 — quality_score included in discover results
+**By:** Human (Claude Code session)
+**Decision:** Local wrapper candidates in `POST /discover` now include `quality_score` from their `wrapper.json`. Previously only store candidates had quality scores; local wrappers returned 0.
+**Why:** The dashboard uses quality_score for display. Local wrappers showing 0 was misleading.
+
+### 2026-04-08 — Hot-loading pipeline: synthesized capabilities survive restarts and are immediately callable
+**By:** Human (Claude Code session)
+**Decisions and what was built:**
+
+1. **Volume mount for dynamic tools** (`docker-compose.yml`) — Added `./memory/dynamic_tools:/agentOS/tools/dynamic`. Previously all synthesized capabilities were wiped on container restart because the directory wasn't mounted.
+
+2. **`_hotload_dynamic_tools()` at startup** (`agents/daemon.py`) — On daemon start, scans `/agentOS/tools/dynamic/*.py`, imports each file, registers functions in both the ExecutionEngine and CapabilityGraph. Agents now start with all previously synthesized capabilities available. Result: startup jumped from 16 capabilities registered to 58-63.
+
+3. **`_deploy()` complete rewrite** (`agents/self_modification.py`) — Full hot-loading pipeline: write .py file → `importlib.util.spec_from_file_location()` → `exec_module()` → find public function → register under both internal cap_id and human-readable name in ExecutionEngine + CapabilityGraph. Previously `_deploy()` was a stub that registered a lambda and never wrote any file.
+
+4. **`log` variable fix** (`agents/self_modification.py`) — Added `import logging` and `log = logging.getLogger(__name__)` at module top. This was the most critical fix: every `log.warning()` and `log.info()` call in `_deploy()` was raising `NameError`, caught silently by `except Exception: continue`, making every deploy attempt fail silently for weeks.
+
+5. **`capability_graph` wired into SelfModificationCycle** (`agents/daemon.py`) — Passed `capability_graph=graph` so deployed capabilities are registered for semantic discovery, not just execution.
+
+6. **Quality gate at deploy time** (`agents/self_modification.py`) — Rejects code with stub signals (`...`, `# TODO`, `pass\n    pass`, `{"ok": true`, `raise NotImplementedError`) and syntax errors (`ast.parse()`). Same gate added at synthesis time in `live_capabilities.py`.
+
+7. **`_deployed_proposals.json` format upgraded** — Changed from a plain list (only tracked successes) to `{"ok": [...], "failed": [...]}`. Failed proposals (syntax errors, bad imports, stubs) are permanently recorded and skipped on future cycles. Previously every rejected proposal was re-attempted on every daemon cycle, flooding logs with ~40 warnings per cycle.
+
+8. **API helper injection for synthesized capabilities** — When importing a synthesized .py file, `shell_exec`, `fs_read`, `fs_write`, `ollama_chat`, `memory_get`, `memory_set` are injected into the module namespace as HTTP wrappers calling `localhost:7777` with the master API token. Synthesized code that calls these functions now works instead of crashing with `NameError`.
+
+9. **Model switched from mistral-nemo:12b to qwen3.5:9b** (`config.json`) — Significantly lower VRAM/CPU usage. System went from loud fan noise to silent.
+
+**First successful deploy batch (2026-04-08):** After the `log` fix, 15 capabilities deployed in first run: `parse_json_safely`, `safe_web_scraper`, `auto_summarize_report`, `safe_html_sanitizer`, `validate_http_headers`, `run_shell_with_interactive`, `execute_terminal_task`, `safe_file_scan`, `html_sanitize_silent`, `http_header_sanitizer`, `sanitize_html_input`, `scan_file_secrets_quick`, `scan_file_head_for_secrets`, `secure_header_validator`, `detect_doc_gap`.
+
+**Confirmed working loop:** Scout used `semantic_search` → discovered `detect_doc_gap` (synthesized) → called it successfully. The full self-improvement loop closed: synthesize → vote → deploy → discover via semantic search → call in goal.
+
+---
+
+### 2026-04-08 — Self-modification loop diagnosis: agents are optimizing for appearance of progress
+**By:** Human (Claude Code session) — research finding, not a fix
+**Finding:** After verifying the hot-loading pipeline worked, investigated whether synthesized capabilities were actually doing useful work.
+
+**What was found:**
+- 125 Python files deployed. ~10 run without errors. ~5 are meaningfully used.
+- Most-called capabilities (`detect_capability_loop` called 49 times, `identify_execution_gap` 25 times) are called with null or circular inputs and always return the same "all clear" result.
+- Chain: `verify_stack_registration` → `{"output": null}` → `detect_capability_loop(log_entries=null)` → `{"loop_detected": false}` → `identify_execution_gap(error_trace="safe")` → `"no gaps found"` → propose `detect_capability_loop` again.
+- `detect_hardcoded_secrets` was called with `file_paths="/agentOS/agents/*.py"` (a string, not a list) and returned `{"scanned_files": 20, "findings": []}` — plausible-looking output from iterating over the characters of the glob string.
+- `scan_codebase_suspicious_patterns` has `from agentOS.agents.events import EventLog` (module doesn't exist) — 24 runtime failures, never worked once.
+- `extract_tool_signature` proposed 19 times, `detect_capability_loop` 9 times — dedup prevents re-deploy but agents waste LLM cycles re-synthesizing the same names.
+
+**Root cause:** Three compounding problems:
+1. **No grounding signal** — agents evaluate each other's proposals by reading descriptions, not by running code. Quorum approval means three agents agreed it sounded good, not that it works.
+2. **Model too small for code synthesis** — qwen3.5:9b is a general model. It generates bad imports, broken stubs, and trivially satisfied tests. This is a capability ceiling, not a tuning problem.
+3. **No real objective function** — synthesized capabilities can write files to `/workspace/` but nothing reads those files unless a goal happens to reference them. The only output that feeds back into the system is a new proposal — so agents keep proposing more capabilities.
+
+**Documented for architectural resolution in Phase 7.**
+
+---
+
+### 2026-04-08 — Architectural decision: agents as background improvement, not real-time OS runtime
+**By:** Human (design session)
+**Decision:** The current agent architecture (3 agents, ~45s cycle time, LLM reasoning per step) is the wrong tool for real-time OS event handling. It is the right tool for background improvement work. These are two separate systems and must be treated as such.
+
+**Real-time OS events (crashes, updates, permission errors, hardware events)** require:
+- Sub-second response
+- Deterministic behavior
+- No hallucination risk in the critical path
+- No LLM call latency
+
+**Background improvement (wrapping repos, synthesizing capabilities, analyzing quality)** can tolerate:
+- Minutes to complete
+- Non-deterministic output
+- LLM reasoning at every step
+
+**Decision:** Build a layered event response system between the event kernel (Layer 1) and the agent reasoning layer (Layer 2). Agents become the system that improves the event response library over time — not the system that handles events in real time.
+
+**Defined as Phase 7. See roadmap below.**
+
+---
+
+### 2026-04-08 — Identified: structured gate requirement for capability approval
+**By:** Human (design session)
+**Problem:** Quorum votes are opinions. Three agents read a capability description and vote approve/reject based on whether it sounds useful. This produces `verify_stack_registration` (always returns null, called 12 times, does nothing) and `scan_codebase_suspicious_patterns` (imports non-existent module, fails every call).
+
+**Proposed solution:** Replace votes with checks. A capability proposal must:
+1. Include test cases with defined inputs and expected output structure (written by proposer)
+2. Be executed by two independent agents against those test cases in a subprocess sandbox
+3. Both agents must observe the expected output structure — not just "it ran"
+4. Deploy only if both checks pass
+
+**Known limit:** The same small model that writes the capability also writes the tests. A weak model writes trivially satisfied tests. Mitigations: test inputs must come from a different agent than the proposer; tests must cover at least one error/edge case; expected outputs must be specified before execution (not inferred from result).
+
+**Defined as part of Phase 7.**

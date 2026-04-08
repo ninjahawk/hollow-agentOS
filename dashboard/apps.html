@@ -119,9 +119,20 @@
 
   #no-apps {
     padding: 20px 12px;
-    color: #333;
+    color: #444;
     font-size: 11px;
-    line-height: 1.6;
+    line-height: 1.8;
+  }
+  .store-badge {
+    display: inline-block;
+    font-size: 9px;
+    color: #3a6a8a;
+    border: 1px solid #1a3a5a;
+    border-radius: 2px;
+    padding: 1px 4px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 4px;
   }
 
   /* ── App detail (right) ── */
@@ -253,6 +264,7 @@
   <div id="status-dot"></div>
 </header>
 
+<div id="system-banner" style="display:none;padding:6px 16px;font-size:10px;border-bottom:1px solid #2a2a4a;letter-spacing:0.3px"></div>
 <main>
   <div id="app-list">
     <div style="display:flex;align-items:center;padding:8px 12px 0;gap:8px">
@@ -261,31 +273,44 @@
       <button onclick="showTab('store')" id="tab-store" style="background:none;border:none;color:#555;font:inherit;font-size:10px;cursor:pointer;padding:2px 6px">STORE</button>
     </div>
     <div id="search-bar" style="padding:6px 10px">
-      <input id="search-input" type="text" placeholder="search..." oninput="filterList()" onkeydown="if(event.key==='Enter' && currentTab==='local') discoverTools()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
+      <input id="search-input" type="text" placeholder="what do you want to do?" oninput="filterList()" onkeydown="if(event.key==='Enter') filterList()" style="width:100%;background:#111;border:1px solid #1e1e1e;color:#aaa;padding:4px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px">
     </div>
     <div id="app-entries" style="flex:1;overflow-y:auto">
       <div id="no-apps" style="padding:20px 12px;color:#333;font-size:11px;line-height:1.6">Loading...</div>
     </div>
     <div id="wrap-panel">
-      <div style="color:#333;font-size:10px;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Wrap New Repo</div>
-      <input id="wrap-input" type="text" placeholder="https://github.com/owner/repo" onkeydown="if(event.key==='Enter')wrapNewRepo()">
-      <button id="wrap-btn" onclick="wrapNewRepo()">+ WRAP</button>
+      <div style="color:#333;font-size:10px;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Add from GitHub</div>
+      <input id="wrap-input" type="text" placeholder="github.com/owner/tool" onkeydown="if(event.key==='Enter')wrapNewRepo()">
+      <button id="wrap-btn" onclick="wrapNewRepo()">+ ADD</button>
       <div id="wrap-status"></div>
+      <div style="margin-top:6px;display:flex;gap:4px">
+        <button onclick="triggerRepair()" style="flex:1;background:none;border:1px solid #222;color:#333;padding:3px;font:inherit;font-size:9px;cursor:pointer;border-radius:2px;letter-spacing:0.5px" title="Improve quality scores for low-quality store wrappers">⚙ repair quality</button>
+        <button onclick="triggerVersionCheck()" style="flex:1;background:none;border:1px solid #222;color:#333;padding:3px;font:inherit;font-size:9px;cursor:pointer;border-radius:2px;letter-spacing:0.5px" title="Check GitHub for wrapper updates">↑ check updates</button>
+      </div>
+      <div id="admin-status" style="font-size:9px;color:#333;margin-top:2px;min-height:12px"></div>
     </div>
   </div>
 
-  <div id="app-detail" class="empty">
-    select an app
+  <div id="app-detail" class="empty" style="flex-direction:column;gap:8px;font-size:12px;color:#222;text-align:center;letter-spacing:0">
+    <div style="color:#2a4a2a;font-size:13px;letter-spacing:2px">HOLLOW</div>
+    <div style="font-size:10px;letter-spacing:0.5px;max-width:280px;line-height:1.7">
+      Type what you want to do in the search box.<br>
+      Hollow finds the right tool and runs it for you.
+    </div>
   </div>
 </main>
 
+<script src="http://localhost:7777/token.js" onerror="void 0"></script>
 <script>
 const API = 'http://localhost:7777';
 const STORE = 'http://localhost:7779';
-const TOKEN = (() => {
-  const m = document.querySelector('meta[name="api-token"]');
-  return m ? m.content : 'ci-test-token-replace-in-production';
-})();
+// TOKEN: prefer window.__HOLLOW_TOKEN (injected by /token.js at runtime),
+// then fall back to meta tag, then to the dev default.
+// The script tag below loads /token.js asynchronously; if it hasn't fired yet
+// when the first fetch runs, the fallback keeps things working.
+const TOKEN = window.__HOLLOW_TOKEN
+  || (document.querySelector('meta[name="api-token"]')?.content)
+  || 'ci-test-token-replace-in-production';
 
 let wrappers = [];
 let activeWrapper = null;
@@ -300,26 +325,61 @@ function showTab(tab) {
   document.getElementById('tab-store').style.borderBottom = tab === 'store' ? '1px solid #7fff7f' : 'none';
   // Update placeholder to match tab context
   const search = document.getElementById('search-input');
-  if (search) search.placeholder = tab === 'store' ? 'search store...' : 'filter local...';
+  if (search) {
+    search.placeholder = tab === 'store' ? 'search store by name...' : 'what do you want to do?';
+    search.value = '';
+  }
   if (tab === 'local') loadLocalWrappers();
   else loadStoreWrappers();
 }
 
-// ── Status dot ───────────────────────────────────────────────────────────────
+// ── Status dot + system health ──────────────────────────────────────────────
 async function checkStatus() {
   try {
     const r = await fetch(`${API}/health`, {headers: {Authorization: `Bearer ${TOKEN}`}});
     document.getElementById('status-dot').className = r.ok ? 'online' : 'offline';
+    if (r.ok) checkSystemStatus();
   } catch {
     document.getElementById('status-dot').className = 'offline';
   }
+}
+
+async function checkSystemStatus() {
+  try {
+    const r = await fetch(`${API}/system/status`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+    if (!r.ok) return;
+    const d = await r.json();
+    const checks = d.checks || {};
+
+    // Show a subtle banner if Claude is not connected
+    const banner = document.getElementById('system-banner');
+    if (!banner) return;
+    const msgs = [];
+    if (!checks.claude?.ok && !checks.ollama?.ok) {
+      msgs.push('No AI model available — wrapping and discovery require Claude or Ollama. Add ANTHROPIC_API_KEY to .env.');
+    } else if (!checks.claude?.ok) {
+      msgs.push('Claude not connected — using Ollama (lower quality). Add ANTHROPIC_API_KEY to .env for best results.');
+    }
+    if (!checks.store?.ok) {
+      msgs.push('Community store offline — browsing store tools unavailable.');
+    }
+    if (msgs.length) {
+      banner.textContent = msgs.join(' · ');
+      banner.style.display = '';
+      banner.style.background = !checks.claude?.ok && !checks.ollama?.ok ? '#1a0e0e' : '#0e0e0e';
+      banner.style.borderColor = !checks.claude?.ok && !checks.ollama?.ok ? '#4a2a2a' : '#2a2a2a';
+      banner.style.color = !checks.claude?.ok && !checks.ollama?.ok ? '#cc8888' : '#666';
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch {}
 }
 
 // ── Load from local agent API ─────────────────────────────────────────────────
 async function loadLocalWrappers() {
   try {
     const r = await fetch(`${API}/wrappers`, {headers: {Authorization: `Bearer ${TOKEN}`}});
-    if (!r.ok) { renderEmpty('API unavailable'); return; }
+    if (!r.ok) { renderEmpty('Hollow is starting up — refresh in a moment, or check that the agent container is running.'); return; }
     const data = await r.json();
     wrappers = [];
     for (const w of (data.wrappers || [])) {
@@ -330,7 +390,7 @@ async function loadLocalWrappers() {
       } catch {}
     }
     renderList();
-  } catch (e) { renderEmpty('Failed to load local apps'); }
+  } catch (e) { renderEmpty('Could not reach the Hollow agent. Is the container running? Try: docker compose up -d'); }
 }
 
 let _storeOffset = 0;
@@ -382,8 +442,29 @@ function renderEmpty(msg) {
 function renderList(total) {
   const el = document.getElementById('app-entries');
   if (!wrappers.length) {
-    el.innerHTML = '<div id="no-apps">No apps installed yet.<br><br>' +
-      'Use <span style="color:#3a3">wrap_repo</span> to wrap a GitHub repo.</div>';
+    if (currentTab === 'local') {
+      const suggestions = [
+        'search files by content',
+        'compare two files',
+        'format JSON data',
+        'view running processes',
+        'analyze log files',
+        'work with git history',
+        'compress or archive files',
+        'convert between file formats',
+      ];
+      el.innerHTML = `<div id="no-apps">
+        <div style="color:#2a4a2a;font-size:9px;letter-spacing:1px;margin-bottom:8px;text-transform:uppercase">Try asking:</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${suggestions.map(q =>
+            `<button onclick="clickSuggestion('${q}')" style="text-align:left;background:none;border:1px solid #1a1a1a;color:#3a5a3a;padding:5px 8px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" onmouseover="this.style.color='#7fff7f';this.style.borderColor='#2a4a2a'" onmouseout="this.style.color='#3a5a3a';this.style.borderColor='#1a1a1a'">${q}</button>`
+          ).join('')}
+        </div>
+        <div style="margin-top:10px;color:#222;font-size:10px">or browse the <span style="color:#2a5a4a;cursor:pointer" onclick="showTab('store')">store ›</span></div>
+      </div>`;
+    } else {
+      el.innerHTML = '<div id="no-apps">Store unavailable or no results.</div>';
+    }
     return;
   }
   const hasMore = currentTab === 'store' && total != null && wrappers.length < total;
@@ -391,12 +472,14 @@ function renderList(total) {
     const cm = w.wrapper.capability_map;
     const score = w.wrapper.quality_score || w.quality_score || '';
     const installs = w.wrapper.install_count || 0;
+    const fromStore = w._fromStore || false;
     return `<div class="app-item" onclick="selectApp(${i})">
-      <div class="app-name">${esc(cm.name || w.repo_id)}</div>
+      <div class="app-name">${esc(cm.name || w.repo_id)}${fromStore ? '<span class="store-badge">STORE</span>' : ''}</div>
       <div class="app-desc">${esc((cm.description || '').substring(0, 60))}</div>
       <div class="app-meta">
         ${score !== '' ? `<span class="quality">★ ${score}</span>` : ''}
-        <span class="installs">${installs} installs</span>
+        ${installs > 0 ? `<span class="installs">${installs} installs</span>` : ''}
+        ${fromStore ? '<span style="color:#2a5a7a;font-size:9px">click to install</span>' : ''}
       </div>
     </div>`;
   }).join('') + (hasMore
@@ -411,6 +494,7 @@ async function selectApp(idx) {
   });
 
   const entry = wrappers[idx];
+  _activeEntry = entry;
 
   // Lazy-load full wrapper if we only have a stub (store tab)
   if (entry._stub) {
@@ -448,8 +532,20 @@ async function selectApp(idx) {
   renderDetail();
 }
 
+// ── Developer details toggle ──────────────────────────────────────────────────
+function toggleDevDetails() {
+  const d = document.getElementById('dev-details');
+  const t = document.getElementById('dev-details-toggle');
+  if (!d || !t) return;
+  const open = d.style.display !== 'none';
+  d.style.display = open ? 'none' : '';
+  t.textContent = open ? '· details ▾' : '· details ▴';
+}
+
 // ── Render right panel ────────────────────────────────────────────────────────
+let _activeEntry = null;
 function renderDetail() {
+  const entry = _activeEntry;
   const w = activeWrapper;
   const cm = w.capability_map;
   const iface = w.interface_spec;
@@ -462,29 +558,35 @@ function renderDetail() {
     `<button class="cap-tab${i===0?' active':''}" onclick="selectCap(${i})">${esc(c.id)}</button>`
   ).join('');
 
+  const isFromStore = entry._fromStore || currentTab === 'store';
+  const showInstall = isFromStore;  // Show install for any store-originated item; hidden after installFromStore sets _fromStore=false
+
   detail.innerHTML = `
     <div id="app-header">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
         <div>
-          <h2>${esc(cm.name)}</h2>
+          <h2>${esc(cm.name)}${isFromStore ? ' <span style="font-size:11px;color:#2a5a7a;font-weight:normal">· store</span>' : ''}</h2>
           <p>${esc(cm.description)}</p>
-          <div class="meta">
-            invoke: <span style="color:#3a7a3a">${esc(cm.invoke)}</span> &nbsp;·&nbsp;
-            commit: <span id="current-commit">${esc(w.source_commit || 'unknown')}</span> &nbsp;·&nbsp;
-            <a href="${esc(w.repo_url)}" target="_blank" style="color:#555">${esc(w.repo_url)}</a>
+          <div class="meta" style="margin-top:6px">
+            ${w.repo_url ? `<a href="${esc(w.repo_url)}" target="_blank" style="color:#2a4a2a;font-size:10px">${esc(w.repo_url.replace('https://github.com/', ''))}</a>` : ''}
+            <span id="dev-details-toggle" onclick="toggleDevDetails()" style="cursor:pointer;color:#2a2a2a;font-size:10px;margin-left:8px">· details ▾</span>
+          </div>
+          <div id="dev-details" style="display:none;margin-top:4px;font-size:10px;color:#2a2a2a">
+            invoke: <span style="color:#2a5a2a">${esc(cm.invoke)}</span>
+            &nbsp;·&nbsp; commit: <span id="current-commit">${esc(w.source_commit || 'unknown')}</span>
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          ${currentTab === 'store' ? `<button onclick="installFromStore()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="install-btn">↓ install</button>` : ''}
-          <button onclick="showCustomize()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="customize-btn">✎ customize</button>
-          <button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap" id="update-btn">↑ updates</button>
+          ${showInstall ? `<button onclick="installFromStore()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="install-btn">↓ install</button>` : ''}
+          ${!isFromStore ? `<button onclick="showCustomize()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px" id="customize-btn">✎ customize</button>` : ''}
+          ${!isFromStore ? `<button onclick="checkWrapperVersion()" style="background:none;border:1px solid #2a2a2a;color:#555;padding:4px 10px;font:inherit;font-size:10px;cursor:pointer;border-radius:2px;white-space:nowrap" id="update-btn">↑ updates</button>` : ''}
         </div>
       </div>
       <div id="update-status" style="font-size:10px;color:#555;margin-top:4px"></div>
       <div id="customize-panel" style="display:none;margin-top:8px;border-top:1px solid #1a1a1a;padding-top:8px">
-        <div style="font-size:10px;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Customize interface</div>
-        <input id="customize-input" type="text" placeholder="describe how you want to use this tool..." onkeydown="if(event.key==='Enter')applyCustomize()" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#e0e0e0;padding:6px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px;margin-bottom:4px">
-        <button onclick="applyCustomize()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 12px;font:inherit;font-size:11px;cursor:pointer;border-radius:2px" id="apply-customize-btn">Apply with Claude</button>
+        <div style="font-size:10px;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Make it yours</div>
+        <input id="customize-input" type="text" placeholder="e.g. 'just show me a search box and a file path'" onkeydown="if(event.key==='Enter')applyCustomize()" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#e0e0e0;padding:6px 8px;font:inherit;font-size:11px;outline:none;border-radius:2px;margin-bottom:4px">
+        <button onclick="applyCustomize()" style="background:#0e1a0e;border:1px solid #3a7a3a;color:#7fff7f;padding:4px 12px;font:inherit;font-size:11px;cursor:pointer;border-radius:2px" id="apply-customize-btn">Apply</button>
         <span id="customize-status" style="font-size:10px;color:#555;margin-left:8px"></span>
       </div>
     </div>
@@ -503,7 +605,18 @@ function renderDetail() {
     </div>
   `;
 
-  renderForm(cm.capabilities[0], iface);
+  if (caps.length > 0) {
+    renderForm(caps[0], iface);
+  } else if (showInstall) {
+    // Store item not yet installed — show install prompt instead of empty form
+    document.getElementById('app-form').innerHTML =
+      `<div style="color:#2a5a7a;font-size:11px;line-height:1.7;padding:8px 0">
+        This tool is available in the community store.<br>
+        Click <strong style="color:#7fff7f">↓ install</strong> above to add it to your Hollow.
+      </div>`;
+  } else {
+    renderForm(null, iface);
+  }
 }
 
 // ── Select capability tab ─────────────────────────────────────────────────────
@@ -608,19 +721,25 @@ async function runCommand() {
     const data = await r.json();
     if (data.blocked) {
       outputBox.className = 'error';
-      outputBox.textContent = `Command not allowed: ${data.reason || 'blocked for safety'}`;
+      outputBox.textContent = `That command isn't allowed for safety reasons.`;
     } else if (data.timed_out) {
       outputBox.className = 'error';
-      outputBox.textContent = 'Took too long (30s limit). Try a more specific command.';
-    } else if (data.exit_code !== 0 && data.stderr?.includes('command not found')) {
-      // Tool not installed — friendly error
+      outputBox.textContent = 'This took too long (30 second limit). Try with fewer files, or a smaller scope.';
+    } else if (data.exit_code !== 0 && (data.stderr?.includes('command not found') || data.stderr?.includes('not found'))) {
       const invoke = activeWrapper?.capability_map?.invoke || 'this tool';
+      const hint = activeWrapper?.capability_map?.install_hint || '';
       outputBox.className = 'error';
-      outputBox.textContent = `"${invoke}" isn't installed yet.\n\nInstall hint: ${activeWrapper?.capability_map?.install_hint || 'see the repo README'}`;
+      outputBox.textContent = `"${invoke}" isn't installed yet.${hint ? '\n\nTo install: click the "⬇ Install automatically" button above.' : '\n\nSee the tool\'s documentation to install it.'}`;
+    } else if (data.exit_code !== 0 && data.stderr?.includes('Permission denied')) {
+      outputBox.className = 'error';
+      outputBox.textContent = `Permission denied — this operation isn't allowed in the sandbox.`;
+    } else if (data.exit_code !== 0 && data.stderr?.includes('No such file or directory')) {
+      outputBox.className = 'error';
+      outputBox.textContent = `File or directory not found. Check that the path you entered is correct.`;
     } else {
-      const out = (data.stdout || '') + (data.stderr ? `\n[stderr]\n${data.stderr}` : '');
+      const out = (data.stdout || '') + (data.stderr && data.exit_code !== 0 ? `\n[error output]\n${data.stderr}` : (data.stderr ? `\n${data.stderr}` : ''));
       outputBox.className = data.exit_code === 0 ? '' : 'error';
-      outputBox.textContent = out || '(no output — command ran successfully)';
+      outputBox.textContent = out || '(command ran successfully — no output)';
     }
   } catch (e) {
     outputBox.className = 'error';
@@ -683,24 +802,65 @@ async function discoverTools() {
     const r = await fetch(`${API}/discover`, {
       method: 'POST',
       headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
-      body: JSON.stringify({query: q, limit: 10}),
+      body: JSON.stringify({query: q, limit: 8, include_store: true}),
     });
     const d = await r.json();
     if (!d.results?.length) {
-      renderEmpty(`No tools found for "${q}" — try wrapping one from the STORE tab`);
+      renderEmpty(`Nothing found for "${q}" — try the STORE tab to browse all 100+ tools`);
       return;
     }
-    // Replace wrappers list with discovery results then fetch full wrappers
+
     wrappers = [];
     for (const result of d.results) {
-      try {
-        const wr = await fetch(`${API}/wrappers/${result.repo_name}`, {headers: {Authorization: `Bearer ${TOKEN}`}});
-        if (wr.ok) wrappers.push({repo_id: result.repo_name, wrapper: await wr.json()});
-      } catch {}
+      if (result.installed !== false) {
+        // Already installed locally — fetch full wrapper
+        try {
+          const wr = await fetch(`${API}/wrappers/${result.repo_name}`, {headers: {Authorization: `Bearer ${TOKEN}`}});
+          if (wr.ok) wrappers.push({repo_id: result.repo_name, wrapper: await wr.json(), _fromStore: false});
+        } catch {}
+      } else {
+        // Not installed — use stub from store so user can install with one click
+        wrappers.push({
+          repo_id: result.repo_id || result.repo_name,
+          _stub: true,
+          _fromStore: true,
+          quality_score: result.quality_score || 0,
+          wrapper: {
+            repo_url: '',
+            capability_map: {name: result.name, description: result.description, invoke: result.invoke || result.name, capabilities: []},
+            interface_spec: {fields: []},
+            install_count: 0,
+          },
+        });
+      }
     }
     renderList();
   } catch(e) {
-    renderEmpty('Discovery failed: ' + e.message);
+    // If the API is down, fall back to searching the store directly from the browser
+    try {
+      const sq = encodeURIComponent(q);
+      const sr = await fetch(`${STORE}/wrappers?q=${sq}&limit=8&sort=quality`);
+      if (sr.ok) {
+        const sd = await sr.json();
+        if (sd.wrappers?.length) {
+          wrappers = sd.wrappers.map(w => ({
+            repo_id: w.repo_id,
+            _stub: true,
+            _fromStore: true,
+            quality_score: w.quality_score || 0,
+            wrapper: {
+              repo_url: w.repo_url || '',
+              capability_map: {name: w.name, description: w.description || '', invoke: w.name, capabilities: []},
+              interface_spec: {fields: []},
+              install_count: w.install_count || 0,
+            },
+          }));
+          renderList();
+          return;
+        }
+      }
+    } catch {}
+    renderEmpty('Search unavailable — is Hollow running? Try refreshing.');
   }
 }
 
@@ -767,62 +927,142 @@ async function applyCustomize() {
 
 // ── Install from store ────────────────────────────────────────────────────────
 async function installFromStore() {
-  if (!activeWrapper || currentTab !== 'store') return;
+  if (!activeWrapper) return;
   const btn = document.getElementById('install-btn');
   if (!btn) return;
-  const repoUrl = activeWrapper.repo_url;
-  if (!repoUrl) return;
+
+  // Get repo URL — try activeWrapper first, then fetch full wrapper from store
+  let repoUrl = activeWrapper.repo_url;
+  const entry = _activeEntry;
+  if (!repoUrl && entry?.repo_id) {
+    try {
+      const wr = await fetch(`${STORE}/wrappers/${entry.repo_id}`);
+      if (wr.ok) {
+        const full = await wr.json();
+        repoUrl = full.repo_url;
+        // Promote stub to full wrapper
+        entry.wrapper = full;
+        entry._stub = false;
+        activeWrapper = full;
+      }
+    } catch {}
+  }
+  if (!repoUrl) {
+    btn.textContent = 'no url';
+    setTimeout(() => { btn.textContent = '↓ install'; btn.disabled = false; }, 2000);
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = 'installing...';
 
-  // Trigger wrap_repo on the agent side (clones locally and saves wrapper)
   try {
     const r = await fetch(`${API}/wrap`, {
       method: 'POST',
       headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
       body: JSON.stringify({url: repoUrl}),
+      signal: AbortSignal.timeout(90000),
     });
-    const d = await r.json();
+    let d = {};
+    try { d = await r.json(); } catch {}
     if (d.ok) {
       btn.style.color = '#7fff7f';
       btn.textContent = '✓ installed';
-      // Also increment store install count
-      const repoId = wrappers.find(w => w.wrapper === activeWrapper)?.repo_id;
-      if (repoId) {
-        await fetch(`${STORE}/wrappers/${repoId}/install`, {method: 'POST'}).catch(() => {});
+      // Increment store install count
+      if (entry?.repo_id) {
+        await fetch(`${STORE}/wrappers/${entry.repo_id}/install`, {method: 'POST'}).catch(() => {});
       }
-      setTimeout(() => { btn.textContent = '✓ local'; btn.disabled = false; }, 2000);
+      // Mark as local, reload after brief pause
+      entry._fromStore = false;
+      entry._stub = false;
+      // Auto-install the binary if it's not available (Phase 5: zero friction)
+      const invoke = activeWrapper.capability_map?.invoke;
+      const hint = activeWrapper.capability_map?.install_hint || '';
+      if (invoke && hint) {
+        btn.textContent = 'installing binary...';
+        try {
+          const check = await fetch(`${API}/tools/check?invoke=${encodeURIComponent(invoke)}`,
+            {headers: {Authorization: `Bearer ${TOKEN}`}});
+          const checkData = check.ok ? await check.json() : {};
+          if (!checkData.available) {
+            const ir = await fetch(`${API}/tools/install`, {
+              method: 'POST',
+              headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
+              body: JSON.stringify({invoke, install_hint: hint, timeout: 120}),
+            });
+            const id = await ir.json();
+            if (id.ok && id.available) {
+              activeWrapper._toolAvailable = true;
+            }
+          } else {
+            activeWrapper._toolAvailable = true;
+          }
+        } catch {}
+      }
+      setTimeout(() => {
+        btn.textContent = '✓ local';
+        btn.disabled = false;
+        if (currentTab === 'local') loadLocalWrappers();
+        // Re-render detail to reflect installed state
+        if (activeWrapper) { entry._fromStore = false; renderDetail(); }
+      }, 500);
+    } else if (!r.ok && r.status === 401) {
+      btn.style.color = '#ff9999';
+      btn.textContent = 'auth error';
+      setTimeout(() => { btn.textContent = '↓ install'; btn.style.color = '#7fff7f'; btn.disabled = false; }, 3000);
     } else {
+      const errMsg = d.error || d.detail || 'install failed';
       btn.textContent = 'failed';
       btn.style.color = '#ff6666';
-      setTimeout(() => { btn.textContent = '↓ install'; btn.style.color = '#7fff7f'; btn.disabled = false; }, 2000);
+      btn.title = errMsg;
+      setTimeout(() => { btn.textContent = '↓ install'; btn.style.color = '#7fff7f'; btn.disabled = false; btn.title = ''; }, 4000);
     }
   } catch (e) {
-    btn.textContent = 'error';
-    btn.disabled = false;
+    btn.textContent = e.name === 'AbortError' ? 'timed out' : 'network error';
+    btn.style.color = '#ff9999';
+    setTimeout(() => { btn.textContent = '↓ install'; btn.style.color = '#7fff7f'; btn.disabled = false; }, 3000);
   }
 }
 
 // ── Wrap new repo ─────────────────────────────────────────────────────────────
 async function wrapNewRepo() {
-  const url = document.getElementById('wrap-input').value.trim();
-  if (!url || !url.startsWith('http')) {
-    document.getElementById('wrap-status').textContent = 'enter a github url';
-    return;
+  let url = document.getElementById('wrap-input').value.trim();
+  if (!url) { document.getElementById('wrap-status').textContent = 'enter a repo url'; return; }
+  // Accept bare github.com/owner/repo or owner/repo formats
+  if (!url.startsWith('http')) {
+    if (url.startsWith('github.com/')) url = 'https://' + url;
+    else if (/^[\w.-]+\/[\w.-]+$/.test(url)) url = 'https://github.com/' + url;
+    else { document.getElementById('wrap-status').textContent = 'enter a GitHub URL or owner/repo'; return; }
   }
   const btn = document.getElementById('wrap-btn');
   const status = document.getElementById('wrap-status');
   btn.disabled = true;
   status.style.color = '#555';
-  status.textContent = 'wrapping... (may take ~30s)';
+  status.textContent = 'cloning repo...';
+  // Progress messages — wrapping takes 20-60s so show activity
+  const _wrapMessages = [
+    'cloning repo...',
+    'reading README...',
+    'analyzing capabilities...',
+    'generating interface...',
+    'saving to store...',
+    'almost done...',
+  ];
+  let _wrapMsgIdx = 0;
+  const _wrapTimer = setInterval(() => {
+    _wrapMsgIdx = Math.min(_wrapMsgIdx + 1, _wrapMessages.length - 1);
+    if (btn.disabled) status.textContent = _wrapMessages[_wrapMsgIdx];
+  }, 8000);
   try {
     const r = await fetch(`${API}/wrap`, {
       method: 'POST',
       headers: {'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`},
       body: JSON.stringify({url}),
+      signal: AbortSignal.timeout(90000),
     });
-    const d = await r.json();
+    let d = {};
+    try { d = await r.json(); } catch {}
+    clearInterval(_wrapTimer);
     if (d.ok) {
       status.style.color = '#7fff7f';
       status.textContent = `✓ ${d.repo_name} wrapped (${d.capability_count} caps)`;
@@ -830,9 +1070,10 @@ async function wrapNewRepo() {
       setTimeout(() => { status.textContent = ''; loadWrappers(); }, 2000);
     } else {
       status.style.color = '#ff6666';
-      status.textContent = `✗ ${(d.error || 'failed').substring(0, 50)}`;
+      status.textContent = `✗ ${(d.error || 'failed').substring(0, 80)}`;
     }
   } catch (e) {
+    clearInterval(_wrapTimer);
     status.style.color = '#ff6666';
     status.textContent = `✗ ${e.message}`;
   } finally {
@@ -855,20 +1096,26 @@ async function checkWrapperVersion() {
       headers: {'Authorization': `Bearer ${TOKEN}`},
     });
     const d = await r.json();
+    // Response is {ok, installed: {checked, updated, repos, ...}, store: {...}}
+    const installed = d.installed || d;  // backward-compat
+    const repos = installed.repos || d.repos || [];
     const repoName = activeWrapper.capability_map?.name?.toLowerCase() || '';
-    const updated = (d.repos || []).find(x => x.name === repoName && x.status === 'updated');
-    const current = (d.repos || []).find(x => x.name === repoName && x.status === 'current');
+    const updated = repos.find(x => x.name === repoName && x.status === 'updated');
+    const current = repos.find(x => x.name === repoName && x.status === 'current');
     if (updated) {
       status.style.color = '#7fff7f';
       status.textContent = `✓ updated: ${updated.from} → ${updated.to}`;
-      document.getElementById('current-commit').textContent = updated.to;
+      const commitEl = document.getElementById('current-commit');
+      if (commitEl) commitEl.textContent = updated.to;
       setTimeout(loadWrappers, 1500);
     } else if (current) {
       status.style.color = '#555';
       status.textContent = `✓ up to date (${current.commit})`;
     } else {
+      const checked = installed.checked ?? d.checked ?? 0;
+      const upd = installed.updated ?? d.updated ?? 0;
       status.style.color = '#555';
-      status.textContent = `checked: ${d.checked || 0} wrappers, ${d.updated || 0} updated`;
+      status.textContent = `checked: ${checked} wrappers, ${upd} updated`;
     }
   } catch (e) {
     status.style.color = '#ff6666';
@@ -883,17 +1130,70 @@ async function checkWrapperVersion() {
 let _searchTimer = null;
 function filterList() {
   if (currentTab === 'local') {
-    // Client-side filter for local apps
-    const q = document.getElementById('search-input').value.toLowerCase();
-    document.querySelectorAll('.app-item').forEach(el => {
-      const name = el.querySelector('.app-name')?.textContent.toLowerCase() || '';
-      const desc = el.querySelector('.app-desc')?.textContent.toLowerCase() || '';
-      el.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
-    });
+    const q = document.getElementById('search-input').value.trim();
+    if (!q) {
+      // Empty query: restore full local list
+      clearTimeout(_searchTimer);
+      loadLocalWrappers();
+      return;
+    }
+    // Debounced natural-language discover (local + store)
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => discoverTools(), 350);
   } else {
-    // Server-side search for store — debounced
+    // Server-side text search for store — debounced
     clearTimeout(_searchTimer);
     _searchTimer = setTimeout(() => loadStoreWrappers(), 400);
+  }
+}
+
+// ── Suggestion chip click ─────────────────────────────────────────────────────
+function clickSuggestion(q) {
+  const input = document.getElementById('search-input');
+  if (input) { input.value = q; input.focus(); }
+  discoverTools();
+}
+
+// ── Admin actions ─────────────────────────────────────────────────────────────
+async function triggerRepair() {
+  const status = document.getElementById('admin-status');
+  status.style.color = '#555';
+  status.textContent = 'repairing wrappers...';
+  try {
+    const r = await fetch(`${API}/store/repair`, {
+      method: 'POST',
+      headers: {Authorization: `Bearer ${TOKEN}`},
+    });
+    const d = await r.json();
+    status.style.color = d.ok ? '#3a7a3a' : '#7a3a3a';
+    status.textContent = d.summary || (d.ok ? 'done' : 'failed');
+    if (currentTab === 'store') setTimeout(loadStoreWrappers, 1000);
+  } catch(e) {
+    status.style.color = '#7a3a3a';
+    status.textContent = 'error: ' + e.message;
+  }
+}
+
+async function triggerVersionCheck() {
+  const status = document.getElementById('admin-status');
+  status.style.color = '#555';
+  status.textContent = 'checking updates...';
+  try {
+    const r = await fetch(`${API}/version-check`, {
+      method: 'POST',
+      headers: {Authorization: `Bearer ${TOKEN}`},
+    });
+    const d = await r.json();
+    // Response: {ok, installed: {checked, updated, ...}, store: {...}}
+    const installed = d.installed || d;
+    const checked = installed.checked ?? d.checked ?? 0;
+    const updated = installed.updated ?? d.updated ?? 0;
+    status.style.color = updated > 0 ? '#7fff7f' : '#3a5a3a';
+    status.textContent = `checked: ${checked}, updated: ${updated}`;
+    if (updated > 0) setTimeout(loadLocalWrappers, 1500);
+  } catch(e) {
+    status.style.color = '#7a3a3a';
+    status.textContent = 'error: ' + e.message;
   }
 }
 

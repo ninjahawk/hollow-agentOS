@@ -29,7 +29,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Memory and workspace directories
-RUN mkdir -p /agentOS/memory /agentOS/workspace/agents
+RUN mkdir -p /agentOS/memory \
+             /agentOS/workspace/agents \
+             /agentOS/workspace/wrappers \
+             /agentOS/workspace/sandbox \
+             /agentOS/workspace/bin \
+             /agentOS/store/data
 
 # Config: use config.json if present, otherwise config.example.json
 RUN test -f config.json || cp config.example.json config.json

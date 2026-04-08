@@ -1,0 +1,23 @@
+[Unit]
+Description=Hollow Kiosk Browser
+# Note: Chromium is also launched from /home/hollow/.config/openbox/autostart
+# which runs inside the X session. This systemd service is a fallback for
+# environments where openbox autostart doesn't fire.
+After=graphical.target hollow-agent.service
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=hollow
+# Assumes lightdm starts X on display :0
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/hollow/.Xauthority
+ExecStartPre=/bin/sh -c 'until curl -sf http://localhost:7778/loading.html; do sleep 2; done'
+ExecStart=/usr/local/bin/hollow-kiosk.sh
+Restart=on-failure
+RestartSec=10
+# Don't restart if it exits cleanly (user closed the browser)
+SuccessExitStatus=0
+
+[Install]
+WantedBy=graphical.target

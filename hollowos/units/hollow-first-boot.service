@@ -1,0 +1,20 @@
+[Unit]
+Description=Hollow First-Boot Setup
+Documentation=https://github.com/ninjahawk/hollow-agentos
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+# Only run if the first-boot marker doesn't exist
+ConditionPathExists=!/var/lib/hollow-first-boot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hollow-first-boot.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hollow-first-boot
+RemainAfterExit=yes
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

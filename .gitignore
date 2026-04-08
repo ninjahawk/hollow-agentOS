@@ -31,3 +31,7 @@ build/
 
 # Runtime env config (may contain secrets)
 .env
+
+# HollowOS build output (disk images, apt cache)
+hollowos/build/
+hollowos/rootfs/etc/hollow/hollow.env

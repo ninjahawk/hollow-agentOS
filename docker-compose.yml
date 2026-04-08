@@ -33,6 +33,9 @@ services:
       - ./workspace:/agentOS/workspace
       - ./config.json:/agentOS/config.json:ro
       - ./logs:/agentOS/logs
+      - ./memory/dynamic_tools:/agentOS/tools/dynamic
+      # Store data mounted so repair_wrappers.py can write directly (bypasses SHA dedup)
+      - ./store/data:/agentOS/store/data
       # Claude Code credentials — mounted read-only so agents can use OAuth tokens
       # (extra usage credits). Works automatically if Claude Code is installed.
       # Path is set by installer; missing file is silently ignored at runtime.
@@ -43,6 +46,8 @@ services:
       # Optional overrides — set in .env or via installer
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+      - HOLLOW_STORE_URL=http://host.docker.internal:7779
+      - HOLLOW_STORE_DATA=/agentOS/store/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7777/health"]
@@ -63,6 +68,9 @@ services:
     restart: unless-stopped
 
   store:
+    # Use pre-built image from GHCR when available; falls back to local build.
+    # Image is published by .github/workflows/docker-publish.yml on every push to main.
+    image: ${HOLLOW_STORE_IMAGE:-ghcr.io/ninjahawk/hollow-store:latest}
     build:
       context: .
       dockerfile: store/Dockerfile
