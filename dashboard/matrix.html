@@ -2,173 +2,282 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>hollow — matrix monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hollow — Agent Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-body {
-  background: #000;
-  font-family: 'Courier New', monospace;
-  overflow: hidden;
-  height: 100vh;
-  width: 100vw;
+:root {
+  --green:      #30d158;
+  --green-dim:  rgba(48,209,88,0.5);
+  --green-glow: rgba(48,209,88,0.15);
+  --white:      rgba(255,255,255,0.92);
+  --mid:        rgba(255,255,255,0.45);
+  --dim:        rgba(255,255,255,0.2);
+  --faint:      rgba(255,255,255,0.08);
+  --glass-bg:   rgba(0,0,0,0.55);
+  --glass-bdr:  rgba(255,255,255,0.07);
+  --red:        #ff453a;
+  --radius:     14px;
+  --font:       'JetBrains Mono', 'SF Mono', monospace;
 }
 
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+body { font-family: var(--font); font-size: 12px; }
+
+/* ── Rain ── */
 #rain {
-  position: fixed; top: 0; left: 0;
-  width: 100%; height: 100%;
-  z-index: 0;
+  position: fixed; inset: 0; z-index: 0;
+  opacity: 0.1;
+  transition: opacity 2s ease;
 }
 
+/* ── Scanlines ── */
 #scanlines {
-  position: fixed; top: 0; left: 0;
-  width: 100%; height: 100%;
-  z-index: 1;
-  pointer-events: none;
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
   background: repeating-linear-gradient(
-    0deg, transparent, transparent 2px,
-    rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px
+    0deg, transparent, transparent 3px,
+    rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 4px
   );
 }
 
+/* ── Token overlay ── */
+#overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+#overlay.hidden { display: none; }
+
+#token-sheet {
+  background: rgba(28,28,30,0.95);
+  border: 1px solid var(--glass-bdr);
+  border-radius: 18px;
+  padding: 32px 28px;
+  width: 340px;
+  text-align: center;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.8);
+}
+#token-sheet h2 {
+  font-size: 16px; font-weight: 500;
+  color: var(--white); letter-spacing: 0.3px; margin-bottom: 6px;
+}
+#token-sheet p {
+  font-size: 11px; color: var(--dim);
+  margin-bottom: 20px; line-height: 1.6;
+}
+#token-input {
+  width: 100%; background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; color: var(--white);
+  font-family: var(--font); font-size: 12px;
+  padding: 11px 14px; outline: none; margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+#token-input:focus { border-color: var(--green-dim); }
+#token-input::placeholder { color: var(--dim); }
+#token-btn {
+  width: 100%; background: var(--green);
+  border: none; border-radius: 10px;
+  color: #000; font-family: var(--font);
+  font-size: 13px; font-weight: 500;
+  padding: 11px; cursor: pointer;
+  transition: opacity 0.15s;
+}
+#token-btn:hover { opacity: 0.85; }
+
+/* ── Main UI ── */
 #ui {
   position: relative; z-index: 2;
   display: flex; flex-direction: column;
-  height: 100vh; padding: 14px; gap: 10px;
+  height: 100vh; padding: 20px 22px 18px;
+  gap: 14px;
 }
 
-/* Header */
+/* ── Header ── */
 #header {
   display: flex; align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #0d3a0d;
-  padding-bottom: 10px; flex-shrink: 0;
+  justify-content: space-between; flex-shrink: 0;
 }
-#logo {
-  font-size: 20px; font-weight: bold;
-  color: #00ff41; letter-spacing: 5px;
-  text-shadow: 0 0 14px #00ff41, 0 0 28px #00882a;
-}
-#header-right {
-  display: flex; gap: 30px;
-  font-size: 11px; color: #1a5a1a; letter-spacing: 1px;
-}
-#header-right b { color: #00cc33; font-weight: normal; }
-.pdot {
-  display: inline-block; width: 6px; height: 6px;
-  border-radius: 50%; background: #00ff41;
-  box-shadow: 0 0 8px #00ff41; margin-right: 10px;
-  animation: blink 1.6s ease-in-out infinite;
-}
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-/* Agent panels */
+#logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 500;
+  color: var(--white); letter-spacing: 3px;
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: livepulse 2s ease-in-out infinite;
+}
+@keyframes livepulse { 0%,100%{opacity:1;box-shadow:0 0 8px var(--green)} 50%{opacity:0.3;box-shadow:none} }
+
+#header-stats {
+  display: flex; gap: 24px; align-items: center;
+}
+.hstat {
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+.hstat-label { font-size: 9px; color: var(--dim); letter-spacing: 1.5px; margin-bottom: 1px; }
+.hstat-value { font-size: 11px; color: var(--mid); font-weight: 400; }
+.hstat-value.green { color: var(--green); }
+
+/* ── Agent panels ── */
 #panels {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px; flex-shrink: 0;
+  gap: 12px; flex-shrink: 0;
 }
 
 .panel {
-  background: rgba(0,6,0,0.85);
-  border: 1px solid #0a2a0a; border-radius: 1px;
-  transition: border-color 0.5s, box-shadow 0.5s;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-bdr);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  transition: border-color 0.6s, box-shadow 0.6s;
 }
 .panel.hot {
-  border-color: #1a6a1a;
-  box-shadow: 0 0 14px rgba(0,255,65,0.06), inset 0 0 20px rgba(0,255,65,0.03);
+  border-color: rgba(48,209,88,0.2);
+  box-shadow: 0 0 40px rgba(48,209,88,0.05), inset 0 0 40px rgba(48,209,88,0.02);
 }
-.panel.err { border-color: #5a0a0a; }
+.panel.err { border-color: rgba(255,69,58,0.2); }
 
-.ph {
-  display: flex; align-items: center;
-  justify-content: space-between;
-  padding: 9px 13px 7px;
-  border-bottom: 1px solid #0a2a0a;
+.panel-top {
+  display: flex; justify-content: space-between;
+  align-items: flex-start; margin-bottom: 14px;
 }
-.pname {
-  font-size: 13px; font-weight: bold; letter-spacing: 3px;
-  color: #00ff41; text-shadow: 0 0 8px #00ff41;
+.agent-name {
+  font-size: 15px; font-weight: 500;
+  color: var(--white); letter-spacing: 1px;
 }
-.prole { font-size: 10px; color: #1a5a1a; letter-spacing: 1px; margin-top: 1px; }
-.pstat {
-  font-size: 10px; letter-spacing: 1px;
-  padding: 2px 8px; border: 1px solid;
+.agent-role {
+  font-size: 9px; color: var(--dim);
+  letter-spacing: 2px; margin-top: 3px;
+  text-transform: uppercase;
 }
-.pstat.active { color:#00ff41; border-color:#1a6a1a; text-shadow:0 0 6px #00ff41; }
-.pstat.idle   { color:#1a5a1a; border-color:#0a2a0a; }
-.pstat.err    { color:#ff3333; border-color:#6a0a0a; }
+.agent-badge {
+  font-size: 9px; letter-spacing: 1.5px;
+  padding: 3px 9px; border-radius: 20px;
+  border: 1px solid; font-weight: 400;
+}
+.badge-active { color: var(--green); border-color: rgba(48,209,88,0.3); }
+.badge-idle   { color: var(--dim);   border-color: rgba(255,255,255,0.08); }
+.badge-err    { color: var(--red);   border-color: rgba(255,69,58,0.3); }
 
-.pg {
-  padding: 8px 13px 6px;
-  border-bottom: 1px solid #060f06;
+.panel-obj {
+  font-size: 11px; color: var(--mid);
+  line-height: 1.55; margin-bottom: 14px;
+  min-height: 34px;
+  display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
 }
-.pg-lbl { font-size: 9px; color: #1a4a1a; letter-spacing: 1px; margin-bottom: 3px; }
-.pg-obj {
-  font-size: 11px; color: #2a8a2a;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  margin-bottom: 5px; min-height: 14px;
-}
-.pgbar { height: 2px; background: #060f06; border-radius: 1px; overflow: hidden; }
-.pgfill {
-  height: 100%; border-radius: 1px;
-  background: linear-gradient(90deg, #002a00, #00ff41);
-  box-shadow: 0 0 8px #00ff41;
-  transition: width 1.5s ease;
-}
-.pg-sub { font-size: 9px; color: #1a4a1a; text-align: right; margin-top: 2px; }
 
-/* Global activity feed */
+.panel-progress {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.progress-track {
+  height: 1px; background: rgba(255,255,255,0.07);
+  border-radius: 1px; overflow: visible; position: relative;
+}
+.progress-fill {
+  height: 1px; border-radius: 1px;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green), 0 0 20px rgba(48,209,88,0.4);
+  transition: width 1.8s cubic-bezier(0.4,0,0.2,1);
+  position: relative;
+}
+.progress-fill::after {
+  content: '';
+  position: absolute; right: 0; top: -2px;
+  width: 3px; height: 5px;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--green);
+}
+.progress-meta {
+  display: flex; justify-content: space-between;
+  font-size: 9px; color: var(--dim); letter-spacing: 0.5px;
+}
+.progress-pct { color: var(--green-dim); }
+
+/* ── Feed ── */
 #feed-wrap {
   flex: 1; min-height: 0;
-  background: rgba(0,6,0,0.85);
-  border: 1px solid #0a2a0a; border-radius: 1px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-bdr);
+  border-radius: var(--radius);
   display: flex; flex-direction: column; overflow: hidden;
 }
+
 #feed-header {
-  padding: 7px 13px; font-size: 10px;
-  color: #1a5a1a; letter-spacing: 2px;
-  border-bottom: 1px solid #0a2a0a; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  flex-shrink: 0;
 }
+#feed-title {
+  font-size: 9px; color: var(--dim);
+  letter-spacing: 2.5px; text-transform: uppercase;
+}
+#feed-count {
+  font-size: 9px; color: var(--dim);
+}
+
 #feed {
-  flex: 1; overflow-y: auto; padding: 8px 13px;
-  display: flex; flex-direction: column; gap: 2px;
+  flex: 1; overflow-y: auto; padding: 8px 0;
+  display: flex; flex-direction: column;
 }
-#feed::-webkit-scrollbar { width: 2px; }
-#feed::-webkit-scrollbar-thumb { background: #0a2a0a; }
+#feed::-webkit-scrollbar { width: 0; }
 
 .fl {
-  display: flex; gap: 10px; font-size: 11px;
-  line-height: 1.5; animation: fin 0.25s ease forwards; opacity: 0;
+  display: flex; align-items: baseline;
+  gap: 12px; padding: 5px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  animation: flin 0.2s ease forwards; opacity: 0;
+  transition: background 0.15s;
 }
-@keyframes fin { from{opacity:0;transform:translateX(-3px)} to{opacity:1;transform:none} }
-.fl-ts  { color: #0d350d; flex-shrink: 0; font-size: 10px; padding-top: 1px; min-width: 56px; }
-.fl-ico { flex-shrink: 0; width: 14px; }
-.fl-txt { flex: 1; word-break: break-word; }
+.fl:hover { background: rgba(255,255,255,0.02); }
+@keyframes flin { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:none} }
 
-.fl.shell  .fl-txt { color: #3a8a3a; }
-.fl.shell  .fl-ico { color: #3a8a3a; }
-.fl.llm    .fl-txt { color: #00cc33; }
-.fl.llm    .fl-ico { color: #00cc33; }
-.fl.mem    .fl-txt { color: #1a7a1a; }
-.fl.mem    .fl-ico { color: #1a7a1a; }
-.fl.fs     .fl-txt { color: #00ff41; text-shadow: 0 0 4px #00ff41; }
-.fl.fs     .fl-ico { color: #00ff41; }
-.fl.synth  .fl-txt { color: #ffcc00; text-shadow: 0 0 6px #aa8800; }
-.fl.synth  .fl-ico { color: #ffcc00; }
-.fl.err    .fl-txt { color: #cc3333; }
-.fl.err    .fl-ico { color: #cc3333; }
-.fl.goal   .fl-txt { color: #00ff41; font-weight: bold; text-shadow: 0 0 6px #00ff41; }
-.fl.dim    .fl-txt { color: #1a4a1a; }
-.fl.dim    .fl-ico { color: #1a4a1a; }
+.fl-ts  { font-size: 10px; color: var(--dim); flex-shrink: 0; width: 54px; }
+.fl-ico { font-size: 10px; flex-shrink: 0; width: 12px; text-align: center; }
+.fl-txt { font-size: 11px; flex: 1; line-height: 1.4; word-break: break-all; }
 
-/* Footer */
+/* Type colors */
+.fl.shell  .fl-ico { color: rgba(255,255,255,0.25); }
+.fl.shell  .fl-txt { color: var(--mid); }
+.fl.llm    .fl-ico { color: var(--green-dim); }
+.fl.llm    .fl-txt { color: rgba(48,209,88,0.75); }
+.fl.mem    .fl-ico { color: rgba(255,255,255,0.2); }
+.fl.mem    .fl-txt { color: rgba(255,255,255,0.35); }
+.fl.fs     .fl-ico { color: var(--green); }
+.fl.fs     .fl-txt { color: var(--green); }
+.fl.synth  .fl-ico { color: #ffd60a; }
+.fl.synth  .fl-txt { color: #ffd60a; }
+.fl.goal   .fl-ico { color: var(--green); }
+.fl.goal   .fl-txt { color: var(--white); font-weight: 500; }
+.fl.err    .fl-ico { color: var(--red); }
+.fl.err    .fl-txt { color: rgba(255,69,58,0.8); }
+.fl.dim    .fl-ico { color: var(--faint); }
+.fl.dim    .fl-txt { color: rgba(255,255,255,0.15); }
+
+/* ── Footer ── */
 #footer {
   display: flex; justify-content: space-between;
-  font-size: 10px; color: #1a4a1a; letter-spacing: 1px;
-  border-top: 1px solid #0a2a0a; padding-top: 8px; flex-shrink: 0;
+  align-items: center; flex-shrink: 0;
 }
-#footer b { color: #2a7a2a; font-weight: normal; }
+.footer-txt { font-size: 10px; color: rgba(255,255,255,0.12); letter-spacing: 0.5px; }
+.footer-txt b { color: rgba(255,255,255,0.25); font-weight: 400; }
 </style>
 </head>
 <body>
@@ -176,93 +285,134 @@ body {
 <canvas id="rain"></canvas>
 <div id="scanlines"></div>
 
+<!-- Token sheet -->
+<div id="overlay">
+  <div id="token-sheet">
+    <h2>Hollow Agent Monitor</h2>
+    <p>Enter your API token to connect.<br>Find it in <code>config.json</code>.</p>
+    <input id="token-input" type="password" placeholder="API token" autocomplete="off" />
+    <button id="token-btn">Connect</button>
+  </div>
+</div>
+
 <div id="ui">
   <div id="header">
-    <div id="logo"><span class="pdot"></span>HOLLOW</div>
-    <div id="header-right">
-      <div>CYCLE <b id="h-cycle">—</b></div>
-      <div>MODEL <b id="h-model">—</b></div>
-      <div>ACTIVE <b id="h-active">—</b></div>
-      <div>GPU <b id="h-gpu">—</b></div>
-      <div id="h-time">—</div>
+    <div id="logo">
+      <div class="live-dot"></div>
+      HOLLOW
+    </div>
+    <div id="header-stats">
+      <div class="hstat">
+        <div class="hstat-label">MODEL</div>
+        <div class="hstat-value" id="h-model">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">GPU</div>
+        <div class="hstat-value" id="h-gpu">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">ACTIVE</div>
+        <div class="hstat-value green" id="h-active">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">TIME</div>
+        <div class="hstat-value" id="h-time">—</div>
+      </div>
     </div>
   </div>
 
-  <div id="panels"><!-- agent panels injected here --></div>
+  <div id="panels"></div>
 
   <div id="feed-wrap">
-    <div id="feed-header">SYSTEM ACTIVITY</div>
+    <div id="feed-header">
+      <div id="feed-title">System Activity</div>
+      <div id="feed-count"></div>
+    </div>
     <div id="feed"></div>
   </div>
 
   <div id="footer">
-    <div>hollow agentOS v5.0.0</div>
-    <div>tokens <b id="f-tok">—</b> &nbsp;·&nbsp; <b id="f-status">connecting…</b></div>
+    <div class="footer-txt">hollow agentOS v5.0.0</div>
+    <div class="footer-txt"><b id="f-status">connecting…</b></div>
   </div>
 </div>
 
 <script>
-// ── Config ────────────────────────────────────────────────────────────────────
-const API   = 'http://localhost:7777';
-const TOKEN = localStorage.getItem('hollow-token') || prompt('API token (from config.json):') || '';
-if (TOKEN) localStorage.setItem('hollow-token', TOKEN);
-
-function h() { return { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }; }
-
-async function api(path) {
-  try {
-    const r = await fetch(API + path, { headers: h() });
-    return r.ok ? await r.json() : null;
-  } catch(_) { return null; }
-}
-
 // ── Rain ──────────────────────────────────────────────────────────────────────
 const cv  = document.getElementById('rain');
 const ctx = cv.getContext('2d');
-const CH  = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789ABCDEFGHIJKLMNOP<>[]{}';
+const CH  = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789<>[]{}';
 const FS  = 13;
-let drops=[], speeds=[], bright=[], ncols=0;
+let drops=[], speeds=[], ncols=0;
 
 function initRain() {
   cv.width = innerWidth; cv.height = innerHeight;
   ncols  = Math.floor(cv.width / FS);
   drops  = Array.from({length:ncols}, ()=> Math.random() * -cv.height);
-  speeds = Array.from({length:ncols}, ()=> 0.3 + Math.random() * 1.0);
-  bright = Array.from({length:ncols}, ()=> 0.4 + Math.random() * 0.6);
+  speeds = Array.from({length:ncols}, ()=> 0.25 + Math.random() * 0.8);
 }
 
-function rain() {
-  ctx.fillStyle = 'rgba(0,0,0,0.055)';
+function drawRain() {
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
   ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.font = `${FS}px 'Courier New'`;
+  ctx.font = `${FS}px 'JetBrains Mono', monospace`;
   for (let i = 0; i < ncols; i++) {
     const ch = CH[Math.floor(Math.random()*CH.length)];
     const x  = i * FS, y = drops[i];
-    // bright head
-    ctx.fillStyle = `rgba(160,255,160,${bright[i]})`;
+    ctx.fillStyle = 'rgba(48,209,88,0.9)';
     ctx.fillText(ch, x, y);
-    // dim trail char
-    ctx.fillStyle = `rgba(0,160,40,${bright[i]*0.5})`;
+    ctx.fillStyle = 'rgba(48,209,88,0.35)';
     ctx.fillText(CH[Math.floor(Math.random()*CH.length)], x, y - FS);
-    drops[i] += speeds[i] * FS * 0.45;
-    if (drops[i] > cv.height && Math.random() > 0.975) {
-      drops[i] = Math.random() * -180;
-    }
+    drops[i] += speeds[i] * FS * 0.4;
+    if (drops[i] > cv.height && Math.random() > 0.977) drops[i] = Math.random() * -200;
   }
 }
 
 initRain();
 addEventListener('resize', initRain);
-setInterval(rain, 48);
+setInterval(drawRain, 50);
 
-// Pulse intensity
-let intensity = 0.14;
-cv.style.opacity = intensity;
-function pulse(v) { intensity = Math.max(0.08, Math.min(0.28, intensity + v)); cv.style.opacity = intensity; }
-setInterval(()=>pulse(-0.01), 2000);
+let rainTarget = 0.10;
+cv.style.opacity = rainTarget;
+function pulseRain(v) {
+  rainTarget = Math.max(0.06, Math.min(0.22, rainTarget + v));
+  cv.style.opacity = rainTarget;
+}
+setInterval(()=>{ rainTarget = Math.max(0.06, rainTarget - 0.005); cv.style.opacity = rainTarget; }, 1500);
 
-// ── Agent panels ──────────────────────────────────────────────────────────────
-const DAEMON_AGENTS = ['analyst','scout','builder'];
+// ── Auth ──────────────────────────────────────────────────────────────────────
+const API = 'http://localhost:7777';
+let TOKEN = localStorage.getItem('hollow-token') || '';
+
+const overlay   = document.getElementById('overlay');
+const tokenInput = document.getElementById('token-input');
+const tokenBtn  = document.getElementById('token-btn');
+
+function connect(tok) {
+  TOKEN = tok.trim();
+  if (!TOKEN) return;
+  localStorage.setItem('hollow-token', TOKEN);
+  overlay.classList.add('hidden');
+  start();
+}
+
+tokenBtn.addEventListener('click', ()=> connect(tokenInput.value));
+tokenInput.addEventListener('keydown', e => { if (e.key === 'Enter') connect(tokenInput.value); });
+
+if (TOKEN) { overlay.classList.add('hidden'); start(); }
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(path) {
+  try {
+    const r = await fetch(API + path, {
+      headers: { 'Authorization': `Bearer ${TOKEN}` }
+    });
+    return r.ok ? await r.json() : null;
+  } catch(_) { return null; }
+}
+
+// ── Panels ────────────────────────────────────────────────────────────────────
+const AGENTS  = ['analyst','scout','builder'];
 const panelsEl = document.getElementById('panels');
 const panelMap = {};
 
@@ -272,155 +422,149 @@ function mkPanel(name) {
   d.className = 'panel';
   d.id = `p-${name}`;
   d.innerHTML = `
-    <div class="ph">
-      <div><div class="pname">${name.toUpperCase()}</div><div class="prole" id="pr-${name}">worker</div></div>
-      <div class="pstat idle" id="ps-${name}">IDLE</div>
+    <div class="panel-top">
+      <div>
+        <div class="agent-name">${name}</div>
+        <div class="agent-role" id="pr-${name}">worker</div>
+      </div>
+      <div class="agent-badge badge-idle" id="pb-badge-${name}">IDLE</div>
     </div>
-    <div class="pg">
-      <div class="pg-lbl">OBJECTIVE</div>
-      <div class="pg-obj" id="po-${name}">—</div>
-      <div class="pgbar"><div class="pgfill" id="pb-${name}" style="width:0%"></div></div>
-      <div class="pg-sub" id="pp-${name}"></div>
+    <div class="panel-obj" id="po-${name}">No active objective</div>
+    <div class="panel-progress">
+      <div class="progress-track">
+        <div class="progress-fill" id="pf-${name}" style="width:0%"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="pm-steps-${name}"></span>
+        <span class="progress-pct" id="pm-pct-${name}"></span>
+      </div>
     </div>
   `;
   panelsEl.appendChild(d);
   panelMap[name] = d;
 }
 
-DAEMON_AGENTS.forEach(mkPanel);
+AGENTS.forEach(mkPanel);
 
-function updatePanel(name, goal, progress, steps, hasErr) {
-  const el = panelMap[name];
-  if (!el) return;
+function updatePanel(name, goal, progress, steps, err) {
+  const el = panelMap[name]; if (!el) return;
   const active = !!goal;
-  el.className = 'panel' + (active ? ' hot' : '') + (hasErr ? ' err' : '');
+  el.className = 'panel' + (active ? ' hot' : '') + (err ? ' err' : '');
 
-  const ps = document.getElementById(`ps-${name}`);
-  ps.className = 'pstat ' + (active ? 'active' : hasErr ? 'err' : 'idle');
-  ps.textContent = active ? 'ACTIVE' : hasErr ? 'ERROR' : 'IDLE';
+  const badge = document.getElementById(`pb-badge-${name}`);
+  badge.textContent = active ? 'ACTIVE' : err ? 'ERROR' : 'IDLE';
+  badge.className   = 'agent-badge ' + (active ? 'badge-active' : err ? 'badge-err' : 'badge-idle');
 
-  const obj = document.getElementById(`po-${name}`);
-  obj.textContent = goal ? (goal.length > 95 ? goal.slice(0,92)+'…' : goal) : '—';
+  document.getElementById(`po-${name}`).textContent =
+    goal ? goal : 'No active objective';
 
   const pct = Math.round((progress||0)*100);
-  document.getElementById(`pb-${name}`).style.width = pct + '%';
-  document.getElementById(`pp-${name}`).textContent = goal ? `${pct}%  ·  ${steps||0} steps` : '';
+  document.getElementById(`pf-${name}`).style.width = pct + '%';
+  document.getElementById(`pm-pct-${name}`).textContent   = goal ? pct + '%' : '';
+  document.getElementById(`pm-steps-${name}`).textContent = goal ? `${steps||0} steps` : '';
 
-  if (active) pulse(0.03);
+  if (active) pulseRain(0.02);
 }
 
-// ── Activity feed ─────────────────────────────────────────────────────────────
-const feedEl  = document.getElementById('feed');
-let   lastTs  = null;
-let   feedLen = 0;
+// ── Feed ──────────────────────────────────────────────────────────────────────
+const feedEl = document.getElementById('feed');
+let lastTs = null, feedLen = 0;
 
-const ACTION_MAP = {
-  shell_command: { cls:'shell', ico:'$', fmt: d => d.command ? d.command.slice(0,80) : 'shell' },
-  ollama_chat:   { cls:'llm',   ico:'◈', fmt: d => d.prompt  ? d.prompt.slice(0,80)  : 'ollama call' },
-  memory_set:    { cls:'mem',   ico:'●', fmt: d => `memory ← ${d.key||''}` },
-  memory_get:    { cls:'mem',   ico:'○', fmt: d => `memory → ${d.key||''}` },
-  fs_write:      { cls:'fs',    ico:'▲', fmt: d => `write   ${d.path||''}` },
-  fs_read:       { cls:'dim',   ico:'▽', fmt: d => `read    ${d.path||''}` },
-  goal_created:  { cls:'goal',  ico:'◎', fmt: d => `new goal: ${(d.objective||'').slice(0,70)}` },
-  capability_deployed: { cls:'synth', ico:'⚡', fmt: d => `deployed: ${d.name||'capability'}` },
-  error:         { cls:'err',   ico:'✗', fmt: d => d.message||'error' },
+const AM = {
+  shell_command:       { cls:'shell', ico:'$', fmt: d=> d.command ? trunc(d.command,90) : 'shell' },
+  ollama_chat:         { cls:'llm',   ico:'◈', fmt: d=> d.prompt  ? trunc(d.prompt,90)  : 'ollama' },
+  memory_set:          { cls:'mem',   ico:'·', fmt: d=> `store  ${d.key||''}` },
+  memory_get:          { cls:'dim',   ico:'·', fmt: d=> `recall ${d.key||''}` },
+  fs_write:            { cls:'fs',    ico:'↑', fmt: d=> `write  ${d.path||''}` },
+  fs_read:             { cls:'dim',   ico:'↓', fmt: d=> `read   ${d.path||''}` },
+  goal_created:        { cls:'goal',  ico:'◎', fmt: d=> (d.objective||'new goal').slice(0,90) },
+  capability_deployed: { cls:'synth', ico:'⚡', fmt: d=> `deployed  ${d.name||'capability'}` },
+  error:               { cls:'err',   ico:'!', fmt: d=> d.message||'error' },
 };
 
-function addFeedLine(ts, action, details) {
-  const map   = ACTION_MAP[action] || { cls:'dim', ico:'·', fmt: d => action };
-  const time  = new Date(ts).toTimeString().slice(0,8);
-  const text  = map.fmt(details||{});
+function trunc(s, n) { return s.length > n ? s.slice(0,n)+'…' : s; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addLine(ts, action, details) {
+  const m    = AM[action] || { cls:'dim', ico:'·', fmt: ()=> action };
+  const time = new Date(ts).toTimeString().slice(0,8);
+  const text = m.fmt(details||{});
 
   const div = document.createElement('div');
-  div.className = `fl ${map.cls}`;
+  div.className = `fl ${m.cls}`;
   div.innerHTML = `
     <span class="fl-ts">${time}</span>
-    <span class="fl-ico">${map.ico}</span>
+    <span class="fl-ico">${m.ico}</span>
     <span class="fl-txt">${esc(text)}</span>
   `;
   feedEl.appendChild(div);
   feedLen++;
-
-  // Cap at 200 lines
-  while (feedLen > 200) { feedEl.firstChild.remove(); feedLen--; }
+  while (feedLen > 300) { feedEl.firstChild.remove(); feedLen--; }
   feedEl.scrollTop = feedEl.scrollHeight;
+  document.getElementById('feed-count').textContent = feedLen + ' events';
 }
 
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-// ── Poll loop ─────────────────────────────────────────────────────────────────
-let cycle = 0;
-
+// ── Poll ──────────────────────────────────────────────────────────────────────
 async function pollGoals() {
-  for (const name of DAEMON_AGENTS) {
+  for (const name of AGENTS) {
     const d = await api(`/goals/${name}`);
     if (!d) { updatePanel(name, null, 0, 0, false); continue; }
-    const goals   = (d.goals||[]).filter(g=>g.status==='active');
-    const best    = goals.sort((a,b)=>(b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
-    const hasErr  = false; // no per-agent error signal available
-    updatePanel(name, best?.objective||null, best?.metrics?.progress||0, best?.metrics?.steps_completed||0, hasErr);
+    const active = (d.goals||[]).filter(g=>g.status==='active');
+    const best   = active.sort((a,b)=>(b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
+    updatePanel(name, best?.objective||null, best?.metrics?.progress||0, best?.metrics?.steps_completed||0, false);
   }
 }
 
 async function pollActions() {
   const d = await api('/memory/actions?n=80');
-  if (!d || !d.actions) return;
-
-  const actions = d.actions;
-  // Find new ones since last poll
+  if (!d?.actions) return;
   const newOnes = lastTs
-    ? actions.filter(a => new Date(a.timestamp) > new Date(lastTs))
-    : actions.slice(-20);
-
-  if (newOnes.length) {
-    lastTs = newOnes[newOnes.length-1].timestamp;
-    for (const a of newOnes) {
-      addFeedLine(a.timestamp, a.action, a.details||{});
-    }
-    pulse(0.05 * newOnes.length);
-  }
+    ? d.actions.filter(a=> new Date(a.timestamp) > new Date(lastTs))
+    : d.actions.slice(-25);
+  if (!newOnes.length) return;
+  lastTs = newOnes[newOnes.length-1].timestamp;
+  newOnes.forEach(a=> addLine(a.timestamp, a.action, a.details||{}));
+  pulseRain(0.03 * newOnes.length);
 }
 
 async function pollState() {
   const d = await api('/state?fields=ollama,system');
   if (!d) return;
-
   const model = d.ollama?.running?.[0];
   document.getElementById('h-model').textContent =
-    typeof model === 'string' ? model : (model?.name || '—');
-
+    typeof model === 'string' ? model : (model?.name||'—');
   const gpu = d.system?.gpu;
   document.getElementById('h-gpu').textContent = gpu
-    ? `${gpu.memory_used_mb}/${gpu.memory_total_mb}MB`
+    ? `${gpu.memory_used_mb}/${gpu.memory_total_mb} MB`
     : '—';
 }
 
-async function pollAgentCount() {
+async function pollCount() {
   const d = await api('/agents');
   if (!d) return;
-  const active = (d.agents||[]).filter(a=>a.status==='active').length;
-  document.getElementById('h-active').textContent = active;
+  const n = (d.agents||[]).filter(a=>a.status==='active').length;
+  document.getElementById('h-active').textContent = n;
 }
 
-function updateClock() {
+function clock() {
   document.getElementById('h-time').textContent = new Date().toTimeString().slice(0,8);
 }
 
-async function tick() {
-  cycle++;
-  document.getElementById('h-cycle').textContent = cycle;
+let tick = 0;
+async function loop() {
+  tick++;
   document.getElementById('f-status').textContent = 'live';
-
+  clock();
   await Promise.all([pollGoals(), pollActions()]);
-  if (cycle % 5 === 0) await Promise.all([pollState(), pollAgentCount()]);
-  updateClock();
+  if (tick % 5 === 0) await Promise.all([pollState(), pollCount()]);
 }
 
-// Initial fast state load, then regular interval
-pollState();
-pollAgentCount();
-tick();
-setInterval(tick, 4000);
+function start() {
+  pollState(); pollCount();
+  loop();
+  setInterval(loop, 4000);
+  setInterval(clock, 1000);
+}
 </script>
 </body>
 </html>
