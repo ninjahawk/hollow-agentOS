@@ -197,6 +197,8 @@ const zoneActive   = [false, false, false];
 // Gap columns between zones (1 col wide) — subtle natural separation
 const GAP = 1;
 
+const TRAIL = 20;  // number of trail steps to keep
+
 function initColumns() {
   cols = [];
   const usable = ncols - GAP * 2;
@@ -204,15 +206,15 @@ function initColumns() {
 
   for (let i = 0; i < ncols; i++) {
     const b1 = zw, b2 = zw + GAP, b3 = zw * 2 + GAP, b4 = zw * 2 + GAP * 2;
-    const isGap = (i === b1 || i === b2 || i === b3 || i === b4);
     const zone  = i < b1 ? 0 : i < b2 ? -1 : i < b3 ? 1 : i < b4 ? -1 : 2;
 
     cols.push({
       x:      i * FS,
       drop:   Math.random() * -H,
-      speed:  0.5 + Math.random() * 0.8,   // faster base so idle looks alive
+      speed:  0.5 + Math.random() * 0.8,
       zone,
       gap:    zone === -1,
+      trail:  [],   // [{y, ch}] newest first
       surface: null,
     });
   }
@@ -220,41 +222,49 @@ function initColumns() {
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function draw() {
-  ctx.fillStyle = 'rgba(8,8,8,0.18)';
+  // Full clear every frame — no accumulation, no ghost trails
+  ctx.fillStyle = '#080808';
   ctx.fillRect(0, 0, W, H);
 
   ctx.font = `${FS}px 'JetBrains Mono', monospace`;
 
   for (let i = 0; i < cols.length; i++) {
     const col  = cols[i];
-    if (col.gap) continue;   // natural gap — no characters drawn
+    if (col.gap) continue;
 
     const zone  = col.zone;
     const act   = zoneActivity[zone];
     const flash = zoneFlash[zone];
 
-    // Speed: always moving, accelerates on activity
+    // Advance head
     const spd = col.speed * (0.7 + act * 1.4);
     col.drop += spd * FS * 0.38;
-    if (col.drop > H && Math.random() > 0.972) col.drop = Math.random() * -H * 0.4;
+    if (col.drop > H && Math.random() > 0.972) {
+      col.drop = Math.random() * -H * 0.4;
+      col.trail = [];
+    }
 
-    // Brightness: always visible idle, surges on activity, peaks on flash
-    const idle       = 0.18;
-    const baseBright = idle + act * 0.3 + flash * 0.55;
-    const headBright = Math.min(1, baseBright * 3.2 + flash * 0.8);
+    // Push new head position into trail
+    const headY = Math.floor(col.drop);
+    col.trail.unshift({ y: headY, ch: CH[Math.floor(Math.random() * CH.length)] });
+    if (col.trail.length > TRAIL) col.trail.length = TRAIL;
 
-    const ch = CH[Math.floor(Math.random() * CH.length)];
+    // Color tones: flash shifts toward white-green
+    const r = Math.floor(30  + act * 40  + flash * 160);
+    const g = Math.floor(185 + act * 55  + flash * 55);
+    const b = Math.floor(30  + act * 20  + flash * 160);
 
-    // Flash shifts toward white; idle is pure Matrix green
-    const r = Math.floor(30  + act * 40  + flash * 180);
-    const g = Math.floor(180 + act * 60  + flash * 60);
-    const b = Math.floor(30  + act * 20  + flash * 180);
+    // Draw trail from oldest to newest (so head paints on top)
+    for (let t = col.trail.length - 1; t >= 0; t--) {
+      const { y, ch } = col.trail[t];
+      const frac = 1 - t / TRAIL;           // 1 = head, 0 = tail
+      const alpha = t === 0
+        ? Math.min(1, 0.55 + act * 0.35 + flash * 0.45)   // head: always bright
+        : frac * frac * (0.25 + act * 0.15 + flash * 0.3); // trail: quadratic falloff
 
-    ctx.fillStyle = `rgba(${r},${g},${b},${headBright})`;
-    ctx.fillText(ch, col.x, col.drop);
-
-    ctx.fillStyle = `rgba(${Math.floor(r*0.4)},${Math.floor(g*0.5)},${Math.floor(b*0.4)},${baseBright * 0.45})`;
-    ctx.fillText(CH[Math.floor(Math.random()*CH.length)], col.x, col.drop - FS);
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+      ctx.fillText(ch, col.x, y);
+    }
 
     // Surface text: a word/action emerges in this column
     if (col.surface) {
