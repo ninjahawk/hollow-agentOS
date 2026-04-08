@@ -16,9 +16,9 @@
 
 </div>
 
----
-
 ![Hollow AgentOS demo](demo/hollow-demo.gif)
+
+---
 
 ## What this is
 
