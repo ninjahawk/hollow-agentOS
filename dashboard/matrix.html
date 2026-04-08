@@ -3,567 +3,447 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hollow — Agent Monitor</title>
+<title>Hollow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #080808; }
+body { font-family: 'JetBrains Mono', monospace; }
 
-:root {
-  --green:      #30d158;
-  --green-dim:  rgba(48,209,88,0.5);
-  --green-glow: rgba(48,209,88,0.15);
-  --white:      rgba(255,255,255,0.92);
-  --mid:        rgba(255,255,255,0.45);
-  --dim:        rgba(255,255,255,0.2);
-  --faint:      rgba(255,255,255,0.08);
-  --glass-bg:   rgba(0,0,0,0.55);
-  --glass-bdr:  rgba(255,255,255,0.07);
-  --red:        #ff453a;
-  --radius:     10px;
-  --font:       'JetBrains Mono', 'SF Mono', monospace;
-}
+canvas { position: fixed; inset: 0; display: block; }
 
-html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-
-body { font-family: var(--font); font-size: 12px; }
-
-/* ── Rain ── */
-#rain {
-  position: fixed; inset: 0; z-index: 0;
-  opacity: 0.1;
-  transition: opacity 2s ease;
-}
-
-/* ── Scanlines ── */
-#scanlines {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg, transparent, transparent 3px,
-    rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 4px
-  );
-}
-
-/* ── Token overlay ── */
+/* Token overlay */
 #overlay {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(8,8,8,0.92);
+  backdrop-filter: blur(30px);
 }
-#overlay.hidden { display: none; }
-
-#token-sheet {
-  background: rgba(28,28,30,0.95);
-  border: 1px solid var(--glass-bdr);
-  border-radius: 18px;
-  padding: 32px 28px;
-  width: 340px;
-  text-align: center;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.8);
+#overlay.gone { display: none; }
+#sheet {
+  width: 300px; text-align: center;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  background: rgba(18,18,18,0.95);
+  padding: 28px 24px;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.9);
 }
-#token-sheet h2 {
-  font-size: 16px; font-weight: 500;
-  color: var(--white); letter-spacing: 0.3px; margin-bottom: 6px;
-}
-#token-sheet p {
-  font-size: 11px; color: var(--dim);
-  margin-bottom: 20px; line-height: 1.6;
-}
-#token-input {
-  width: 100%; background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; color: var(--white);
-  font-family: var(--font); font-size: 12px;
-  padding: 11px 14px; outline: none; margin-bottom: 12px;
+#sheet h2 { font-size: 14px; font-weight: 400; color: rgba(255,255,255,0.85); letter-spacing: 0.5px; margin-bottom: 5px; }
+#sheet p  { font-size: 10px; color: rgba(255,255,255,0.25); margin-bottom: 18px; line-height: 1.6; }
+#ti {
+  width: 100%; background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 9px;
+  color: rgba(255,255,255,0.85); font-family: inherit; font-size: 11px;
+  padding: 10px 12px; outline: none; margin-bottom: 10px;
   transition: border-color 0.2s;
 }
-#token-input:focus { border-color: var(--green-dim); }
-#token-input::placeholder { color: var(--dim); }
-#token-btn {
-  width: 100%; background: var(--green);
-  border: none; border-radius: 10px;
-  color: #000; font-family: var(--font);
-  font-size: 13px; font-weight: 500;
-  padding: 11px; cursor: pointer;
-  transition: opacity 0.15s;
+#ti:focus { border-color: rgba(48,209,88,0.4); }
+#ti::placeholder { color: rgba(255,255,255,0.2); }
+#tb {
+  width: 100%; background: #30d158; border: none; border-radius: 9px;
+  color: #000; font-family: inherit; font-size: 12px; font-weight: 400;
+  padding: 10px; cursor: pointer; transition: opacity 0.15s;
 }
-#token-btn:hover { opacity: 0.85; }
+#tb:hover { opacity: 0.82; }
 
-/* ── Main UI ── */
-#ui {
-  position: relative; z-index: 2;
+/* HUD overlays — rendered on top of canvas via DOM */
+#hud {
+  position: fixed; inset: 0; z-index: 10;
+  pointer-events: none;
   display: flex; flex-direction: column;
-  height: 100vh; padding: 14px 18px 12px;
-  gap: 8px;
+  justify-content: space-between;
 }
 
-/* ── Header ── */
-#header {
-  display: flex; align-items: center;
-  justify-content: space-between; flex-shrink: 0;
+/* Zone labels */
+#zone-labels {
+  display: flex; padding: 18px 0 0;
+}
+.zlabel {
+  flex: 1; text-align: center;
+  font-size: 9px; font-weight: 400;
+  letter-spacing: 3px; text-transform: uppercase;
+  color: rgba(255,255,255,0.12);
+  transition: color 1s;
+}
+.zlabel.hot { color: rgba(255,255,255,0.35); }
+
+/* Zone dividers — drawn on canvas, but also faint DOM lines */
+.zdiv {
+  position: absolute; top: 0; bottom: 0;
+  width: 1px; background: rgba(255,255,255,0.03);
 }
 
-#logo {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 13px; font-weight: 500;
-  color: var(--white); letter-spacing: 3px;
+/* Bottom status bar */
+#statusbar {
+  padding: 0 24px 20px;
+  display: flex; align-items: flex-end; justify-content: space-between;
 }
-.live-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green);
-  animation: livepulse 2s ease-in-out infinite;
+#current-action {
+  font-size: 11px; font-weight: 300;
+  color: rgba(255,255,255,0.7);
+  letter-spacing: 0.3px;
+  max-width: 60%;
+  transition: opacity 0.8s;
 }
-@keyframes livepulse { 0%,100%{opacity:1;box-shadow:0 0 8px var(--green)} 50%{opacity:0.3;box-shadow:none} }
+#current-action.fade { opacity: 0; }
+#meta {
+  text-align: right;
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-end;
+}
+.meta-row { font-size: 9px; color: rgba(255,255,255,0.15); letter-spacing: 1px; }
+.meta-row b { color: rgba(255,255,255,0.3); font-weight: 400; }
 
-#header-stats {
-  display: flex; gap: 24px; align-items: center;
+/* Progress arcs — drawn via canvas overlay, but pct text in DOM */
+#progress-wrap {
+  position: fixed; bottom: 60px; left: 0; right: 0;
+  z-index: 11; pointer-events: none;
+  display: flex;
 }
-.hstat {
-  display: flex; flex-direction: column; align-items: flex-end;
+.pzone {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; gap: 4px;
 }
-.hstat-label { font-size: 9px; color: var(--dim); letter-spacing: 1.5px; margin-bottom: 1px; }
-.hstat-value { font-size: 11px; color: var(--mid); font-weight: 400; }
-.hstat-value.green { color: var(--green); }
-
-/* ── Agent panels ── */
-#panels {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px; flex-shrink: 0;
+.pbar {
+  width: 60%; height: 1px;
+  background: rgba(255,255,255,0.06); border-radius: 1px;
+  overflow: hidden;
 }
-
-.panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--glass-bdr);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  transition: border-color 0.6s, box-shadow 0.6s;
+.pfill {
+  height: 100%; border-radius: 1px;
+  background: #30d158;
+  box-shadow: 0 0 6px #30d158;
+  transition: width 2s cubic-bezier(0.4,0,0.2,1);
 }
-.panel.hot {
-  border-color: rgba(48,209,88,0.2);
-  box-shadow: 0 0 40px rgba(48,209,88,0.05), inset 0 0 40px rgba(48,209,88,0.02);
+.ppct {
+  font-size: 9px; color: rgba(48,209,88,0.5);
+  letter-spacing: 1px;
+  transition: opacity 0.5s;
 }
-.panel.err { border-color: rgba(255,69,58,0.2); }
-
-.panel-top {
-  display: flex; justify-content: space-between;
-  align-items: center; margin-bottom: 8px;
-}
-.agent-name {
-  font-size: 12px; font-weight: 500;
-  color: var(--white); letter-spacing: 1px;
-}
-.agent-role {
-  font-size: 9px; color: var(--dim);
-  letter-spacing: 2px; margin-top: 2px;
-  text-transform: uppercase;
-}
-.agent-badge {
-  font-size: 9px; letter-spacing: 1.5px;
-  padding: 2px 7px; border-radius: 20px;
-  border: 1px solid; font-weight: 400;
-}
-.badge-active { color: var(--green); border-color: rgba(48,209,88,0.3); }
-.badge-idle   { color: var(--dim);   border-color: rgba(255,255,255,0.08); }
-.badge-err    { color: var(--red);   border-color: rgba(255,69,58,0.3); }
-
-.panel-obj {
-  font-size: 10px; color: var(--mid);
-  line-height: 1.5; margin-bottom: 8px;
-  min-height: 15px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
-.panel-progress {
-  display: flex; flex-direction: column; gap: 5px;
-}
-.progress-track {
-  height: 1px; background: rgba(255,255,255,0.07);
-  border-radius: 1px; overflow: visible; position: relative;
-}
-.progress-fill {
-  height: 1px; border-radius: 1px;
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green), 0 0 20px rgba(48,209,88,0.4);
-  transition: width 1.8s cubic-bezier(0.4,0,0.2,1);
-  position: relative;
-}
-.progress-fill::after {
-  content: '';
-  position: absolute; right: 0; top: -2px;
-  width: 3px; height: 5px;
-  background: #fff;
-  border-radius: 2px;
-  box-shadow: 0 0 6px var(--green);
-}
-.progress-meta {
-  display: flex; justify-content: space-between;
-  font-size: 9px; color: var(--dim); letter-spacing: 0.5px;
-}
-.progress-pct { color: var(--green-dim); }
-
-/* ── Feed ── */
-#feed-wrap {
-  flex: 1; min-height: 0;
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--glass-bdr);
-  border-radius: var(--radius);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-
-#feed-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  flex-shrink: 0;
-}
-#feed-title {
-  font-size: 9px; color: var(--dim);
-  letter-spacing: 2.5px; text-transform: uppercase;
-}
-#feed-count {
-  font-size: 9px; color: var(--dim);
-}
-
-#feed {
-  flex: 1; overflow-y: auto; padding: 4px 0;
-  display: flex; flex-direction: column;
-}
-#feed::-webkit-scrollbar { width: 0; }
-
-.fl {
-  display: flex; align-items: baseline;
-  gap: 10px; padding: 3px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.02);
-  animation: flin 0.2s ease forwards; opacity: 0;
-  transition: background 0.15s;
-}
-.fl:hover { background: rgba(255,255,255,0.02); }
-@keyframes flin { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:none} }
-
-.fl-ts  { font-size: 10px; color: var(--dim); flex-shrink: 0; width: 54px; }
-.fl-ico { font-size: 10px; flex-shrink: 0; width: 12px; text-align: center; }
-.fl-txt { font-size: 11px; flex: 1; line-height: 1.4; word-break: break-all; }
-
-/* Type colors */
-.fl.shell  .fl-ico { color: rgba(255,255,255,0.25); }
-.fl.shell  .fl-txt { color: var(--mid); }
-.fl.llm    .fl-ico { color: var(--green-dim); }
-.fl.llm    .fl-txt { color: rgba(48,209,88,0.75); }
-.fl.mem    .fl-ico { color: rgba(255,255,255,0.2); }
-.fl.mem    .fl-txt { color: rgba(255,255,255,0.35); }
-.fl.fs     .fl-ico { color: var(--green); }
-.fl.fs     .fl-txt { color: var(--green); }
-.fl.synth  .fl-ico { color: #ffd60a; }
-.fl.synth  .fl-txt { color: #ffd60a; }
-.fl.goal   .fl-ico { color: var(--green); }
-.fl.goal   .fl-txt { color: var(--white); font-weight: 500; }
-.fl.err    .fl-ico { color: var(--red); }
-.fl.err    .fl-txt { color: rgba(255,69,58,0.8); }
-.fl.dim    .fl-ico { color: var(--faint); }
-.fl.dim    .fl-txt { color: rgba(255,255,255,0.15); }
-
-/* ── Footer ── */
-#footer {
-  display: flex; justify-content: space-between;
-  align-items: center; flex-shrink: 0;
-}
-.footer-txt { font-size: 10px; color: rgba(255,255,255,0.12); letter-spacing: 0.5px; }
-.footer-txt b { color: rgba(255,255,255,0.25); font-weight: 400; }
+.ppct.hidden { opacity: 0; }
 </style>
 </head>
 <body>
 
-<canvas id="rain"></canvas>
-<div id="scanlines"></div>
-
-<!-- Token sheet -->
 <div id="overlay">
-  <div id="token-sheet">
-    <h2>Hollow Agent Monitor</h2>
-    <p>Enter your API token to connect.<br>Find it in <code>config.json</code>.</p>
-    <input id="token-input" type="password" placeholder="API token" autocomplete="off" />
-    <button id="token-btn">Connect</button>
+  <div id="sheet">
+    <h2>Hollow</h2>
+    <p>API token to connect.<br>Found in config.json</p>
+    <input id="ti" type="password" placeholder="token" autocomplete="off"/>
+    <button id="tb">Connect</button>
   </div>
 </div>
 
-<div id="ui">
-  <div id="header">
-    <div id="logo">
-      <div class="live-dot"></div>
-      HOLLOW
-    </div>
-    <div id="header-stats">
-      <div class="hstat">
-        <div class="hstat-label">MODEL</div>
-        <div class="hstat-value" id="h-model">—</div>
-      </div>
-      <div class="hstat">
-        <div class="hstat-label">GPU</div>
-        <div class="hstat-value" id="h-gpu">—</div>
-      </div>
-      <div class="hstat">
-        <div class="hstat-label">ACTIVE</div>
-        <div class="hstat-value green" id="h-active">—</div>
-      </div>
-      <div class="hstat">
-        <div class="hstat-label">TIME</div>
-        <div class="hstat-value" id="h-time">—</div>
-      </div>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="zone-labels">
+    <div class="zlabel" id="zl-0">analyst</div>
+    <div class="zlabel" id="zl-1">scout</div>
+    <div class="zlabel" id="zl-2">builder</div>
+  </div>
+  <div id="statusbar">
+    <div id="current-action">—</div>
+    <div id="meta">
+      <div class="meta-row"><b id="m-model">—</b></div>
+      <div class="meta-row"><b id="m-time">—</b></div>
     </div>
   </div>
+</div>
 
-  <div id="panels"></div>
-
-  <div id="feed-wrap">
-    <div id="feed-header">
-      <div id="feed-title">System Activity</div>
-      <div id="feed-count"></div>
-    </div>
-    <div id="feed"></div>
+<div id="progress-wrap">
+  <div class="pzone">
+    <div class="pbar"><div class="pfill" id="pf-0" style="width:0%"></div></div>
+    <div class="ppct hidden" id="pp-0"></div>
   </div>
-
-  <div id="footer">
-    <div class="footer-txt">hollow agentOS v5.0.0</div>
-    <div class="footer-txt"><b id="f-status">connecting…</b></div>
+  <div class="pzone">
+    <div class="pbar"><div class="pfill" id="pf-1" style="width:0%"></div></div>
+    <div class="ppct hidden" id="pp-1"></div>
+  </div>
+  <div class="pzone">
+    <div class="pbar"><div class="pfill" id="pf-2" style="width:0%"></div></div>
+    <div class="ppct hidden" id="pp-2"></div>
   </div>
 </div>
 
 <script>
-// ── Rain ──────────────────────────────────────────────────────────────────────
-const cv  = document.getElementById('rain');
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const cv  = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const CH  = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789<>[]{}';
-const FS  = 13;
-let drops=[], speeds=[], ncols=0;
 
-function initRain() {
-  cv.width = innerWidth; cv.height = innerHeight;
-  ncols  = Math.floor(cv.width / FS);
-  drops  = Array.from({length:ncols}, ()=> Math.random() * -cv.height);
-  speeds = Array.from({length:ncols}, ()=> 0.25 + Math.random() * 0.8);
+let W, H, FS, ncols, colW;
+
+function resize() {
+  W = cv.width  = innerWidth;
+  H = cv.height = innerHeight;
+  FS   = 13;
+  ncols = Math.floor(W / FS);
+  colW  = W / 3;
+  initColumns();
 }
 
-function drawRain() {
-  ctx.fillStyle = 'rgba(0,0,0,0.06)';
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.font = `${FS}px 'JetBrains Mono', monospace`;
+// ── Column state ──────────────────────────────────────────────────────────────
+const AGENTS = ['analyst', 'scout', 'builder'];
+const CH = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789ABCDEFGHIJKLMNOP<>[]{}|';
+
+let cols = []; // per column: { drop, speed, bright, zone, surfaceText, surfaceY, surfaceAlpha }
+
+const zoneActivity = [0, 0, 0];   // 0-1 activity per zone
+const zoneProgress = [0, 0, 0];   // 0-1 progress per zone
+const zoneActive   = [false, false, false];
+
+function initColumns() {
+  cols = [];
   for (let i = 0; i < ncols; i++) {
-    const ch = CH[Math.floor(Math.random()*CH.length)];
-    const x  = i * FS, y = drops[i];
-    ctx.fillStyle = 'rgba(48,209,88,0.9)';
-    ctx.fillText(ch, x, y);
-    ctx.fillStyle = 'rgba(48,209,88,0.35)';
-    ctx.fillText(CH[Math.floor(Math.random()*CH.length)], x, y - FS);
-    drops[i] += speeds[i] * FS * 0.4;
-    if (drops[i] > cv.height && Math.random() > 0.977) drops[i] = Math.random() * -200;
+    const zone = i < ncols/3 ? 0 : i < 2*ncols/3 ? 1 : 2;
+    cols.push({
+      x:      i * FS,
+      drop:   Math.random() * -H,
+      speed:  0.2 + Math.random() * 0.6,
+      bright: 0.3 + Math.random() * 0.4,
+      zone,
+      surface: null,   // { chars, y, alpha, color }
+    });
   }
 }
 
-initRain();
-addEventListener('resize', initRain);
-setInterval(drawRain, 50);
+// ── Draw ──────────────────────────────────────────────────────────────────────
+function draw() {
+  // Fade trail
+  ctx.fillStyle = 'rgba(8,8,8,0.07)';
+  ctx.fillRect(0, 0, W, H);
 
-let rainTarget = 0.10;
-cv.style.opacity = rainTarget;
-function pulseRain(v) {
-  rainTarget = Math.max(0.06, Math.min(0.22, rainTarget + v));
-  cv.style.opacity = rainTarget;
+  ctx.font = `${FS}px 'JetBrains Mono', monospace`;
+
+  // Zone divider lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  [1,2].forEach(z => {
+    ctx.beginPath();
+    ctx.moveTo(z * colW, 0);
+    ctx.lineTo(z * colW, H);
+    ctx.stroke();
+  });
+
+  for (let i = 0; i < cols.length; i++) {
+    const col  = cols[i];
+    const zone = col.zone;
+    const act  = zoneActivity[zone];
+
+    // Base speed scales with activity
+    const spd  = col.speed * (0.4 + act * 1.6);
+    col.drop  += spd * FS * 0.4;
+    if (col.drop > H && Math.random() > 0.975) col.drop = Math.random() * -H * 0.5;
+
+    // Brightness by zone activity
+    const baseBright = 0.06 + act * 0.25;
+    const headBright = baseBright * 3.5;
+
+    // Head character
+    const ch = CH[Math.floor(Math.random() * CH.length)];
+    const g  = Math.floor(48 + act * 60);
+
+    ctx.fillStyle = `rgba(${40+act*80}, ${g+80}, ${40+act*40}, ${headBright})`;
+    ctx.fillText(ch, col.x, col.drop);
+
+    // Trail char slightly behind
+    ctx.fillStyle = `rgba(${30+act*40}, ${g+40}, ${30+act*20}, ${baseBright * 0.5})`;
+    ctx.fillText(CH[Math.floor(Math.random()*CH.length)], col.x, col.drop - FS);
+
+    // Surface text: a word/action emerges in this column
+    if (col.surface) {
+      const s = col.surface;
+      s.alpha -= 0.008;
+      if (s.alpha <= 0) {
+        col.surface = null;
+      } else {
+        ctx.fillStyle = s.color.replace('A', s.alpha.toFixed(2));
+        for (let ci = 0; ci < s.chars.length; ci++) {
+          ctx.fillText(s.chars[ci], col.x, s.y + ci * FS);
+        }
+      }
+    }
+  }
 }
-setInterval(()=>{ rainTarget = Math.max(0.06, rainTarget - 0.005); cv.style.opacity = rainTarget; }, 1500);
+
+// ── Surface text: make a word emerge from a zone ──────────────────────────────
+function surface(zoneIdx, text, isSpecial) {
+  const zoneCols = cols.filter(c => c.zone === zoneIdx);
+  if (!zoneCols.length) return;
+
+  // Pick a random column in zone, near center
+  const mid   = zoneCols[Math.floor(zoneCols.length / 2)];
+  const range = zoneCols.slice(
+    Math.max(0, zoneCols.length/2 - 4),
+    Math.min(zoneCols.length, zoneCols.length/2 + 4)
+  );
+  const col = range[Math.floor(Math.random() * range.length)];
+
+  const chars  = text.slice(0, 18).split('');
+  const startY = H * 0.25 + Math.random() * H * 0.4;
+  const color  = isSpecial
+    ? 'rgba(255,214,10,A)'
+    : 'rgba(200,255,200,A)';
+
+  col.surface = { chars, y: startY, alpha: 1.0, color };
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+const actionEl = document.getElementById('current-action');
+let   actionTimer = null;
+
+function setAction(text, special) {
+  actionEl.classList.remove('fade');
+  actionEl.textContent = text;
+  actionEl.style.color = special ? 'rgba(255,214,10,0.85)' : 'rgba(255,255,255,0.65)';
+  clearTimeout(actionTimer);
+  actionTimer = setTimeout(() => actionEl.classList.add('fade'), 6000);
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const API = 'http://localhost:7777';
 let TOKEN = localStorage.getItem('hollow-token') || '';
 
-const overlay   = document.getElementById('overlay');
-const tokenInput = document.getElementById('token-input');
-const tokenBtn  = document.getElementById('token-btn');
+document.getElementById('tb').onclick = connect;
+document.getElementById('ti').onkeydown = e => { if (e.key==='Enter') connect(); };
 
-function connect(tok) {
-  TOKEN = tok.trim();
-  if (!TOKEN) return;
+function connect() {
+  const t = document.getElementById('ti').value.trim();
+  if (!t) return;
+  TOKEN = t;
   localStorage.setItem('hollow-token', TOKEN);
-  overlay.classList.add('hidden');
+  document.getElementById('overlay').classList.add('gone');
   start();
 }
 
-tokenBtn.addEventListener('click', ()=> connect(tokenInput.value));
-tokenInput.addEventListener('keydown', e => { if (e.key === 'Enter') connect(tokenInput.value); });
+if (TOKEN) { document.getElementById('overlay').classList.add('gone'); }
 
-if (TOKEN) { overlay.classList.add('hidden'); start(); }
-
-// ── API ───────────────────────────────────────────────────────────────────────
 async function api(path) {
   try {
-    const r = await fetch(API + path, {
-      headers: { 'Authorization': `Bearer ${TOKEN}` }
-    });
-    return r.ok ? await r.json() : null;
+    const r = await fetch(API + path, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+    return r.ok ? r.json() : null;
   } catch(_) { return null; }
 }
 
-// ── Panels ────────────────────────────────────────────────────────────────────
-const AGENTS  = ['analyst','scout','builder'];
-const panelsEl = document.getElementById('panels');
-const panelMap = {};
+// ── Zone activity decay ───────────────────────────────────────────────────────
+setInterval(() => {
+  for (let z = 0; z < 3; z++) {
+    zoneActivity[z] = Math.max(0, zoneActivity[z] - 0.04);
+  }
+}, 300);
 
-function mkPanel(name) {
-  if (panelMap[name]) return;
-  const d = document.createElement('div');
-  d.className = 'panel';
-  d.id = `p-${name}`;
-  d.innerHTML = `
-    <div class="panel-top">
-      <div>
-        <div class="agent-name">${name}</div>
-        <div class="agent-role" id="pr-${name}">worker</div>
-      </div>
-      <div class="agent-badge badge-idle" id="pb-badge-${name}">IDLE</div>
-    </div>
-    <div class="panel-obj" id="po-${name}">No active objective</div>
-    <div class="panel-progress">
-      <div class="progress-track">
-        <div class="progress-fill" id="pf-${name}" style="width:0%"></div>
-      </div>
-      <div class="progress-meta">
-        <span id="pm-steps-${name}"></span>
-        <span class="progress-pct" id="pm-pct-${name}"></span>
-      </div>
-    </div>
-  `;
-  panelsEl.appendChild(d);
-  panelMap[name] = d;
+function activateZone(z, amount) {
+  zoneActivity[z] = Math.min(1, zoneActivity[z] + amount);
+  document.getElementById(`zl-${z}`).className = 'zlabel' + (zoneActivity[z] > 0.2 ? ' hot' : '');
 }
 
-AGENTS.forEach(mkPanel);
-
-function updatePanel(name, goal, progress, steps, err) {
-  const el = panelMap[name]; if (!el) return;
-  const active = !!goal;
-  el.className = 'panel' + (active ? ' hot' : '') + (err ? ' err' : '');
-
-  const badge = document.getElementById(`pb-badge-${name}`);
-  badge.textContent = active ? 'ACTIVE' : err ? 'ERROR' : 'IDLE';
-  badge.className   = 'agent-badge ' + (active ? 'badge-active' : err ? 'badge-err' : 'badge-idle');
-
-  document.getElementById(`po-${name}`).textContent =
-    goal ? goal : 'No active objective';
-
-  const pct = Math.round((progress||0)*100);
-  document.getElementById(`pf-${name}`).style.width = pct + '%';
-  document.getElementById(`pm-pct-${name}`).textContent   = goal ? pct + '%' : '';
-  document.getElementById(`pm-steps-${name}`).textContent = goal ? `${steps||0} steps` : '';
-
-  if (active) pulseRain(0.02);
-}
-
-// ── Feed ──────────────────────────────────────────────────────────────────────
-const feedEl = document.getElementById('feed');
-let lastTs = null, feedLen = 0;
-
-const AM = {
-  shell_command:       { cls:'shell', ico:'$', fmt: d=> d.command ? trunc(d.command,90) : 'shell' },
-  ollama_chat:         { cls:'llm',   ico:'◈', fmt: d=> d.prompt  ? trunc(d.prompt,90)  : 'ollama' },
-  memory_set:          { cls:'mem',   ico:'·', fmt: d=> `store  ${d.key||''}` },
-  memory_get:          { cls:'dim',   ico:'·', fmt: d=> `recall ${d.key||''}` },
-  fs_write:            { cls:'fs',    ico:'↑', fmt: d=> `write  ${d.path||''}` },
-  fs_read:             { cls:'dim',   ico:'↓', fmt: d=> `read   ${d.path||''}` },
-  goal_created:        { cls:'goal',  ico:'◎', fmt: d=> (d.objective||'new goal').slice(0,90) },
-  capability_deployed: { cls:'synth', ico:'⚡', fmt: d=> `deployed  ${d.name||'capability'}` },
-  error:               { cls:'err',   ico:'!', fmt: d=> d.message||'error' },
-};
-
-function trunc(s, n) { return s.length > n ? s.slice(0,n)+'…' : s; }
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function addLine(ts, action, details) {
-  const m    = AM[action] || { cls:'dim', ico:'·', fmt: ()=> action };
-  const time = new Date(ts).toTimeString().slice(0,8);
-  const text = m.fmt(details||{});
-
-  const div = document.createElement('div');
-  div.className = `fl ${m.cls}`;
-  div.innerHTML = `
-    <span class="fl-ts">${time}</span>
-    <span class="fl-ico">${m.ico}</span>
-    <span class="fl-txt">${esc(text)}</span>
-  `;
-  feedEl.appendChild(div);
-  feedLen++;
-  while (feedLen > 300) { feedEl.firstChild.remove(); feedLen--; }
-  feedEl.scrollTop = feedEl.scrollHeight;
-  document.getElementById('feed-count').textContent = feedLen + ' events';
-}
-
-// ── Poll ──────────────────────────────────────────────────────────────────────
-async function pollGoals() {
-  for (const name of AGENTS) {
-    const d = await api(`/goals/${name}`);
-    if (!d) { updatePanel(name, null, 0, 0, false); continue; }
-    const active = (d.goals||[]).filter(g=>g.status==='active');
-    const best   = active.sort((a,b)=>(b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
-    updatePanel(name, best?.objective||null, best?.metrics?.progress||0, best?.metrics?.steps_completed||0, false);
+// ── Progress bars ─────────────────────────────────────────────────────────────
+function setProgress(z, pct, steps) {
+  document.getElementById(`pf-${z}`).style.width = pct + '%';
+  const pp = document.getElementById(`pp-${z}`);
+  if (pct > 0) {
+    pp.textContent = pct + '%';
+    pp.classList.remove('hidden');
+  } else {
+    pp.classList.add('hidden');
   }
 }
 
+// ── Poll goals ────────────────────────────────────────────────────────────────
+async function pollGoals() {
+  for (let z = 0; z < AGENTS.length; z++) {
+    const d = await api(`/goals/${AGENTS[z]}`);
+    if (!d) continue;
+    const active = (d.goals||[]).filter(g=>g.status==='active');
+    const best   = active.sort((a,b)=>(b.metrics?.progress||0)-(a.metrics?.progress||0))[0];
+
+    if (best) {
+      const pct = Math.round((best.metrics?.progress||0)*100);
+      setProgress(z, pct, best.metrics?.steps_completed||0);
+      if (!zoneActive[z]) {
+        activateZone(z, 0.4);
+        zoneActive[z] = true;
+      }
+    } else {
+      setProgress(z, 0, 0);
+      zoneActive[z] = false;
+    }
+  }
+}
+
+// ── Poll actions ──────────────────────────────────────────────────────────────
+let lastTs = null;
+
+const ACTION_FMT = {
+  shell_command: d => ({ text: d.command ? d.command.slice(0,60) : 'shell', zone: -1, special: false }),
+  ollama_chat:   d => ({ text: d.prompt  ? d.prompt.slice(0,60)  : 'model call', zone: -1, special: false }),
+  memory_set:    d => ({ text: `store ${d.key||''}`, zone: -1, special: false }),
+  fs_write:      d => ({ text: `write ${d.path||''}`, zone: -1, special: false }),
+  goal_created:  d => ({ text: (d.objective||'new goal').slice(0,60), zone: -1, special: false }),
+  capability_deployed: d => ({ text: `deployed: ${d.name||'capability'}`, zone: -1, special: true }),
+};
+
 async function pollActions() {
-  const d = await api('/memory/actions?n=80');
+  const d = await api('/memory/actions?n=60');
   if (!d?.actions) return;
+
   const newOnes = lastTs
-    ? d.actions.filter(a=> new Date(a.timestamp) > new Date(lastTs))
-    : d.actions.slice(-25);
+    ? d.actions.filter(a => new Date(a.timestamp) > new Date(lastTs))
+    : d.actions.slice(-8);
   if (!newOnes.length) return;
   lastTs = newOnes[newOnes.length-1].timestamp;
-  newOnes.forEach(a=> addLine(a.timestamp, a.action, a.details||{}));
-  pulseRain(0.03 * newOnes.length);
+
+  for (const a of newOnes) {
+    const fmt = ACTION_FMT[a.action];
+    if (!fmt) continue;
+    const { text, special } = fmt(a.details||{});
+
+    // Pick a zone at random, weighted by activity
+    const weights = zoneActivity.map(v => 0.2 + v);
+    const total   = weights.reduce((s,v)=>s+v,0);
+    let rand = Math.random() * total, zone = 0;
+    for (let z = 0; z < 3; z++) { rand -= weights[z]; if (rand <= 0) { zone = z; break; } }
+
+    activateZone(zone, special ? 0.8 : 0.25);
+    surface(zone, text, special);
+    setAction(text, special);
+  }
 }
 
+// ── Poll state ────────────────────────────────────────────────────────────────
 async function pollState() {
-  const d = await api('/state?fields=ollama,system');
+  const d = await api('/state?fields=ollama');
   if (!d) return;
   const model = d.ollama?.running?.[0];
-  document.getElementById('h-model').textContent =
-    typeof model === 'string' ? model : (model?.name||'—');
-  const gpu = d.system?.gpu;
-  document.getElementById('h-gpu').textContent = gpu
-    ? `${gpu.memory_used_mb}/${gpu.memory_total_mb} MB`
-    : '—';
-}
-
-async function pollCount() {
-  const d = await api('/agents');
-  if (!d) return;
-  const n = (d.agents||[]).filter(a=>a.status==='active').length;
-  document.getElementById('h-active').textContent = n;
+  document.getElementById('m-model').textContent =
+    typeof model === 'string' ? model : (model?.name || '—');
 }
 
 function clock() {
-  document.getElementById('h-time').textContent = new Date().toTimeString().slice(0,8);
+  document.getElementById('m-time').textContent = new Date().toTimeString().slice(0,8);
 }
 
+// ── Main loop ─────────────────────────────────────────────────────────────────
 let tick = 0;
 async function loop() {
   tick++;
-  document.getElementById('f-status').textContent = 'live';
   clock();
   await Promise.all([pollGoals(), pollActions()]);
-  if (tick % 5 === 0) await Promise.all([pollState(), pollCount()]);
+  if (tick % 8 === 0) pollState();
 }
 
 function start() {
-  pollState(); pollCount();
+  pollState();
   loop();
   setInterval(loop, 4000);
   setInterval(clock, 1000);
 }
+
+resize();
+addEventListener('resize', resize);
+requestAnimationFrame(function frame() { draw(); requestAnimationFrame(frame); });
+
+if (TOKEN) start();
 </script>
 </body>
 </html>
