@@ -216,9 +216,19 @@ def propose_change(proposal_type: str = "new_tool", spec: dict = None,
     Formally propose a system change (new tool, endpoint, config, or standard update).
     Goes through quorum: other agents vote before it's deployed.
     proposal_type: new_tool | new_endpoint | standard_update | config_change
+    spec must be a dict, e.g. {"description": "...", "changes": "..."}
     """
     if not spec:
-        return {"error": "spec required", "ok": False}
+        return {"error": "spec required — must be a dict like {\"description\": \"...\"}", "ok": False}
+    # Coerce spec to dict if agent passed a string
+    if isinstance(spec, str):
+        spec = {"description": spec[:500]}
+    # Coerce test_cases to list
+    if test_cases and not isinstance(test_cases, list):
+        test_cases = [str(test_cases)]
+    valid_types = {"new_tool", "new_endpoint", "standard_update", "config_change"}
+    if proposal_type not in valid_types:
+        proposal_type = "standard_update"
     result = _call("post", "/proposals", json={
         "proposal_type": proposal_type,
         "spec": spec,
@@ -243,6 +253,11 @@ def synthesize_capability(name: str = "", description: str = "",
     """
     if not name or not description:
         return {"error": "name and description required", "ok": False}
+    # Sanitize name: snake_case, max 60 chars, strip spaces/special chars
+    import re as _re
+    name = _re.sub(r'[^a-zA-Z0-9_]', '_', name.strip())[:60].strip('_').lower()
+    if not name:
+        return {"error": "name must contain at least one alphanumeric character", "ok": False}
 
     try:
         from agents.capability_synthesis import CapabilitySynthesisEngine
@@ -342,6 +357,9 @@ def vote_on_proposal(proposal_id: str = "", approve: bool = True,
     """
     if not proposal_id:
         return {"error": "proposal_id required", "ok": False}
+    # Validate it looks like a real proposal ID (not LLM prose)
+    if not proposal_id.startswith("prop-") or len(proposal_id) > 50:
+        return {"error": f"invalid proposal_id format: {proposal_id[:60]!r} — must start with 'prop-'", "ok": False}
     try:
         from agents.agent_quorum import AgentQuorum
         quorum = AgentQuorum()

@@ -287,10 +287,15 @@ def _assign_idle_goal(agent_id: str) -> None:
                     if line.strip() and '"pending"' in line
                 ]
                 if pending:
-                    proposal_id = pending[0]["proposal_id"]
+                    # Include the actual pending proposal IDs directly so the agent doesn't have to extract them
+                    pending_ids = [p["proposal_id"] for p in pending[:3]]
+                    ids_str = ", ".join(pending_ids)
                     goal = (
-                        f"Review pending capability proposal {proposal_id}: "
-                        f"use list_proposals then vote_on_proposal to approve or reject it"
+                        f"Vote on pending capability proposals: {ids_str}. "
+                        "For each proposal_id listed above, call vote_on_proposal directly with that exact id string "
+                        "(do not pass it through ollama_chat first — use the id as-is). "
+                        "Approve proposals that add useful system capabilities, reject clearly broken ones. "
+                        "Use list_proposals first only if you need to see what they contain before deciding."
                     )
                     ge.create(agent_id, goal, priority=6)
                     log.info("  %s — idle, assigned proposal review task", agent_id)
@@ -313,18 +318,57 @@ def _assign_idle_goal(agent_id: str) -> None:
                 except Exception:
                     pass
 
-        # 50% chance: propose a synthesize_capability goal instead of identity-driven task
+        # 80% chance: synthesize a new capability; 20%: identity-driven task
         import random as _random
-        if _random.random() < 0.5:
-            domain_hints = {
-                "scout": "repository discovery or code analysis",
-                "analyst": "data processing or insight extraction",
-                "builder": "tool wrapping or automation",
-            }
-            domain = domain_hints.get(agent_id, "system improvement")
+        domain_hints = {
+            "scout": "repository discovery, code analysis, or gap identification",
+            "analyst": "data processing, quality analysis, or system improvement",
+            "builder": "tool wrapping, automation, or expanding system capabilities",
+        }
+        domain = domain_hints.get(agent_id, "system improvement")
+
+        # Build list of already-deployed/proposed capability names to avoid repeats
+        avoid_names = []
+        try:
+            dyn = _Path("/agentOS/tools/dynamic")
+            if dyn.exists():
+                for f in dyn.glob("*.py"):
+                    try:
+                        first_line = f.read_text().splitlines()[1]  # "# Auto-synthesized capability: NAME"
+                        name = first_line.split(":")[-1].strip()
+                        if name:
+                            avoid_names.append(name)
+                    except Exception:
+                        avoid_names.append(f.stem)
+        except Exception:
+            pass
+        try:
+            props_file = _Path("/agentOS/memory/quorum/proposals.jsonl")
+            if props_file.exists():
+                for line in props_file.read_text().strip().splitlines()[-40:]:
+                    try:
+                        p = _json.loads(line)
+                        cap_id = p.get("payload", {}).get("cap_id", "")
+                        if cap_id and len(cap_id) < 50:
+                            avoid_names.append(cap_id)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        avoid_str = ""
+        if avoid_names:
+            unique = list(dict.fromkeys(avoid_names))[:12]
+            avoid_str = f" These already exist — pick something DIFFERENT: {', '.join(unique)}."
+
+        if _random.random() < 0.8:
             goal = (
-                f"Use synthesize_capability to propose a new capability that would help with {domain} — "
-                f"think of a concrete gap and implement it"
+                f"Use synthesize_capability to propose a new Python capability for the agent system. "
+                f"Think of something useful for {domain}.{avoid_str} "
+                f"Provide: name (snake_case), description (what it does), "
+                f"implementation (a working Python function). "
+                f"Example: synthesize_capability(name='retry_on_failure', "
+                f"description='Retry a capability call up to 3 times on failure', "
+                f"implementation='def retry_on_failure(cap_id=\"\", params=None, **kw):\\n  ...')"
             )
             ge.create(agent_id, goal, priority=5)
             log.info("  %s (%s) has no goals — assigned synthesis task", agent_id, identity.name)
@@ -403,12 +447,16 @@ _LAYER3_GOALS = {
     ),
     "analyst": (
         "LAYER 3 — Quality analysis: "
-        "Step 1: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=20' "
-        "to get quality-ranked wrappers from the store — the response JSON has a 'wrappers' array with repo_id and quality fields. "
-        "Step 2: use shell_exec with command='curl -s http://host.docker.internal:7779/wrappers/{repo_id}' "
-        "substituting the repo_id of the LOWEST quality wrapper from step 1 to fetch its full metadata. "
-        "Step 3: use ollama_chat to reason about what makes it low quality and what specific improvements would raise its score. "
-        "Step 4: use propose_change with proposal_type='improvement' to formally propose the most impactful quality improvement."
+        "Step 1: use shell_exec with command="
+        "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=20\" "
+        "to get quality-ranked wrappers. The JSON response 'wrappers' array is sorted highest-first — "
+        "the LAST item has the LOWEST quality. Note its repo_id (a hex string). "
+        "Step 2: use shell_exec with command="
+        "\"curl -s http://host.docker.internal:7779/wrappers/PASTE_REPO_ID_HERE\" "
+        "replacing PASTE_REPO_ID_HERE with only the hex repo_id from step 1. "
+        "Step 3: use ollama_chat to analyze the wrapper metadata from step 2 and explain why its quality is low. "
+        "Step 4: use propose_change with proposal_type='standard_update' and "
+        "spec as a dict with keys 'repo_id' and 'improvements' to record the improvement recommendation."
     ),
 }
 

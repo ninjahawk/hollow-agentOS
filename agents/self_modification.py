@@ -243,12 +243,14 @@ class SelfModificationCycle:
                         synthesis_id = payload.get("synthesis_id", p["proposal_id"])
 
                         cap = SynthesizedCapability(
+                            synthesis_id=synthesis_id,
+                            agent_id=agent_id,
                             name=cap_name,
                             description=description,
                             input_schema={"kwargs": {"type": "dict"}},
+                            output_schema={"result": {"type": "dict"}},
                             implementation_code=code,
                             implementation_sketch=description,
-                            test_code="",
                             confidence=0.8,
                         )
                         deploy_result = self._deploy(agent_id, synthesis_id, cap)

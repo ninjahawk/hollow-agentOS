@@ -324,7 +324,7 @@ class AutonomyLoop:
             prev_cap = metrics.get("last_cap")
             if cap_id != prev_cap:
                 # Meaningful progress: different capability than last step
-                _HIGH_VALUE_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change")
+                _HIGH_VALUE_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change", "synthesize_capability", "vote_on_proposal")
                 progress_delta = 0.15 if cap_id in _HIGH_VALUE_CAPS else 0.1
             else:
                 # Repeated same capability — marginal credit
@@ -333,7 +333,7 @@ class AutonomyLoop:
 
             # Track whether an output step has succeeded
             # wrap_repo, shared_log_write, propose_change also count as real output
-            _OUTPUT_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change")
+            _OUTPUT_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change", "synthesize_capability", "vote_on_proposal")
             if cap_id in _OUTPUT_CAPS:
                 metrics["has_output"] = True
 
@@ -941,6 +941,25 @@ class AutonomyLoop:
                     "validated": True,
                     "artifact_type": "proposal",
                     "artifact_value": proposal_id or "submitted",
+                    "checks": checks,
+                }
+
+            elif cap == "synthesize_capability" and r.get("ok"):
+                proposal_id = r.get("proposal_id", "")
+                checks.append(f"synthesize_capability submitted proposal {proposal_id}")
+                return {
+                    "validated": True,
+                    "artifact_type": "synthesis",
+                    "artifact_value": proposal_id or "submitted",
+                    "checks": checks,
+                }
+
+            elif cap == "vote_on_proposal" and r.get("ok"):
+                checks.append(f"vote_on_proposal cast vote on {r.get('proposal_id','')}")
+                return {
+                    "validated": True,
+                    "artifact_type": "vote",
+                    "artifact_value": r.get("proposal_id", "voted"),
                     "checks": checks,
                 }
 

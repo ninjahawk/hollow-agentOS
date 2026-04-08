@@ -335,62 +335,71 @@ class PersistentGoalEngine:
         Update goal progress metrics.
         Metrics can be arbitrary key-value pairs for tracking progress.
         """
-        with self._lock:
-            agent_dir = GOAL_PATH / agent_id
-            index_file = agent_dir / "index.json"
-            registry_file = agent_dir / "registry.jsonl"
+        try:
+            with self._lock:
+                agent_dir = GOAL_PATH / agent_id
+                index_file = agent_dir / "index.json"
+                registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text(encoding="utf-8"))
-            if goal_id not in index:
-                return
+                index = json.loads(index_file.read_text(encoding="utf-8"))
+                if goal_id not in index:
+                    return
 
-            idx = index[goal_id]
-            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
-            goal_dict = json.loads(registry_lines[idx])
-            goal_dict["metrics"] = metrics
-            goal_dict["updated_at"] = time.time()
-            goal_dict["last_worked_on"] = time.time()
-            registry_lines[idx] = json.dumps(goal_dict)
-            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+                idx = index[goal_id]
+                registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
+                goal_dict = json.loads(registry_lines[idx])
+                goal_dict["metrics"] = metrics
+                goal_dict["updated_at"] = time.time()
+                goal_dict["last_worked_on"] = time.time()
+                registry_lines[idx] = json.dumps(goal_dict)
+                _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+        except Exception:
+            pass  # Never crash the autonomy loop over a metric write failure
 
     def complete(self, agent_id: str, goal_id: str) -> None:
         """Mark a goal as completed."""
-        with self._lock:
-            agent_dir = GOAL_PATH / agent_id
-            index_file = agent_dir / "index.json"
-            registry_file = agent_dir / "registry.jsonl"
+        try:
+            with self._lock:
+                agent_dir = GOAL_PATH / agent_id
+                index_file = agent_dir / "index.json"
+                registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text(encoding="utf-8"))
-            if goal_id not in index:
-                return
+                index = json.loads(index_file.read_text(encoding="utf-8"))
+                if goal_id not in index:
+                    return
 
-            idx = index[goal_id]
-            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
-            goal_dict = json.loads(registry_lines[idx])
-            goal_dict["status"] = "completed"
-            goal_dict["updated_at"] = time.time()
-            goal_dict["completed_at"] = time.time()
-            registry_lines[idx] = json.dumps(goal_dict)
-            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+                idx = index[goal_id]
+                registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
+                goal_dict = json.loads(registry_lines[idx])
+                goal_dict["status"] = "completed"
+                goal_dict["updated_at"] = time.time()
+                goal_dict["completed_at"] = time.time()
+                registry_lines[idx] = json.dumps(goal_dict)
+                _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+        except Exception:
+            pass
 
     def abandon(self, agent_id: str, goal_id: str) -> None:
         """Mark a goal as abandoned."""
-        with self._lock:
-            agent_dir = GOAL_PATH / agent_id
-            index_file = agent_dir / "index.json"
-            registry_file = agent_dir / "registry.jsonl"
+        try:
+            with self._lock:
+                agent_dir = GOAL_PATH / agent_id
+                index_file = agent_dir / "index.json"
+                registry_file = agent_dir / "registry.jsonl"
 
-            index = json.loads(index_file.read_text(encoding="utf-8"))
-            if goal_id not in index:
-                return
+                index = json.loads(index_file.read_text(encoding="utf-8"))
+                if goal_id not in index:
+                    return
 
-            idx = index[goal_id]
-            registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
-            goal_dict = json.loads(registry_lines[idx])
-            goal_dict["status"] = "abandoned"
-            goal_dict["updated_at"] = time.time()
-            registry_lines[idx] = json.dumps(goal_dict)
-            _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+                idx = index[goal_id]
+                registry_lines = registry_file.read_text(encoding="utf-8").strip().split("\n")
+                goal_dict = json.loads(registry_lines[idx])
+                goal_dict["status"] = "abandoned"
+                goal_dict["updated_at"] = time.time()
+                registry_lines[idx] = json.dumps(goal_dict)
+                _atomic_write(registry_file, "\n".join(registry_lines) + "\n")
+        except Exception:
+            pass
 
     def pause(self, agent_id: str, goal_id: str) -> None:
         """Pause a goal (temporarily stop pursuing it)."""

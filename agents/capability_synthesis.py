@@ -385,18 +385,8 @@ class CapabilitySynthesisEngine:
             gap_id = self.record_gap(agent_id, f"synthesize: {cap_name} — {description}",
                                      context={"proactive": True}, priority=7)
 
-            # 2. Build a minimal SynthesisRecord with the provided code
+            # 2. Generate synthesis_id for tracking
             synthesis_id = f"syn-{_uuid.uuid4().hex[:12]}"
-            from agents.capability_synthesis import SynthesizedCapability
-            synth_cap = SynthesizedCapability(
-                name=cap_name,
-                description=description,
-                input_schema={"kwargs": {"type": "dict", "desc": "keyword arguments"}},
-                implementation_code=code,
-                implementation_sketch=description,
-                test_code="",
-                confidence=0.8,
-            )
 
             # 3. Submit to quorum directly
             quorum = AgentQuorum()
@@ -417,6 +407,8 @@ class CapabilitySynthesisEngine:
             )
             return (True, proposal_id)
         except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning("synthesize_and_propose failed: %s", e)
             return (False, None)
 
     def list_syntheses(self, agent_id: str, status: str = "tested", limit: int = 100) -> List[SynthesisRecord]:

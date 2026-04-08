@@ -20,9 +20,12 @@ v0.6.0 adds:
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import signal
+
+log = logging.getLogger("agentos.server")
 import subprocess
 import time as _time
 from datetime import datetime, timezone
@@ -78,6 +81,7 @@ import api.goal_routes as goal_routes
 import memory.manager as _mem_manager
 
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+HOLLOW_STORE_URL = os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:7779")
 
 # ── Ollama availability ───────────────────────────────────────────────────────
 _ollama_available: bool = False
@@ -295,6 +299,60 @@ async def _startup():
     _goal_engine = PersistentGoalEngine()
     goal_routes.init(_goal_engine, registry=_registry)
     await _check_ollama_available()
+    # Restore user-installed tools from persistent manifest (survives container restarts)
+    asyncio.create_task(_restore_tools_on_startup())
+    # Start background auto-versioning task
+    asyncio.create_task(_version_check_loop())
+
+
+async def _restore_tools_on_startup():
+    """
+    Re-install tools from the persistent manifest at startup.
+    This makes user-installed tools survive container restarts without
+    requiring a Docker image rebuild.
+    """
+    await asyncio.sleep(5)  # Let other startup tasks finish first
+    try:
+        from shell.installer import restore_installed_tools
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, restore_installed_tools)
+        if result.get("restored", 0) > 0 or result.get("failed", 0) > 0:
+            log.info("[installer] startup restore: %s", result)
+    except Exception as exc:
+        log.debug("[installer] startup restore failed: %s", exc)
+
+
+async def _version_check_loop():
+    """
+    Background task: periodically check installed and store wrappers for new
+    GitHub commits and auto-update stale ones.  Runs forever with CHECK_INTERVAL
+    sleep between cycles (default 4 hours).  First run is delayed by the
+    interval so startup is not slowed down.
+    """
+    try:
+        from agents.version_monitor import (
+            check_and_update_wrappers,
+            check_and_update_store_wrappers,
+            CHECK_INTERVAL,
+        )
+    except ImportError:
+        return
+
+    while True:
+        await asyncio.sleep(CHECK_INTERVAL)
+        loop = asyncio.get_event_loop()
+        try:
+            installed = await loop.run_in_executor(None, check_and_update_wrappers)
+            log.info("[version_monitor] installed: checked=%d updated=%d errors=%d",
+                     installed.get("checked", 0), installed.get("updated", 0), installed.get("errors", 0))
+        except Exception as exc:
+            log.warning("[version_monitor] installed check failed: %s", exc)
+        try:
+            store = await loop.run_in_executor(None, check_and_update_store_wrappers)
+            log.info("[version_monitor] store: checked=%d updated=%d errors=%d",
+                     store.get("checked", 0), store.get("updated", 0), store.get("errors", 0))
+        except Exception as exc:
+            log.warning("[version_monitor] store check failed: %s", exc)
 
 
 app.include_router(agent_routes.router)
@@ -370,6 +428,105 @@ async def root():
 @app.get("/health")
 async def health():
     return {"ok": True, "time": _now()}
+
+
+@app.get("/token.js", include_in_schema=False)
+async def token_js():
+    """
+    Serve the API token as a JavaScript variable for the dashboard UI.
+    This endpoint requires no auth — the token is already in config.json which
+    is readable by anyone with filesystem access. Security model: if you can
+    reach localhost:7777, you're on the same machine and already have access.
+    """
+    from fastapi.responses import Response
+    config = _load_config()
+    token = config.get("api", {}).get("token", "ci-test-token-replace-in-production")
+    # Sanitize — token should be alphanumeric+symbols, no quotes
+    safe_token = token.replace("'", "").replace('"', "").replace("\\", "")[:128]
+    return Response(
+        content=f"window.__HOLLOW_TOKEN='{safe_token}';",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/system/status")
+async def system_status(authorization: Optional[str] = Header(None)):
+    """
+    Human-readable status of all Hollow subsystems.
+    Used by the UI to surface plain-English diagnostics instead of cryptic errors.
+    Phase 5: users should never see a stack trace.
+    """
+    _verify_any_token(authorization)
+    checks = {}
+
+    # Claude auth
+    try:
+        from agents.reasoning_layer import _get_claude_client, _read_claude_oauth_token
+        client = _get_claude_client()
+        if client:
+            oauth = _read_claude_oauth_token()
+            if oauth:
+                checks["claude"] = {"ok": True, "method": "oauth", "message": "Claude connected via Claude Code"}
+            elif os.getenv("ANTHROPIC_API_KEY"):
+                checks["claude"] = {"ok": True, "method": "api_key", "message": "Claude connected via API key"}
+            else:
+                checks["claude"] = {"ok": True, "method": "auth_token", "message": "Claude connected"}
+        else:
+            checks["claude"] = {
+                "ok": False,
+                "message": "Claude not connected — wrapping uses local Ollama (lower quality). "
+                           "Add ANTHROPIC_API_KEY to .env or install Claude Code."
+            }
+    except Exception as e:
+        checks["claude"] = {"ok": False, "message": f"Claude check failed: {e}"}
+
+    # Ollama
+    try:
+        async with httpx.AsyncClient(timeout=3) as client_h:
+            r = await client_h.get(f"{_ollama_host()}/api/tags")
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                checks["ollama"] = {"ok": True, "models": models[:5], "message": f"{len(models)} models available"}
+            else:
+                checks["ollama"] = {"ok": False, "message": "Ollama running but returned an error"}
+    except Exception:
+        checks["ollama"] = {
+            "ok": False,
+            "message": "Ollama not reachable — local model reasoning unavailable. "
+                       "Install from ollama.ai or start with: ollama serve"
+        }
+
+    # Community store
+    try:
+        async with httpx.AsyncClient(timeout=3) as client_h:
+            r = await client_h.get(f"{HOLLOW_STORE_URL}/health")
+            if r.status_code == 200:
+                d = r.json()
+                checks["store"] = {"ok": True, "wrappers": d.get("wrappers", 0),
+                                   "message": f"Store online — {d.get('wrappers', 0)} tools available"}
+            else:
+                checks["store"] = {"ok": False, "message": "Store returned an error"}
+    except Exception:
+        checks["store"] = {
+            "ok": False,
+            "message": "Community store offline — browsing and installing from store unavailable"
+        }
+
+    # Workspace wrappers
+    wrappers_dir = Path("/agentOS/workspace/wrappers")
+    installed_count = sum(1 for d in wrappers_dir.iterdir() if (d / "wrapper.json").exists()) \
+        if wrappers_dir.exists() else 0
+    checks["local_apps"] = {"ok": True, "count": installed_count,
+                            "message": f"{installed_count} apps installed locally"}
+
+    overall_ok = checks["ollama"]["ok"] or checks["claude"]["ok"]
+    return {
+        "ok": overall_ok,
+        "checks": checks,
+        "summary": "All systems ready" if all(v["ok"] for v in checks.values())
+                   else "Some services unavailable — see checks for details",
+    }
 
 
 # ── State builder (shared by /state and /state/diff) ─────────────────────────
@@ -692,6 +849,8 @@ async def run_command(req: ShellRequest, authorization: Optional[str] = Header(N
 @app.get("/fs/list")
 async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    if len(path) > 512 or "\n" in path:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {path[:120]}")
     p = Path(path)
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"Path not found: {path}")
@@ -711,6 +870,8 @@ async def fs_list(path: str = "/agentOS/workspace", authorization: Optional[str]
 @app.get("/fs/read")
 async def fs_read(path: str, meta: bool = False, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
+    if len(path) > 512 or "\n" in path:
+        raise HTTPException(status_code=400, detail=f"Invalid path (too long or contains newline): {path[:120]}")
     p = Path(path)
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
@@ -1780,9 +1941,26 @@ async def wrap_repo_endpoint(body: WrapRequest, authorization: Optional[str] = H
     from agents.live_capabilities import wrap_repo
 
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, lambda: wrap_repo(url=body.url, upload=body.upload))
+    try:
+        result = await loop.run_in_executor(None, lambda: wrap_repo(url=body.url, upload=body.upload))
+    except Exception as e:
+        return {"ok": False, "error": f"Wrapping failed unexpectedly: {e}"}
     if not result.get("ok"):
-        raise HTTPException(status_code=500, detail=result.get("error", "wrap failed"))
+        raw_err = result.get("error", "unknown error")
+        # Translate technical errors into plain English
+        if "git clone" in raw_err.lower() or "clone" in raw_err.lower():
+            friendly = "Couldn't clone the repository — check the URL and that it's a public GitHub repo."
+        elif "timeout" in raw_err.lower():
+            friendly = "Timed out while analyzing the repo — it may be too large. Try a smaller repo."
+        elif "claude" in raw_err.lower() or "api" in raw_err.lower() or "auth" in raw_err.lower():
+            friendly = "Claude API unavailable — wrapping fell back to Ollama. " + raw_err[:80]
+        elif "no readme" in raw_err.lower() or "readme" in raw_err.lower():
+            friendly = "No README found — this repo may not have enough documentation to wrap automatically."
+        elif "capability" in raw_err.lower() or "capability_map" in raw_err.lower():
+            friendly = "Couldn't generate a usable interface for this tool — the README may be too sparse."
+        else:
+            friendly = raw_err[:120]
+        return {"ok": False, "error": friendly}
     return result
 
 
@@ -1851,6 +2029,7 @@ async def run_sandboxed_command(
 class DiscoverRequest(BaseModel):
     query: str
     limit: int = 5
+    include_store: bool = True  # Also search community store when local results are sparse
 
 
 class CustomizeRequest(BaseModel):
@@ -1906,10 +2085,6 @@ async def customize_wrapper(
             pass
         return None
 
-    loop = asyncio.get_event_loop()
-    new_iface = await loop.run_in_executor(None, lambda: asyncio.run(_regenerate()) if False else None)
-
-    # Sync fallback since we can't easily run async in executor
     try:
         from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
         client = _get_claude_client()
@@ -1984,15 +2159,39 @@ async def check_tool_available(
 async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = Header(None)):
     """
     Natural language tool discovery.
-    Given a description of what the user wants, finds matching installed wrappers.
-    Phase 5 foundation: non-technical users describe needs in plain English.
+    Searches locally installed wrappers first, then the community store if results are sparse.
+    Phase 5: non-technical users describe what they want in plain English.
+    Returns results with installed=True/False so the UI can offer one-click installs.
     """
     _verify_any_token(authorization)
     if not body.query:
         raise HTTPException(status_code=400, detail="query required")
 
     wrappers_dir = Path("/agentOS/workspace/wrappers")
-    candidates = []
+    import math as _math
+
+    def _local_quality(w: dict) -> float:
+        """Mirror of store._quality_score for locally-installed wrappers."""
+        score = 0.0
+        cm = w.get("capability_map", {})
+        iface = w.get("interface_spec", {})
+        for cap in cm.get("capabilities", [])[:4]:
+            if cap.get("shell_template") and "{" in cap["shell_template"]:
+                score += 10
+            elif cap.get("shell_template"):
+                score += 5
+            if any(p.get("description") for p in cap.get("params", [])):
+                score += 5
+        fields = iface.get("fields", [])
+        if len(fields) >= 1: score += 10
+        if len(fields) >= 2: score += 5
+        if fields and all(f.get("placeholder") for f in fields): score += 5
+        desc = cm.get("description", "")
+        if len(desc) > 30: score += 10
+        score += min(20, _math.log10(w.get("install_count", 0) + 1) * 10)
+        return round(min(100.0, score), 1)
+
+    local_candidates = []
     if wrappers_dir.exists():
         for d in wrappers_dir.iterdir():
             wf = d / "wrapper.json"
@@ -2000,34 +2199,64 @@ async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = H
                 try:
                     w = json.load(open(wf))
                     cm = w.get("capability_map", {})
-                    candidates.append({
+                    local_candidates.append({
                         "repo_name": d.name,
                         "name": cm.get("name", d.name),
                         "description": cm.get("description", ""),
                         "capabilities": [c.get("description", "") for c in cm.get("capabilities", [])],
                         "invoke": cm.get("invoke", ""),
+                        "installed": True,
+                        "quality_score": _local_quality(w),
                     })
                 except Exception:
                     pass
 
-    if not candidates:
-        return {"query": body.query, "results": [], "note": "no local wrappers installed"}
+    # Pull store candidates when requested and local results will be sparse.
+    # Fetch by quality ranking (not keyword) so Claude does the semantic matching —
+    # store keyword search would miss e.g. "make things faster" → hyperfine.
+    store_candidates = []
+    if body.include_store:
+        try:
+            import httpx as _httpx
+            sr = _httpx.get(
+                f"{HOLLOW_STORE_URL}/wrappers",
+                params={"sort": "quality", "limit": 200},
+                timeout=5,
+            )
+            if sr.status_code == 200:
+                local_names_lower = {c["name"].lower() for c in local_candidates}
+                for sw in sr.json().get("wrappers", []):
+                    if sw.get("name", "").lower() not in local_names_lower:
+                        store_candidates.append({
+                            "repo_name": sw.get("name", ""),
+                            "repo_id": sw.get("repo_id", ""),
+                            "name": sw.get("name", ""),
+                            "description": sw.get("description", ""),
+                            "capabilities": [],
+                            "invoke": sw.get("name", ""),
+                            "installed": False,
+                            "quality_score": sw.get("quality_score", 0),
+                        })
+        except Exception:
+            pass
 
-    # Build a quick relevance prompt for Claude/Ollama
+    all_candidates = local_candidates + store_candidates
+    if not all_candidates:
+        return {"query": body.query, "results": [], "note": "no tools found"}
+
     catalog = "\n".join([
-        f"- {c['name']}: {c['description']}"
-        for c in candidates
+        f"- {c['name']} ({'installed' if c['installed'] else 'in store'}): {c['description']}"
+        for c in all_candidates
     ])
     prompt = (
         f"A user wants: \"{body.query}\"\n\n"
         f"Available tools:\n{catalog}\n\n"
-        f"Return the top {min(body.limit, len(candidates))} most relevant tool names as a JSON array of strings. "
-        f"Only include tools that genuinely match what the user described. "
-        f"Example: [\"ripgrep\", \"fd\"]\n"
+        f"Return the top {min(body.limit * 2, len(all_candidates))} most relevant tool names "
+        f"as a JSON array of strings. Only include tools that genuinely match. "
+        f"Prefer already-installed tools. Example: [\"ripgrep\", \"fd\"]\n"
         f"Return ONLY the JSON array, nothing else."
     )
 
-    ranked_names = []
     loop = asyncio.get_event_loop()
 
     def _rank():
@@ -2037,53 +2266,209 @@ async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = H
             if client:
                 msg = client.messages.create(
                     model=CLAUDE_FAST_MODEL,
-                    max_tokens=200,
+                    max_tokens=300,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 return json.loads(_strip_code_fences(msg.content[0].text.strip()))
         except Exception:
             pass
-        # Fallback: keyword match
+        # Keyword fallback — used when Claude is unavailable.
+        # Intent expansion maps plain-English concepts to technical terms
+        # so "search files fast" matches ripgrep even without an LLM.
+        _INTENT_MAP = {
+            "search": ["grep", "ripgrep", "rg", "fzf", "fd", "find", "search"],
+            "find": ["fd", "find", "fzf", "locate", "ripgrep"],
+            "compare": ["diff", "difftastic", "delta", "meld", "compare"],
+            "diff": ["diff", "difftastic", "delta"],
+            "format": ["jq", "prettier", "shfmt", "fmt", "format", "indent"],
+            "json": ["jq", "json", "xsv"],
+            "csv": ["xsv", "csv", "miller", "mlr", "tabular"],
+            "process": ["htop", "procs", "bottom", "ps", "top", "bpytop", "processes"],
+            "monitor": ["htop", "bottom", "bpytop", "glances", "monitor", "system"],
+            "git": ["git", "lazygit", "delta", "gitui", "gh", "glab", "history"],
+            "github": ["gh", "git", "github"],
+            "gitlab": ["glab", "git"],
+            "compress": ["tar", "zip", "zstd", "gzip", "archive"],
+            "log": ["lnav", "grc", "tailspin", "bat", "less", "log"],
+            "edit": ["nano", "vim", "helix", "micro", "edit"],
+            "list": ["eza", "lsd", "ls", "exa", "directory"],
+            "file": ["fd", "bat", "eza", "fzf", "ranger"],
+            "fast": ["hyperfine", "ripgrep", "fd", "fast"],
+            "benchmark": ["hyperfine", "bench", "benchmark", "timing", "perf"],
+            "rename": ["rename", "fd", "batch"],
+            "replace": ["sd", "sed", "ripgrep", "substitute"],
+            "markdown": ["glow", "markdown", "md", "render", "preview"],
+            "view": ["bat", "glow", "hexyl", "eza", "broot", "preview"],
+            "read": ["bat", "less", "glow", "hexyl"],
+            "container": ["dive", "docker", "ctop", "lazydocker"],
+            "docker": ["dive", "docker", "ctop"],
+            "image": ["dive", "silicon", "vhs"],
+            "http": ["xh", "hurl", "http", "curl", "httpie"],
+            "request": ["xh", "hurl", "http", "httpie"],
+            "api": ["xh", "hurl", "http", "httpie", "jq"],
+            "spell": ["typos", "spell", "check"],
+            "lint": ["typos", "ruff", "shfmt"],
+            "python": ["ruff", "uv", "pip", "pixi"],
+            "rust": ["cargo", "tokei"],
+            "code": ["tokei", "scc", "bat", "silicon"],
+            "count": ["tokei", "scc", "wc"],
+            "lines": ["tokei", "scc"],
+            "disk": ["duf", "dust", "dua", "df", "ncdu"],
+            "space": ["duf", "dust", "dua", "free"],
+            "size": ["dust", "dua", "du"],
+            "download": ["curl", "wget"],
+            "upload": ["rclone"],
+            "screenshot": ["silicon", "freeze", "carbon"],
+            "color": ["pastel", "vivid"],
+            "history": ["atuin", "shell", "command"],
+            "shell": ["atuin", "starship", "nushell", "fish"],
+            "prompt": ["starship", "zoxide"],
+            "navigate": ["zoxide", "broot", "fzf", "ranger", "yazi"],
+            "directory": ["zoxide", "broot", "eza", "yazi"],
+            "release": ["goreleaser", "gh", "release"],
+            "deploy": ["goreleaser", "dagger"],
+            "run": ["just", "make", "pueue", "mprocs"],
+            "task": ["just", "pueue", "mprocs"],
+            "schedule": ["pueue", "cron"],
+            "parallel": ["mprocs", "pueue", "parallel"],
+            "tldr": ["tldr", "tealdeer", "cheat", "navi", "man"],
+            "help": ["tldr", "tealdeer", "cheat", "navi"],
+            "cheat": ["cheat", "navi", "tldr"],
+            "convert": ["ffmpeg", "pandoc", "imagemagick"],
+            "yaml": ["yq", "yaml"],
+            "xml": ["yq", "xsv"],
+            "toml": ["taplo", "toml"],
+            "sql": ["trdsql", "sqlite", "q"],
+            "database": ["trdsql", "sqlite"],
+            "regex": ["grex", "ripgrep", "regex"],
+            "pattern": ["grex", "ripgrep"],
+            "network": ["dog", "nmap", "mtr", "ping"],
+            "dns": ["dog", "dns", "dig"],
+            "port": ["nmap", "ss", "netstat"],
+            "security": ["age", "ssh", "gpg"],
+            "encrypt": ["age", "gpg"],
+            "password": ["age", "pass"],
+            "certificate": ["age", "openssl"],
+            "clipboard": ["xclip", "pbcopy"],
+            "notification": ["notify", "ntfy"],
+            "serve": ["miniserve", "http", "serve"],
+            "web": ["xh", "hurl", "miniserve", "lychee"],
+            "link": ["lychee", "url"],
+            "broken": ["lychee", "check"],
+            "generate": ["vhs", "silicon", "freeze", "goreleaser"],
+            "gif": ["vhs", "animation"],
+            "record": ["vhs", "asciinema"],
+            "load": ["oha", "hey", "wrk", "bombardier"],
+            "stress": ["oha", "hyperfine", "bench"],
+        }
+        _STOP = {"a", "an", "the", "to", "for", "with", "by", "in", "of", "and",
+                 "or", "is", "it", "at", "as", "be", "do", "if", "on", "up",
+                 "how", "what", "some", "my", "can", "i", "want"}
         q = body.query.lower()
+        q_words = [w for w in q.split() if w not in _STOP and len(w) > 1]
+        # Expand query words with intent-map synonyms
+        expanded = set(q_words)
+        for w in q_words:
+            expanded.update(_INTENT_MAP.get(w, []))
         scored = []
-        for c in candidates:
+        for c in all_candidates:
             text = f"{c['name']} {c['description']} {' '.join(c['capabilities'])}".lower()
-            score = sum(word in text for word in q.split())
+            score = sum(2 if w == c["name"].lower() else 1 for w in expanded if w in text)
+            if c["installed"]:
+                score += 0.5
             if score > 0:
-                scored.append((score, c['name']))
+                scored.append((score, c["name"]))
         scored.sort(reverse=True)
-        return [name for _, name in scored[:body.limit]]
+        return [name for _, name in scored[: body.limit * 2]]
 
     ranked_names = await loop.run_in_executor(None, _rank)
     if not isinstance(ranked_names, list):
         ranked_names = []
 
+    name_map: dict = {}
+    for c in all_candidates:
+        name_map.setdefault(c["repo_name"], c)
+        name_map.setdefault(c["name"].lower(), c)
+
     results = []
-    name_to_candidate = {c["repo_name"]: c for c in candidates}
-    name_map = {c["name"].lower(): c for c in candidates}
-    for name in ranked_names[:body.limit]:
-        c = name_to_candidate.get(name) or name_map.get(name.lower())
-        if c:
+    seen = set()
+    for name in ranked_names:
+        c = name_map.get(name) or name_map.get(name.lower())
+        if c and c["name"] not in seen:
+            seen.add(c["name"])
             results.append(c)
+        if len(results) >= body.limit:
+            break
 
     return {"query": body.query, "results": results}
 
 
-@app.post("/version-check")
-async def trigger_version_check(authorization: Optional[str] = Header(None)):
+@app.post("/store/repair")
+async def trigger_store_repair(authorization: Optional[str] = Header(None)):
     """
-    Manually trigger a version check on all installed wrappers.
-    Detects new commits on GitHub and updates stale wrappers via Claude.
-    Normally runs automatically on a periodic interval in the daemon.
+    Run the bulk wrapper quality repair script against the community store.
+    Improves param descriptions, field placeholders, and descriptions for
+    wrappers below quality threshold 70. Returns repair stats.
     """
     _verify_any_token(authorization)
     try:
-        from agents.version_monitor import check_and_update_wrappers
-        loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(None, check_and_update_wrappers)
-        return {"ok": True, **results}
+        import subprocess
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["python3", "/agentOS/scripts/repair_wrappers.py"],
+                capture_output=True, text=True, timeout=300
+            )
+        )
+        lines = (result.stdout + result.stderr).strip().splitlines()
+        # Parse summary line
+        summary_line = next((l for l in reversed(lines) if l.startswith("Done:")), None)
+        return {"ok": result.returncode == 0, "output": lines[-20:], "summary": summary_line}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"ok": False, "summary": f"Repair failed: {e}", "output": []}
+
+
+@app.post("/version-check")
+async def trigger_version_check(
+    authorization: Optional[str] = Header(None),
+    include_store: bool = False,
+):
+    """
+    Manually trigger a version check on all installed wrappers.
+    Pass ?include_store=true to also check community store wrappers.
+    Detects new commits on GitHub and updates stale wrappers via Claude.
+    Runs automatically on a periodic interval in the daemon (default 4 hrs).
+    """
+    _verify_any_token(authorization)
+    try:
+        from agents.version_monitor import check_and_update_wrappers, check_and_update_store_wrappers
+        loop = asyncio.get_event_loop()
+        installed = await loop.run_in_executor(None, check_and_update_wrappers)
+        store: dict = {}
+        if include_store:
+            store = await loop.run_in_executor(None, check_and_update_store_wrappers)
+        return {"ok": True, "installed": installed, "store": store}
+    except Exception as e:
+        return {"ok": False, "checked": 0, "updated": 0, "errors": 1,
+                "error": str(e)[:200]}
+
+
+@app.get("/store/version-status")
+async def store_version_status(authorization: Optional[str] = Header(None)):
+    """
+    Non-destructive: report which installed and store wrappers have new GitHub
+    commits available, without actually updating anything.
+    Useful for dashboard status badges and "updates available" indicators.
+    Rate-limited to 25 checks when no GITHUB_TOKEN is configured.
+    """
+    _verify_any_token(authorization)
+    try:
+        from agents.version_monitor import get_version_status
+        loop = asyncio.get_event_loop()
+        status = await loop.run_in_executor(None, lambda: get_version_status(include_store=True))
+        return {"ok": True, **status}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "checked": 0, "stale_count": 0}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
