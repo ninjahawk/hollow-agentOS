@@ -73,6 +73,51 @@ def _thought(agent_id: str, msg: str) -> None:
         pass
 
 
+def _mid_step_reflect(agent_id: str, goal_objective: str, cap_id: str, result: dict) -> None:
+    """
+    Lightweight reflection after a successful step. Asks the agent if the finding
+    changes how it thinks about the goal. Writes to thoughts.log only.
+    """
+    try:
+        import os as _os, json as _j, pathlib as _pl, httpx as _hx
+        result_text = _result_to_text(result)
+        if not result_text or len(result_text.strip()) < 20:
+            return
+        cfg_path = _pl.Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+        cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+        ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+        resp = _hx.post(
+            f"{ollama_host}/api/generate",
+            json={
+                "model": model,
+                "prompt": (
+                    f"You are {agent_id} pursuing: '{goal_objective[:100]}'\n"
+                    f"You just ran '{cap_id}' and received:\n{result_text[:600]}\n\n"
+                    f"In ONE sentence: does this change your understanding of the goal, "
+                    f"reveal something unexpected, or confirm your plan? "
+                    f"If nothing surprising, reply exactly: no change"
+                ),
+                "stream": False,
+                "think": False,
+            },
+            timeout=25,
+        )
+        reflection = resp.json().get("response", "").strip()
+        if not reflection:
+            return
+        if reflection.lower().startswith("no change"):
+            return
+        # Strip any think tags
+        if "</think>" in reflection:
+            reflection = reflection.split("</think>")[-1].strip()
+        if len(reflection) > 10:
+            _thought(agent_id, f"  💡 {reflection[:200]}")
+    except Exception:
+        pass
+
+
 @dataclass
 class AutonomyStep:
     step_id: str
@@ -309,6 +354,15 @@ class AutonomyLoop:
 
         result_preview = _result_to_text(result)[:200] if result else "none"
         _thought(agent_id, f"  {'OK' if status == 'success' else 'FAIL'}: {cap_id} | {result_preview}")
+
+        # Mid-step reflection — did this finding change anything?
+        if status == "success" and result and cap_id not in ("memory_set", "fs_write", "sanitize_sensitive_vars"):
+            import threading as _rt
+            _rt.Thread(
+                target=_mid_step_reflect,
+                args=(agent_id, active_goal.objective, cap_id, result),
+                daemon=True,
+            ).start()
 
         # Learn
         if self._semantic_memory and result and status == "success":

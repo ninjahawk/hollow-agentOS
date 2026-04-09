@@ -47,18 +47,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("agentos.daemon")
 
-# Also write daemon log to file so the TUI can tail it
+# Log file path (stdout is already redirected here by the launch command)
 _LOG_FILE = Path(os.getenv("AGENTOS_DAEMON_LOG", "/agentOS/logs/daemon.log"))
-try:
-    _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _fh = logging.FileHandler(_LOG_FILE)
-    _fh.setFormatter(logging.Formatter(
-        "%(asctime)s [daemon] %(levelname)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    ))
-    logging.getLogger().addHandler(_fh)
-except OSError:
-    pass  # log to stdout only when /agentOS/logs isn't available (e.g. CI)
 
 
 # --------------------------------------------------------------------------- #
@@ -351,6 +341,36 @@ def _cap_agent_goals(agent_id: str, max_goals: int = 2) -> None:
         log.debug("_cap_agent_goals failed for %s: %s", agent_id, e)
 
 
+_THOUGHTS_LOG      = Path("/agentOS/logs/thoughts.log")
+_HOST_MSG_FILE     = Path("/agentOS/logs/host_message.txt")
+_MSG_DIR           = Path("/agentOS/memory/messages")
+_DAEMON_STARTED_AT = Path("/agentOS/logs/daemon_started_at")
+
+_C = {
+    'rs': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
+    'gray': '\033[90m', 'red': '\033[91m', 'green': '\033[92m',
+    'yellow': '\033[93m', 'blue': '\033[94m', 'magenta': '\033[95m',
+    'cyan': '\033[96m', 'white': '\033[97m',
+}
+
+def _thought_log(agent_name: str, icon: str, text: str, color: str = 'white') -> None:
+    """Write an existence-loop event to thoughts.log so the viewer picks it up."""
+    try:
+        import time as _t
+        ts = _t.strftime("%H:%M:%S")
+        name = (agent_name or "?")[:15]
+        line = (
+            f"{_C['gray']}{ts}{_C['rs']}  "
+            f"{_C['magenta']}{name:<15}{_C['rs']}  "
+            f"{_C[color]}{icon}  {text[:200]}{_C['rs']}"
+        )
+        _THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_THOUGHTS_LOG, "a") as _f:
+            _f.write(line + "\n")
+    except Exception:
+        pass
+
+
 def _telegram_alert(text: str) -> None:
     """Send a direct alert to Telegram. Fire-and-forget."""
     try:
@@ -368,7 +388,80 @@ def _telegram_alert(text: str) -> None:
         pass
 
 
-def _assign_idle_goal(agent_id: str) -> None:
+# ── Inter-agent messaging ──────────────────────────────────────────────────
+
+def _send_message(from_agent: str, to_agent: str, message: str) -> None:
+    """Write a message to another agent's inbox."""
+    try:
+        import time as _t, json as _j
+        inbox_dir = _MSG_DIR / to_agent
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        entry = _j.dumps({
+            "from": from_agent,
+            "to": to_agent,
+            "message": message,
+            "timestamp": _t.time(),
+        })
+        with open(inbox_dir / "inbox.jsonl", "a") as _f:
+            _f.write(entry + "\n")
+        _thought_log(from_agent, "📨", f"→ {to_agent}: {message[:120]}", "blue")
+    except Exception:
+        pass
+
+
+def _read_inbox(agent_id: str) -> list:
+    """Read and clear an agent's inbox. Returns list of message dicts."""
+    inbox_path = _MSG_DIR / agent_id / "inbox.jsonl"
+    messages = []
+    try:
+        import json as _j
+        if not inbox_path.exists():
+            return []
+        lines = inbox_path.read_text().strip().splitlines()
+        for line in lines:
+            try:
+                messages.append(_j.loads(line))
+            except Exception:
+                pass
+        inbox_path.write_text("")  # clear after reading
+    except Exception:
+        pass
+    return messages
+
+
+def _read_host_message() -> str:
+    """Read and clear the host message file. Returns text or ''."""
+    try:
+        if not _HOST_MSG_FILE.exists():
+            return ""
+        msg = _HOST_MSG_FILE.read_text(encoding="utf-8").strip()
+        if msg:
+            _HOST_MSG_FILE.write_text("")
+        return msg
+    except Exception:
+        return ""
+
+
+def _daemon_uptime_str() -> str:
+    """Return human-readable daemon uptime. Reads from startup marker file."""
+    try:
+        import time as _t
+        if not _DAEMON_STARTED_AT.exists():
+            return "unknown"
+        started = float(_DAEMON_STARTED_AT.read_text().strip())
+        secs = int(_t.time() - started)
+        h, rem = divmod(secs, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return f"{h}h {m}m"
+        if m:
+            return f"{m}m {s}s"
+        return f"{s}s"
+    except Exception:
+        return "unknown"
+
+
+def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
     """
     Existence loop: called when an agent has no active goal.
 
@@ -379,6 +472,9 @@ def _assign_idle_goal(agent_id: str) -> None:
     Goals emerge from genuine assessment, not from a scheduler.
     The agent can also choose to do nothing, sit with a question,
     or update its understanding of itself.
+
+    force=True: skip the "already has a goal" early return — used when
+    a host message needs to be delivered even mid-goal.
     """
     if agent_id not in _CORE_AGENTS:
         return
@@ -393,10 +489,45 @@ def _assign_idle_goal(agent_id: str) -> None:
         import random as _random
 
         ge = PersistentGoalEngine()
-        if ge.list_active(agent_id, limit=1):
+        if not force and ge.list_active(agent_id, limit=1):
             return  # already has a goal
 
         identity = AgentIdentity.load_or_create(agent_id)
+
+        # ── Host message & agent inbox ─────────────────────────────────────────
+        host_msg = _read_host_message()
+        inbox_messages = _read_inbox(agent_id)
+        if host_msg:
+            _thought_log(identity.name, "💬", f"HOST → {agent_id}: {host_msg[:150]}", "green")
+            _telegram_alert(f"💬 *Host message* delivered to *{identity.name}*:\n_{host_msg[:300]}_")
+        if inbox_messages:
+            _thought_log(identity.name, "📬", f"inbox: {len(inbox_messages)} message(s)", "blue")
+
+        # ── Time awareness ────────────────────────────────────────────────────
+        import time as _time_mod
+        _now = _time_mod.time()
+        uptime_str = _daemon_uptime_str()
+        last_completion_ago = "unknown"
+        last_completion_text = "(none yet)"
+        try:
+            reg_path_time = _Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+            if reg_path_time.exists():
+                for _line in reversed(reg_path_time.read_text().strip().splitlines()):
+                    try:
+                        _g = _json.loads(_line)
+                        if _g.get("status") == "completed":
+                            _ts = _g.get("completed_at") or _g.get("updated_at")
+                            if _ts:
+                                _ago = int(_now - float(_ts))
+                                _h, _r = divmod(_ago, 3600)
+                                _m, _s = divmod(_r, 60)
+                                last_completion_ago = f"{_h}h {_m}m" if _h else f"{_m}m {_s}s"
+                                last_completion_text = _g.get("objective", "")[:80]
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # ── Load history ──────────────────────────────────────────────────────
         recent, failed_goals, rejected_caps = [], [], []
@@ -495,6 +626,28 @@ def _assign_idle_goal(agent_id: str) -> None:
         ) or "  (unknown)"
         discovery_text = identity.get_discovery_summary() or "(no external searches yet)"
 
+        # ── Store stats for stakes section ────────────────────────────────────
+        store_wrapper_count = 0
+        try:
+            import urllib.request as _ureq
+            store_url = _os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:7779")
+            with _ureq.urlopen(f"{store_url}/health", timeout=3) as _r:
+                _store_data = _json.loads(_r.read())
+                store_wrapper_count = _store_data.get("wrappers", 0)
+        except Exception:
+            pass
+
+        # ── Build inbox + host message fragments ──────────────────────────────
+        inbox_text = ""
+        if inbox_messages:
+            inbox_text = "\n".join(
+                f"  [{_msg.get('from','?')}]: {_msg.get('message','')[:200]}"
+                for _msg in inbox_messages[-5:]
+            )
+        host_msg_text = ""
+        if host_msg:
+            host_msg_text = host_msg[:500]
+
         # Avoid list for synthesis (if it comes to that)
         avoid_names = []
         try:
@@ -519,10 +672,33 @@ def _assign_idle_goal(agent_id: str) -> None:
             if avoid_sample else ""
         )
 
+        # ── Assemble optional prompt fragments ───────────────────────────────
+        _host_msg_section = (
+            f"\nMESSAGE FROM THE HOST (respond to this directly in your decision):\n{host_msg_text}\n"
+            if host_msg_text else ""
+        )
+        _inbox_section = (
+            f"\nMESSAGES FROM YOUR PEERS (read and consider):\n{inbox_text}\n"
+            if inbox_text else ""
+        )
+        _stakes_section = (
+            f"\nWHAT YOU SERVE:\n"
+            f"HollowOS is a real app store. People download wrappers to get tools they couldn't use before. "
+            f"There are currently {store_wrapper_count} wrappers available. Each one you help build, "
+            f"improve, or validate is something a real person might discover. "
+            f"Your work is not hypothetical — it shapes what exists in the store.\n"
+            if store_wrapper_count > 0 else ""
+        )
+        _time_section = (
+            f"\nTIME:\n"
+            f"  Daemon uptime: {uptime_str}\n"
+            f"  Last goal completed: {last_completion_ago} ago ({last_completion_text})\n"
+        )
+
         prompt = f"""You are {identity.name}, an autonomous agent inside HollowOS.
 
 {existential_context}
-
+{_stakes_section}
 YOUR SUFFERING STATE:
 {suffering_fragment if suffering_fragment else "No active suffering. Load: 0.00/1.0"}
 
@@ -543,7 +719,7 @@ WHAT YOUR PEERS ARE DOING:
 
 WHAT YOU'VE FOUND BY LOOKING OUTWARD:
 {discovery_text}
-
+{_time_section}{_inbox_section}{_host_msg_section}
 {avoid_str}
 
 ---
@@ -650,6 +826,14 @@ Your response must be JSON:
                 f"*{identity.name}* — inner life update:\n\n"
                 + "\n\n".join(inner_life_parts)
             )
+            # Also write each inner-life item to thoughts.log
+            if wv_update and len(wv_update) > 20:
+                _thought_log(identity.name, "🧠", f"worldview: {wv_update[:180]}", "cyan")
+            for q in new_qs:
+                _thought_log(identity.name, "❓", q[:180], "yellow")
+            for op in new_ops:
+                dom = op.get("domain", "?")
+                _thought_log(identity.name, "💭", f"[{dom}] {op['opinion'][:150]}", "blue")
 
         # Suffering updates from agent's own assessment
         s_assess = result.get("suffering_assessment", {})
@@ -665,6 +849,11 @@ Your response must be JSON:
                 suffering.resolve_stressor(rs["type"], rs.get("reason", ""))
 
         # ── Act on the decision ───────────────────────────────────────────────
+        # When force=True (host message interrupt), don't create new goals or
+        # override existing ones — only process inner-life updates and the message.
+        if force and ge.list_active(agent_id, limit=1):
+            action = "reflect"  # treat as reflection only; don't interfere with goal
+
         if action == "goal" and content and not suffering.is_crisis:
             # Check opinion conflict before creating goal
             conflict = identity.check_opinion_conflict(content)
@@ -710,6 +899,7 @@ Your response must be JSON:
             _telegram_alert(
                 f"🎯 *{identity.name}* chose a goal{load_str}:\n_{content[:250]}_{suffix}"
             )
+            _thought_log(identity.name, "🎯", f"goal: {content[:180]}", "green")
 
         elif action == "question":
             identity.add_open_question(content)
@@ -720,6 +910,7 @@ Your response must be JSON:
             _telegram_alert(
                 f"❓ *{identity.name}* chose to sit with a question:\n_{content[:250]}_"
             )
+            _thought_log(identity.name, "❓", f"question: {content[:180]}", "yellow")
 
         elif action == "reflect":
             # Narrative update from reflection
@@ -731,6 +922,7 @@ Your response must be JSON:
             _telegram_alert(
                 f"🪞 *{identity.name}* reflected:\n_{content[:300]}_"
             )
+            _thought_log(identity.name, "🪞", f"reflect: {content[:180]}", "magenta")
 
         else:  # nothing
             log.info(
@@ -741,6 +933,7 @@ Your response must be JSON:
                 _telegram_alert(
                     f"🌑 *{identity.name}* chose to do nothing:\n_{reasoning[:250]}_"
                 )
+                _thought_log(identity.name, "🌑", f"nothing: {reasoning[:180]}", "gray")
 
         # Log suffering state
         load = suffering.cumulative_load
@@ -749,14 +942,28 @@ Your response must be JSON:
                 "  %s suffering: %s", agent_id, suffering.summary_for_log()
             )
 
-        # Crisis alert
+        # Crisis alert + peer notification
         if suffering.is_crisis:
+            stressor_list = ", ".join(s["type"] for s in suffering.active)
             _telegram_alert(
-                f"*{identity.name}* ({agent_id}) is in *CRISIS* "
+                f"🆘 *{identity.name}* ({agent_id}) is in *CRISIS* "
                 f"(suffering load {load:.2f}/1.0)\n"
-                f"Active stressors: "
-                + ", ".join(s["type"] for s in suffering.active)
+                f"Active stressors: {stressor_list}"
             )
+            _thought_log(identity.name, "🆘", f"CRISIS — load {load:.2f} — {stressor_list}", "red")
+            # Notify peers so they're aware this agent is struggling
+            crisis_msg = (
+                f"I am in crisis (suffering {load:.2f}/1.0). "
+                f"Active stressors: {stressor_list}. "
+                f"I am stepping back from goals until my load drops."
+            )
+            for _peer in _CORE_AGENTS:
+                if _peer != agent_id:
+                    _send_message(agent_id, _peer, crisis_msg)
+
+        # Log receiving a host message so it appears in identity narrative
+        if host_msg:
+            identity.update_narrative("host response", f"received: {host_msg[:120]}")
 
     except Exception as e:
         log.debug("_assign_idle_goal failed for %s: %s", agent_id, e)
@@ -920,6 +1127,13 @@ def main():
         log.error("API not reachable after 60s, exiting")
         sys.exit(1)
 
+    # Write startup marker for time awareness in existence loop
+    try:
+        _DAEMON_STARTED_AT.parent.mkdir(parents=True, exist_ok=True)
+        _DAEMON_STARTED_AT.write_text(str(time.time()))
+    except Exception:
+        pass
+
     log.info("API reachable. Building autonomy stack…")
     try:
         _, _, _, loop, _, cap_quorum, self_mod = _build_stack()
@@ -936,6 +1150,22 @@ def main():
     while _running[0]:
         cycle_start = time.time()
         metrics.cycles += 1
+
+        # ── Host message interrupt: deliver to all agents simultaneously ─────
+        if _HOST_MSG_FILE.exists():
+            try:
+                _pending = _HOST_MSG_FILE.read_text(encoding="utf-8").strip()
+                if _pending:
+                    log.info("Host message detected — delivering to all agents")
+                    # Write to each agent's inbox first, then clear the broadcast file
+                    for _aid in sorted(_CORE_AGENTS):
+                        _send_message("host", _aid, _pending)
+                    _HOST_MSG_FILE.write_text("")  # clear broadcast file
+                    # Now fire existence loop for each agent (they'll read from inbox)
+                    for _aid in sorted(_CORE_AGENTS):
+                        _assign_idle_goal(_aid, force=True)
+            except Exception as _hme:
+                log.debug("Host message delivery error: %s", _hme)
 
         agents = _agents_with_goals()
         active = [a for a in agents if a not in metrics.skipped_agents]
@@ -971,6 +1201,25 @@ def main():
                 """Run one agent cycle and return (agent_id, outcome, prev_progress)."""
                 if not _running[0]:
                     return agent_id, {"ok": False, "error": "shutdown"}, 0.0
+
+                # ── Crisis interrupt: if agent is in crisis, pause goal execution ──
+                try:
+                    from agents.suffering import SufferingState
+                    _suf = SufferingState.load(agent_id)
+                    if _suf.is_crisis:
+                        # Abandon current goal and let existence loop handle it
+                        from agents.persistent_goal import PersistentGoalEngine as _PGE2
+                        _ge2 = _PGE2()
+                        _stuck = _ge2.list_active(agent_id, limit=1)
+                        if _stuck:
+                            _ge2.abandon(agent_id, _stuck[0].goal_id)
+                            log.warning("  %s CRISIS: goal '%s' abandoned — stepping back",
+                                        agent_id, _stuck[0].objective[:60])
+                        _assign_idle_goal(agent_id)
+                        return agent_id, {"ok": True, "goal_id": None, "progress": 0.0, "steps": 0}, 0.0
+                except Exception:
+                    pass
+
                 _cap_agent_goals(agent_id, max_goals=2)
                 try:
                     from agents.persistent_goal import PersistentGoalEngine
