@@ -337,15 +337,27 @@ if ($pythonCmd) {
     _warn "Python not found. Install Python 3.12+ from python.org, then run launch.bat."
 }
 
-# Create desktop shortcut pointing to launch.bat
+# Create desktop shortcut and Start Menu entry
 if (Test-Path $LaunchBat) {
-    $wsh     = New-Object -ComObject WScript.Shell
-    $lnk     = $wsh.CreateShortcut($Shortcut)
+    $wsh = New-Object -ComObject WScript.Shell
+
+    # Desktop shortcut
+    $lnk = $wsh.CreateShortcut($Shortcut)
     $lnk.TargetPath       = $LaunchBat
     $lnk.WorkingDirectory = $HollowDir
     $lnk.Description      = "Open Hollow AgentOS live monitor"
     $lnk.Save()
     _ok "Desktop shortcut created: 'Hollow AgentOS'"
+
+    # Start Menu shortcut
+    $StartMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    $StartMenuLnk = Join-Path $StartMenuDir "Hollow AgentOS.lnk"
+    $lnk2 = $wsh.CreateShortcut($StartMenuLnk)
+    $lnk2.TargetPath       = $LaunchBat
+    $lnk2.WorkingDirectory = $HollowDir
+    $lnk2.Description      = "Open Hollow AgentOS live monitor"
+    $lnk2.Save()
+    _ok "Start Menu shortcut created: 'Hollow AgentOS'"
 }
 
 # ── Done ──────────────────────────────────────────────────────────────────────

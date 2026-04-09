@@ -35,3 +35,10 @@ build/
 # HollowOS build output (disk images, apt cache)
 hollowos/build/
 hollowos/rootfs/etc/hollow/hollow.env
+
+# Dev/test artifacts
+test*.json
+bgoals.json
+goals.json
+"Hollow Prompt.txt"
+demo/

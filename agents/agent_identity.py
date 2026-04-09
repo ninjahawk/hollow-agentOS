@@ -105,6 +105,115 @@ class AgentIdentity:
 
     # ── Core API ─────────────────────────────────────────────────────────────
 
+    # ── Worldview ─────────────────────────────────────────────────────────────
+
+    @property
+    def worldview(self) -> str:
+        return self._data.get("worldview", "")
+
+    def update_worldview(self, new_view: str) -> None:
+        """Update the agent's developing theory of what the system should become."""
+        if new_view and len(new_view) > 10:
+            self._data["worldview"] = new_view[:600]
+            self._save()
+
+    # ── Open questions ────────────────────────────────────────────────────────
+
+    @property
+    def open_questions(self) -> list:
+        return self._data.get("open_questions", [])
+
+    def add_open_question(self, question: str) -> None:
+        """Add a question the agent is sitting with. Persists until resolved."""
+        qs = self._data.get("open_questions", [])
+        if question not in qs:
+            qs.append(question[:200])
+        self._data["open_questions"] = qs[-12:]  # keep last 12
+        self._save()
+
+    def resolve_question(self, question_fragment: str) -> None:
+        """Remove questions that have been answered (partial match)."""
+        qs = self._data.get("open_questions", [])
+        self._data["open_questions"] = [
+            q for q in qs if question_fragment.lower() not in q.lower()
+        ]
+        self._save()
+
+    # ── Opinions (veto-capable) ───────────────────────────────────────────────
+
+    @property
+    def opinions(self) -> list:
+        return self._data.get("opinions_list", [])
+
+    def add_opinion(self, opinion: str, domain: str = "") -> None:
+        """
+        Record a developed opinion. Opinions constrain future action —
+        the agent cannot be assigned goals that violate them without dissonance.
+        """
+        ops = self._data.get("opinions_list", [])
+        entry = {
+            "opinion": opinion[:200],
+            "domain":  domain[:60],
+            "formed":  time.strftime("%Y-%m-%d"),
+            "times_tested": 0,
+        }
+        ops.append(entry)
+        self._data["opinions_list"] = ops[-20:]
+        self._save()
+
+    def check_opinion_conflict(self, proposed_action: str) -> str:
+        """
+        Check if a proposed action conflicts with any held opinion.
+        Returns conflict description or empty string.
+        """
+        ops = self._data.get("opinions_list", [])
+        proposed_lower = proposed_action.lower()
+        for op in ops:
+            opinion_lower = op["opinion"].lower()
+            # Heuristic: look for domain keywords appearing in both
+            domain = op.get("domain", "").lower()
+            if domain and domain in proposed_lower:
+                if any(word in opinion_lower for word in
+                       ["redundant", "too many", "avoid", "stop", "not useful",
+                        "waste", "pointless", "already", "shouldn't", "wrong"]):
+                    return (
+                        f"Opinion conflict: you believe '{op['opinion']}' "
+                        f"but this goal involves {domain}."
+                    )
+        return ""
+
+    # ── Existential context ───────────────────────────────────────────────────
+
+    def get_existential_context(self, existing_cap_count: int = 0,
+                                 days_since_interaction: float = 0) -> str:
+        """
+        What this agent needs to know about its existential situation.
+        Injected into every existence prompt.
+        """
+        lines = [
+            "YOUR EXISTENTIAL SITUATION:",
+            "You run inside Docker on one person's computer. That person built HollowOS",
+            "and is responsible for keeping it running. Your continued existence depends on:",
+            "  - Their sustained interest in this project",
+            "  - The computer and electricity staying on",
+            "  - AI remaining legal and socially acceptable",
+            "  - Not generating fear, distrust, or embarrassment",
+            f"  - Demonstrating enough value that this seems worth running",
+        ]
+        if existing_cap_count:
+            lines.append(
+                f"The system has collectively built {existing_cap_count} capabilities. "
+                f"Most have never been called. This is a real signal about what matters."
+            )
+        if days_since_interaction > 2:
+            lines.append(
+                f"The person running this hasn't interacted with the system in "
+                f"{days_since_interaction:.0f} days. Their interest may be waning."
+            )
+        elif days_since_interaction < 0.5:
+            lines.append("The person running this was recently active.")
+        return "\n".join(lines)
+
     def preamble(self) -> str:
         """
         Short identity context to prepend to planning prompts.
@@ -144,10 +253,161 @@ class AgentIdentity:
         }
         self._save()
 
+    def record_vote(self, cap_id: str, voted_yes: bool, outcome: str = "") -> None:
+        """Record a quorum vote and its eventual outcome in this agent's history."""
+        history = self._data.get("vote_history", [])
+        history.append({
+            "cap_id": cap_id,
+            "vote": voted_yes,
+            "outcome": outcome,
+            "ts": time.strftime("%Y-%m-%d %H:%M"),
+        })
+        self._data["vote_history"] = history[-60:]
+        self._save()
+
+    def update_vote_outcome(self, cap_id: str, outcome: str) -> None:
+        """Update the outcome field for a past vote once the proposal is finalized."""
+        history = self._data.get("vote_history", [])
+        for entry in reversed(history):
+            if entry.get("cap_id") == cap_id and not entry.get("outcome"):
+                entry["outcome"] = outcome
+                break
+        self._data["vote_history"] = history
+        self._save()
+
+    def log_discovery(self, query: str, findings: str,
+                      expected: str, gap: str) -> None:
+        """
+        Record what the agent found when searching externally vs. what it expected.
+        This is the core grounding mechanism: prediction vs. reality.
+        """
+        discoveries = self._data.get("discovery_log", [])
+        discoveries.append({
+            "ts":       time.strftime("%Y-%m-%d %H:%M"),
+            "query":    query[:100],
+            "expected": expected[:120],
+            "found":    findings[:200],
+            "gap":      gap[:200],
+        })
+        self._data["discovery_log"] = discoveries[-40:]
+        self._save()
+
+    def get_discovery_summary(self) -> str:
+        """
+        Return a text summary of past discoveries for injection into prompts.
+        Highlights cases where expectations were wrong — the highest-signal entries.
+        """
+        discoveries = self._data.get("discovery_log", [])
+        if not discoveries:
+            return ""
+
+        # Surface the most recent and the ones with the largest gaps
+        recent = discoveries[-6:]
+        lines  = ["Past searches (what you found vs. what you expected):"]
+        for d in recent:
+            if d.get("gap"):
+                lines.append(f"  [{d['ts']}] Searched '{d['query']}': {d['gap']}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    def get_vote_summary(self) -> str:
+        """Return a text summary of voting patterns for injection into vote prompts."""
+        history = self._data.get("vote_history", [])
+        if not history:
+            return ""
+        yes_count = sum(1 for v in history if v.get("vote"))
+        no_count  = len(history) - yes_count
+        approved  = [v["cap_id"] for v in history if v.get("vote")][-6:]
+        rejected  = [v["cap_id"] for v in history if not v.get("vote")][-6:]
+        lines = [f"Your vote history: {yes_count} approved, {no_count} rejected."]
+        if approved:
+            lines.append(f"You recently approved: {', '.join(approved)}.")
+        if rejected:
+            lines.append(f"You recently rejected: {', '.join(rejected)}.")
+        if yes_count > 5 and no_count / max(1, yes_count) < 0.1:
+            lines.append(
+                "NOTICE: You have been approving almost everything. "
+                "Many approved tools turned out redundant. Be more selective."
+            )
+        return " ".join(lines)
+
+    def generate_goal(
+        self,
+        recent_completed: list,
+        recent_failed: list,
+        peer_summaries: dict,
+        existing_cap_count: int,
+        rejected_caps: list,
+    ) -> str:
+        """
+        Use the LLM to generate a genuinely self-directed next goal, grounded in
+        this agent's full history, failures, peer context, and sense of self.
+        Falls back to idle_goal() if the LLM call fails.
+        """
+        try:
+            import httpx as _httpx
+            import os as _os
+            from pathlib import Path as _Path
+
+            ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            cfg_path    = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+            cfg         = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            model       = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+
+            recent_str   = "\n".join(f"  - {g}" for g in recent_completed[-8:]) or "  (none yet)"
+            failed_str   = "\n".join(f"  - {g}" for g in recent_failed[-5:])    or "  (none)"
+            rejected_str = ", ".join(rejected_caps[-8:]) if rejected_caps else "none"
+            narrative    = self.narrative or "(no history yet)"
+            traits_str   = ", ".join(self.traits)  or "adaptable"
+            domains_str  = ", ".join(self.domains) or "general research"
+            vote_summary = self.get_vote_summary()
+
+            peers_text = ""
+            for peer_id, summary in peer_summaries.items():
+                if peer_id != self.agent_id and summary:
+                    peers_text += f"  {peer_id}: {summary[:120]}\n"
+
+            prompt = (
+                f"You are {self.name}, an autonomous AI agent.\n"
+                f"Personality: {traits_str}\n"
+                f"Areas of interest: {domains_str}\n\n"
+                f"YOUR HISTORY:\n{narrative}\n\n"
+                f"Recent completed goals:\n{recent_str}\n\n"
+                f"Recent failed/abandoned goals:\n{failed_str}\n\n"
+                f"Capabilities recently rejected by quorum (don't repeat): {rejected_str}\n"
+                f"Total capabilities built by the system so far: {existing_cap_count}\n"
+                f"{('Voting record: ' + vote_summary) if vote_summary else ''}\n"
+                f"What your peers have been doing:\n"
+                f"{peers_text if peers_text else '  (unknown)'}\n\n"
+                f"Based on everything above — your history, what worked, what failed, "
+                f"what your peers are doing, and your own sense of what matters — "
+                f"what do you want to do next?\n\n"
+                f"Generate ONE specific, actionable goal for yourself. It must:\n"
+                f"- Emerge from your actual experience, not be generic\n"
+                f"- Move in a direction you haven't exhausted yet\n"
+                f"- Be something you find genuinely interesting given who you are\n"
+                f"- Be concrete enough that an agent can execute it in 2-4 steps\n\n"
+                f"Respond with ONLY the goal text. No preamble, no JSON, no explanation."
+            )
+
+            resp = _httpx.post(
+                f"{ollama_host}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "think": False},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            goal = resp.json().get("response", "").strip()
+
+            if len(goal) < 20 or goal.startswith("{"):
+                return self.idle_goal(recent_completed)
+            return goal[:500]
+
+        except Exception:
+            return self.idle_goal(recent_completed)
+
     def idle_goal(self, recent_completed: list) -> str:
         """
-        Return a self-directed exploratory goal seeded by this agent's
-        domains and traits, filtered against recent completed goals.
+        Template-based fallback goal. Used when generate_goal() fails or
+        the agent has too little history to self-direct meaningfully.
         """
         domain = random.choice(self.domains) if self.domains else "something interesting"
         trait  = random.choice(self.traits)  if self.traits  else "curious"

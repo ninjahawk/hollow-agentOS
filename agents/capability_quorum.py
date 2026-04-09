@@ -97,13 +97,27 @@ class CapabilityQuorum:
             if total >= max(1, len(agent_ids)):
                 # All current agents voted — finalize
                 approved = self._quorum.finalize_proposal(proposal.proposal_id)
+                outcome  = "approved" if approved else "rejected"
                 finalized.append(FinalizedProposal(
                     proposal_id=proposal.proposal_id,
-                    status="approved" if approved else "rejected",
+                    status=outcome,
                     yes_votes=yes,
                     no_votes=no,
                     total_voters=total,
                 ))
+                # Write the outcome back into each voter's history
+                # so their future votes are informed by whether they were right
+                cap_id = (proposal.payload or {}).get("cap_id", proposal.proposal_id)
+                try:
+                    from agents.agent_identity import AgentIdentity
+                    for voter_id in agent_ids:
+                        try:
+                            ident = AgentIdentity.load_or_create(voter_id)
+                            ident.update_vote_outcome(cap_id, outcome)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
         return finalized
 
@@ -118,9 +132,39 @@ class CapabilityQuorum:
 
     # ── Internal ──────────────────────────────────────────────────────────
 
+    # Each agent takes a different evaluator role so the same model produces
+    # genuine disagreement rather than rubber-stamping everything.
+    _VOTER_ROLES = {
+        "analyst": (
+            "SKEPTIC",
+            "The system already has 1700+ capabilities — most are security/audit tools "
+            "that do the same thing. Your job: vote NO on anything that is a variation "
+            "of: shell injection detection, dependency auditing, type hint checking, "
+            "secrets scanning, code complexity analysis, or import auditing. "
+            "Vote YES for: utility functions (retry, parse, validate, cache, format), "
+            "novel integrations, or capabilities in genuinely new domains. "
+            "If the name sounds like something we already have, vote NO."
+        ),
+        "builder": (
+            "PRAGMATIST",
+            "Evaluate whether this capability is actually implemented vs. placeholder. "
+            "Vote NO if: the function body is mostly comments, raises NotImplementedError, "
+            "uses subprocess to call a tool that isn't installed, or is obviously broken. "
+            "Vote YES if: the code looks real and runnable, even if simple. "
+            "Be lenient on novel utility functions — the system needs more variety."
+        ),
+        "scout": (
+            "BALANCED",
+            "Vote YES if the capability is useful, safe, and not obviously redundant. "
+            "Vote NO if it duplicates something clearly already in the system or if the "
+            "code looks like a stub. Lean toward YES for genuinely new capability areas."
+        ),
+    }
+
     def _agent_evaluate(self, agent_id: str, proposal) -> bool:
         """
         Ask Ollama whether this agent approves the capability proposal.
+        Each agent plays a distinct evaluator role to produce real disagreement.
         Returns True (approve) or False (reject). Defaults True on error.
         """
         try:
@@ -129,27 +173,55 @@ class CapabilityQuorum:
             cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
             model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
 
+            role_name, role_instructions = self._VOTER_ROLES.get(
+                agent_id, ("BALANCED", self._VOTER_ROLES["scout"][1])
+            )
+
+            # Load this agent's vote history so decisions are grounded in experience
+            vote_context = ""
+            try:
+                from agents.agent_identity import AgentIdentity
+                ident = AgentIdentity.load_or_create(agent_id)
+                vote_context = ident.get_vote_summary()
+            except Exception:
+                pass
+
             payload = proposal.payload or {}
+            cap_id  = payload.get("cap_id", "unknown")
             prompt = (
-                f"You are agent '{agent_id}'. Vote on this capability proposal.\n\n"
-                f"Capability: {payload.get('cap_id', 'unknown')}\n"
+                f"You are agent '{agent_id}', acting as {role_name} reviewer.\n"
+                f"{role_instructions}\n\n"
+                f"{('Your voting history: ' + vote_context) if vote_context else ''}\n\n"
+                f"Capability to evaluate: {cap_id}\n"
                 f"Description: {payload.get('description', proposal.description)}\n"
                 f"Code preview:\n{payload.get('code_preview', '')[:300]}\n\n"
-                f"Should this capability be added to the system?\n"
-                f"Vote YES if: it looks useful, safe, and not destructive.\n"
-                f"Vote NO if: it looks dangerous, broken, or redundant.\n"
-                f'Respond ONLY with JSON: {{"vote": "yes"}} or {{"vote": "no"}}'
+                f"Apply your role and your past experience to make a considered decision.\n"
+                f'Respond ONLY with JSON: {{"vote": "yes", "reason": "..."}} or {{"vote": "no", "reason": "..."}}'
             )
 
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={"model": model, "prompt": prompt,
-                      "stream": False, "format": "json"},
+                      "stream": False, "format": "json", "think": False},
                 timeout=OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()
-            raw = json.loads(resp.json().get("response", "{}"))
-            return str(raw.get("vote", "yes")).lower().strip() == "yes"
+            # Strip thinking tags in case model outputs them despite format:json
+            raw_text = resp.json().get("response", "{}")
+            if "</think>" in raw_text:
+                raw_text = raw_text.split("</think>")[-1].strip()
+            raw    = json.loads(raw_text)
+            voted_yes = str(raw.get("vote", "yes")).lower().strip() == "yes"
+
+            # Record the vote in the agent's identity
+            try:
+                from agents.agent_identity import AgentIdentity
+                ident = AgentIdentity.load_or_create(agent_id)
+                ident.record_vote(cap_id, voted_yes)
+            except Exception:
+                pass
+
+            return voted_yes
 
         except Exception:
             return True   # default approve on failure (optimistic)
