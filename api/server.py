@@ -36,6 +36,7 @@ from typing import Any, Optional
 try:
     from fastapi import FastAPI, HTTPException, Header, Body, Query
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import HTMLResponse, StreamingResponse
     from pydantic import BaseModel
     import uvicorn
     import httpx
@@ -2513,6 +2514,235 @@ async def store_version_status(authorization: Optional[str] = Header(None)):
         return {"ok": True, **status}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200], "checked": 0, "stale_count": 0}
+
+
+# ── Live stream (mobile feed) ─────────────────────────────────────────────────
+
+_STREAM_AGENTS = {
+    "analyst": {"label": "Cedar", "color": "#a78bfa"},   # violet
+    "builder": {"label": "Helix", "color": "#34d399"},   # green
+    "scout":   {"label": "Titan", "color": "#fb923c"},   # orange
+}
+_MEMORY_BASE = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory"))
+
+_STREAM_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Hollow — Live</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0f;
+    color: #e2e8f0;
+    font-family: ui-monospace, 'Menlo', 'SF Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: env(safe-area-inset-top, 12px) 0 env(safe-area-inset-bottom, 12px) 0;
+    overflow-x: hidden;
+  }
+  #header {
+    position: sticky;
+    top: 0;
+    background: #0a0a0f;
+    border-bottom: 1px solid #1e293b;
+    padding: 10px 14px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10;
+  }
+  #header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.05em; color: #f1f5f9; }
+  #status { font-size: 10px; color: #64748b; display: flex; align-items: center; gap: 6px; }
+  #dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
+  #dot.off { background: #ef4444; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #feed { padding: 6px 0 40px; }
+  .entry {
+    display: flex;
+    gap: 0;
+    padding: 5px 14px;
+    border-bottom: 1px solid #0f172a;
+    animation: fadein 0.3s ease;
+  }
+  .entry:hover { background: #0f172a; }
+  @keyframes fadein { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+  .ts { color: #475569; min-width: 56px; flex-shrink: 0; padding-top: 1px; }
+  .badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    min-width: 44px;
+    flex-shrink: 0;
+    padding-top: 1px;
+    padding-right: 8px;
+  }
+  .body { flex: 1; min-width: 0; }
+  .cap { color: #94a3b8; font-weight: 600; }
+  .result { color: #64748b; word-break: break-word; margin-top: 1px; }
+  .result.ok { color: #4ade80; }
+  .result.err { color: #f87171; }
+  #agents {
+    display: flex;
+    gap: 10px;
+    padding: 7px 14px;
+    border-bottom: 1px solid #1e293b;
+    background: #0a0a0f;
+  }
+  .agent-pill {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: #0f172a;
+  }
+  #count { font-size: 10px; color: #334155; padding: 4px 14px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>&#11044; HOLLOW LIVE</h1>
+  <div id="status"><div id="dot"></div><span id="status-text">connecting</span></div>
+</div>
+<div id="agents">
+  <span class="agent-pill" style="color:#a78bfa">CEDAR</span>
+  <span class="agent-pill" style="color:#34d399">HELIX</span>
+  <span class="agent-pill" style="color:#fb923c">TITAN</span>
+</div>
+<div id="count"></div>
+<div id="feed"></div>
+<script>
+const feed = document.getElementById('feed');
+const dot = document.getElementById('dot');
+const statusText = document.getElementById('status-text');
+const countEl = document.getElementById('count');
+let total = 0;
+
+function addEntry(data) {
+  const d = JSON.parse(data);
+  const el = document.createElement('div');
+  el.className = 'entry';
+
+  const isErr = d.err && d.err.length > 0;
+  const isOk  = d.ok === true || (d.out && d.out.length > 0 && !isErr);
+
+  el.innerHTML =
+    '<div class="ts">' + d.ts + '</div>' +
+    '<div class="badge" style="color:' + d.color + '">' + d.label + '</div>' +
+    '<div class="body">' +
+      '<div class="cap">' + escHtml(d.cap) + '</div>' +
+      (d.out ? '<div class="result ' + (isErr ? 'err' : 'ok') + '">' + escHtml((d.err || d.out).substring(0,120)) + '</div>' : '') +
+    '</div>';
+
+  feed.appendChild(el);
+  el.scrollIntoView({behavior:'smooth', block:'end'});
+  total++;
+  countEl.textContent = total + ' events';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function connect() {
+  const es = new EventSource('/stream/events');
+  es.onopen = () => { dot.className=''; statusText.textContent='live'; };
+  es.onmessage = e => { if (e.data) addEntry(e.data); };
+  es.onerror = () => {
+    dot.className='off'; statusText.textContent='reconnecting...';
+    es.close();
+    setTimeout(connect, 3000);
+  };
+}
+connect();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/stream", response_class=HTMLResponse, include_in_schema=False)
+async def stream_page():
+    """Mobile-optimized live agent feed."""
+    return HTMLResponse(content=_STREAM_HTML)
+
+
+@app.get("/stream/events", include_in_schema=False)
+async def stream_events():
+    """SSE endpoint — pushes live execution chain entries for all agents."""
+
+    async def generator():
+        # Track read position per agent
+        positions = {}
+        for agent_id in _STREAM_AGENTS:
+            chain = _MEMORY_BASE / "autonomy" / agent_id / "execution_chain.jsonl"
+            if chain.exists():
+                positions[agent_id] = chain.stat().st_size
+            else:
+                positions[agent_id] = 0
+
+        yield "retry: 3000\n\n"  # tell browser to reconnect after 3s on disconnect
+
+        while True:
+            for agent_id, meta in _STREAM_AGENTS.items():
+                chain = _MEMORY_BASE / "autonomy" / agent_id / "execution_chain.jsonl"
+                if not chain.exists():
+                    continue
+                current_size = chain.stat().st_size
+                if current_size <= positions[agent_id]:
+                    continue
+
+                # Read only the new bytes
+                with chain.open("rb") as f:
+                    f.seek(positions[agent_id])
+                    new_bytes = f.read(current_size - positions[agent_id])
+                positions[agent_id] = current_size
+
+                for raw in new_bytes.decode("utf-8", errors="replace").splitlines():
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        d = json.loads(raw)
+                    except Exception:
+                        continue
+
+                    ts_epoch = d.get("timestamp", 0)
+                    try:
+                        from datetime import datetime, timezone
+                        ts = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).strftime("%H:%M:%S")
+                    except Exception:
+                        ts = "--:--:--"
+
+                    cap = d.get("capability_id", "?")
+                    r   = d.get("execution_result", {})
+                    out = str(r.get("stdout", r.get("ok", r.get("error", ""))))[:200]
+                    err = str(r.get("stderr", ""))[:200]
+
+                    payload = json.dumps({
+                        "label": meta["label"],
+                        "color": meta["color"],
+                        "ts":    ts,
+                        "cap":   cap,
+                        "out":   out,
+                        "err":   err,
+                        "ok":    r.get("ok", None),
+                    })
+                    yield f"data: {payload}\n\n"
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
