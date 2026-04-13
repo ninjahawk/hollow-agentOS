@@ -27,6 +27,7 @@ ALL_CAPS = {
     "shell_root", # run shell commands anywhere (root agents only)
     "fs_read",    # read any file
     "fs_write",   # write files (scoped to workspace unless fs_root)
+    "fs_edit",    # edit existing files by string replacement
     "fs_root",    # write anywhere
     "ollama",     # call local models
     "spawn",      # create child agents
@@ -38,10 +39,10 @@ ALL_CAPS = {
 # Default capability sets by role
 ROLE_DEFAULTS: dict[str, set[str]] = {
     "root":      ALL_CAPS,
-    "orchestrator": {"shell", "fs_read", "fs_write", "ollama", "spawn", "message", "semantic"},
-    "worker":    {"shell", "fs_read", "fs_write", "ollama", "message", "semantic"},
+    "orchestrator": {"shell", "fs_read", "fs_write", "fs_edit", "ollama", "spawn", "message", "semantic"},
+    "worker":    {"shell", "fs_read", "fs_write", "fs_edit", "ollama", "message", "semantic"},
     "readonly":  {"fs_read", "semantic", "message"},
-    "coder":     {"shell", "fs_read", "fs_write", "ollama", "message", "semantic"},
+    "coder":     {"shell", "fs_read", "fs_write", "fs_edit", "ollama", "message", "semantic"},
     "reasoner":  {"fs_read", "ollama", "message", "semantic"},
     "custom":    {"fs_read", "message"},
 }

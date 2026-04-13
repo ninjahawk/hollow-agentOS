@@ -50,7 +50,7 @@ PRIORITY_BACKGROUND = 2
 
 # Complexity → Ollama role → model (fallback when ModelManager unavailable)
 COMPLEXITY_ROUTING = {
-    1: "general",          # mistral-nemo:12b — fast, cheap
+    1: "general",          # qwen3.5:9b-gpu — fast, cheap
     2: "general",
     3: "code",             # qwen2.5:14b — better reasoning
     4: "code",
@@ -58,7 +58,7 @@ COMPLEXITY_ROUTING = {
 }
 
 ROLE_MODEL = {
-    "general":   "mistral-nemo:12b",
+    "general":   "qwen3.5:9b-gpu",
     "code":      "qwen2.5:14b",
     "reasoning": "qwen3.5-35b-moe:latest",
 }
@@ -366,7 +366,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+                model_for_role = ROLE_MODEL.get(role, "qwen3.5:9b-gpu")
 
         # Model policy check — does the submitting agent allow this role?
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
@@ -546,7 +546,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "mistral-nemo:12b")
+                model_for_role = ROLE_MODEL.get(role, "qwen3.5:9b-gpu")
 
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"

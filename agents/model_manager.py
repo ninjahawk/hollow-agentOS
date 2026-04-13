@@ -30,8 +30,8 @@ VRAM_HEADROOM_MB = 512
 
 # Complexity → preferred model name (used for affinity check + fallback)
 COMPLEXITY_MODEL = {
-    1: "mistral-nemo:12b",
-    2: "mistral-nemo:12b",
+    1: "qwen3.5:9b-gpu",
+    2: "qwen3.5:9b-gpu",
     3: "qwen2.5:14b",
     4: "qwen2.5:14b",
     5: "qwen3.5-35b-moe:latest",
@@ -42,7 +42,7 @@ PINNED_MODELS: set[str] = {"qwen3.5-35b-moe:latest"}
 
 # Approximate VRAM footprint when Ollama's /api/ps doesn't report size (MB)
 MODEL_VRAM_FALLBACK: dict[str, int] = {
-    "mistral-nemo:12b":         8_000,
+    "qwen3.5:9b-gpu":         8_000,
     "qwen2.5:14b":             10_000,
     "qwen3.5-35b-moe:latest":  22_000,
 }
@@ -85,7 +85,7 @@ class ModelManager:
         3. Must evict: evict LRU non-pinned (background first), then load
         4. Fallback: return preferred model name and let Ollama handle it
         """
-        preferred = COMPLEXITY_MODEL.get(complexity, "mistral-nemo:12b")
+        preferred = COMPLEXITY_MODEL.get(complexity, "qwen3.5:9b-gpu")
         self._refresh()
 
         with self._lock:

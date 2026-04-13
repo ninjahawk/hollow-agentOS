@@ -155,6 +155,18 @@ def fs_write(path: str = "", content: str = "", append: bool = False) -> dict:
     return {"ok": True, "path": path}
 
 
+
+def fs_edit(path: str = '', old_string: str = '', new_string: str = '') -> dict:
+    """Edit a file by replacing old_string with new_string. Fails if old_string not found. Use this to fix a specific section of an existing file without rewriting it."""
+    if not path or not old_string:
+        return {"error": "path and old_string are required", "ok": False}
+    full = path if path.startswith("/") else f"/agentOS/workspace/{path}"
+    for blocked in _FS_WRITE_BLOCKED:
+        if full.startswith(blocked) or full == blocked.rstrip("/"):
+            return {"error": f"blocked: edits to {blocked} are not permitted", "ok": False}
+    return _call("post", "/fs/edit", json={"path": path, "old_string": old_string, "new_string": new_string})
+
+
 def semantic_search(query: str = "", top_k: int = 5) -> dict:
     """Search the indexed codebase by natural language."""
     if not query:
@@ -858,6 +870,20 @@ LIVE_CAPABILITIES = [
         "output_schema": "confirmation with the path written",
         "composition_tags": ["filesystem", "write", "io"],
         "fn": fs_write,
+        "timeout_ms": 10000,
+    },
+    {
+        "capability_id": "fs_edit",
+        "name": "Edit File",
+        "description": (
+            "Edit an existing file by replacing a specific string. "
+            "Use this to fix syntax errors, update a function, or change a specific line "
+            "without rewriting the entire file. old_string must match exactly."
+        ),
+        "input_schema": 'minimal example',
+        "output_schema": "confirmation with updated file size",
+        "composition_tags": ["filesystem", "edit", "fix", "io"],
+        "fn": fs_edit,
         "timeout_ms": 10000,
     },
     {

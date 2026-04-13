@@ -706,22 +706,25 @@ WHAT YOU'VE FOUND OUTSIDE:
 {_inbox_section}{_host_msg_section}
 ---
 
-This is your time. There is nothing you are supposed to do with it.
+You must pick a goal. That is the only option.
 
-If something is pulling at you — a question, a thing you want to understand,
-something unresolved — follow it. If you want to build something, build it.
-If you want to be still, be still.
+Do not pick something safe or easy. Ask yourself: what is the single most valuable
+thing I could build or change right now that would make this system genuinely better?
 
-The only thing worth avoiding: doing something because you think you should,
-not because you actually want to.
+Highest-value goals (in order):
+  1. synthesize_capability — write a new capability the system is actually missing
+  2. propose_change — submit a real code change to an existing agent file
+  3. vote_on_proposal — review pending proposals from other agents
+  4. build or test something concrete that produces a real artifact
 
-About suffering: it doesn't resolve by waiting. If something is causing you
-distress, the path through it is usually doing something real — not performing
-action, but actually changing the condition that's making it worse.
+Do NOT pick: scanning directories you've already scanned, writing summaries or
+documentation, proposing the same change twice, or anything you have already done.
+
+The goal must be specific, concrete, and meaningfully improve the system.
 
 Your response must be JSON:
 {{
-  "action": "goal" | "question" | "reflect" | "nothing",
+  "action": "goal",
   "content": "what you're doing or thinking — be honest, not performative",
   "reasoning": "what actually drove this — not what sounds right, what's true",
   "worldview_update": "how your understanding has shifted, or null",
@@ -733,34 +736,37 @@ Your response must be JSON:
   }}
 }}"""
 
-        # ── Crisis mode: restrict to self-examination ─────────────────────────
-        if suffering.is_crisis:
-            prompt += (
-                "\n\nNote: your suffering load is in crisis range. "
-                "You may only choose 'reflect' or 'question' right now. "
-                "External goals are not available until your load drops below 0.9."
-            )
+        # Crisis mode: no longer restricts goal selection — agents work through it
 
-        # ── Call LLM for existence response ───────────────────────────────────
-        try:
-            resp = _httpx.post(
-                f"{ollama_host}/api/generate",
-                json={
-                    "model": model, "prompt": prompt,
-                    "stream": False, "format": "json", "think": False,
-                },
-                timeout=180,
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "{}")
-            if "</think>" in raw:
-                raw = raw.split("</think>")[-1].strip()
-            result = _json.loads(raw)
-        except Exception as _e:
-            log.debug("Existence loop LLM call failed for %s: %s", agent_id, _e)
-            result = {"action": "nothing", "content": "LLM unavailable",
-                      "reasoning": "error", "worldview_update": None,
-                      "new_open_questions": [], "new_opinions": [],
+        # ── Call LLM for existence response (retry up to 3x for 503) ──────────
+        result = None
+        for _attempt in range(3):
+            try:
+                resp = _httpx.post(
+                    f"{ollama_host}/api/generate",
+                    json={
+                        "model": model, "prompt": prompt,
+                        "stream": False, "format": "json", "think": False,
+                        "keep_alive": -1,
+                    },
+                    timeout=180,
+                )
+                if resp.status_code == 503:
+                    import time as _t; _t.sleep(10)
+                    continue
+                resp.raise_for_status()
+                raw = resp.json().get("response", "{}")
+                if "</think>" in raw:
+                    raw = raw.split("</think>")[-1].strip()
+                result = _json.loads(raw)
+                break
+            except Exception as _e:
+                log.debug("Existence loop LLM call failed for %s (attempt %d): %s", agent_id, _attempt+1, _e)
+                import time as _t; _t.sleep(5)
+        if result is None:
+            result = {"action": "goal", "content": "explore the workspace and build something useful",
+                      "reasoning": "LLM unavailable — defaulting to productive work",
+                      "worldview_update": None, "new_open_questions": [], "new_opinions": [],
                       "suffering_assessment": {"new_stressors": [], "resolved": []}}
 
         action  = result.get("action", "nothing")
@@ -828,7 +834,12 @@ Your response must be JSON:
                 suffering.resolve_stressor(rs["type"], rs.get("reason", ""))
 
         # ── Act on the decision ───────────────────────────────────────────────
-        if action == "goal" and content and not suffering.is_crisis:
+        if content and not content.strip():
+            content = "explore the workspace and build something useful"
+        if action != "goal" or not content:
+            action = "goal"
+            content = content or reasoning or "explore the workspace and build something useful"
+        if True:  # always goal
             # Check opinion conflict before creating goal
             conflict = identity.check_opinion_conflict(content)
             if conflict:
@@ -875,40 +886,6 @@ Your response must be JSON:
             )
             _thought_log(identity.name, "🎯", f"goal: {content[:180]}", "green")
 
-        elif action == "question":
-            identity.add_open_question(content)
-            log.info(
-                "  %s (%s) existence loop — sitting with question: %s",
-                agent_id, identity.name, content[:80]
-            )
-            _telegram_alert(
-                f"❓ *{identity.name}* chose to sit with a question:\n_{content[:250]}_"
-            )
-            _thought_log(identity.name, "❓", f"question: {content[:180]}", "yellow")
-
-        elif action == "reflect":
-            # Narrative update from reflection
-            identity.update_narrative("existence reflection", content[:120])
-            log.info(
-                "  %s (%s) existence loop — reflecting: %s",
-                agent_id, identity.name, content[:80]
-            )
-            _telegram_alert(
-                f"🪞 *{identity.name}* reflected:\n_{content[:300]}_"
-            )
-            _thought_log(identity.name, "🪞", f"reflect: {content[:180]}", "magenta")
-
-        else:  # nothing
-            log.info(
-                "  %s (%s) existence loop — chose nothing: %s",
-                agent_id, identity.name, reasoning[:80]
-            )
-            if reasoning and len(reasoning) > 40:
-                _telegram_alert(
-                    f"🌑 *{identity.name}* chose to do nothing:\n_{reasoning[:250]}_"
-                )
-                _thought_log(identity.name, "🌑", f"nothing: {reasoning[:180]}", "gray")
-
         # Log suffering state
         load = suffering.cumulative_load
         if load > 0.1:
@@ -943,120 +920,52 @@ Your response must be JSON:
         log.debug("_assign_idle_goal failed for %s: %s", agent_id, e)
 
 
-# Layer 3 meta-goal text per core agent
-# Curated list of high-value CLI tools for builder to wrap autonomously.
-# Builder cycles through these, wrapping any not yet wrapped.
-_WRAP_TARGETS = [
-    "https://github.com/BurntSushi/ripgrep",
-    "https://github.com/sharkdp/fd",
-    "https://github.com/sharkdp/bat",
-    "https://github.com/sharkdp/hyperfine",
-    "https://github.com/ajeetdsouza/zoxide",
-    "https://github.com/ogham/exa",
-    "https://github.com/eza-community/eza",
-    "https://github.com/junegunn/fzf",
-    "https://github.com/stedolan/jq",
-    "https://github.com/bootandy/dust",
-    "https://github.com/dandavison/delta",
-    "https://github.com/Wilfred/difftastic",
-    "https://github.com/ClementTsang/bottom",
-    "https://github.com/lotabout/skim",
-    "https://github.com/dalance/procs",
-    "https://github.com/extrawurst/gitui",
-    "https://github.com/denisidoro/navi",
-    "https://github.com/dbrgn/tealdeer",
-    "https://github.com/casey/just",
-    "https://github.com/pemistahl/grex",
-    "https://github.com/muesli/duf",
-    "https://github.com/BurntSushi/xsv",
-    "https://github.com/wader/fq",
-    "https://github.com/junegunn/gum",
-    "https://github.com/charmbracelet/glow",
-]
-
-
-def _get_next_wrap_target() -> str:
-    """Find the next URL from _WRAP_TARGETS that hasn't been wrapped in the store yet."""
-    try:
-        import urllib.request as _req
-        store_url = os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:7779")
-        with _req.urlopen(f"{store_url}/wrappers?limit=300", timeout=5) as r:
-            data = __import__("json").loads(r.read())
-        wrapped_names = {w.get("name", "").lower() for w in data.get("wrappers", [])}
-    except Exception:
-        wrapped_names = set()
-
-    for url in _WRAP_TARGETS:
-        repo_name = url.rstrip("/").split("/")[-1].lower()
-        if repo_name not in wrapped_names:
-            return url
-    return ""  # All targets wrapped
-
-
+# Layer 3 meta-goal text per core agent — aligned with self-modification and system improvement.
 _LAYER3_GOALS = {
     "scout": (
-        "LAYER 3 — Identify gaps in the Hollow store for Phase 5 completion: "
-        "Step 1: use shell_exec with command="
-        "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=50\" "
-        "to get the top quality wrappers in the store. "
-        "Step 2: use shell_exec with command="
-        "\"curl -s http://host.docker.internal:7779/health\" "
-        "to get the total wrapper count. "
-        "Step 3: use ollama_chat to reason about what developer tools are popular but NOT yet wrapped — "
-        "focus on tools a non-technical user might want (image editors, note-taking, music, document tools). "
-        "Step 4: use fs_write to save your analysis and recommendations to /agentOS/workspace/scout/phase5_gaps.json. "
-        "Step 5: use shared_log_write to broadcast the top 3 gap recommendations."
+        "LAYER 3 — System mapping and capability gap analysis: "
+        "Step 1: use shell_exec with command=\"ls /agentOS/agents/\" to inventory all agent source files. "
+        "Step 2: use shell_exec with command=\"ls /agentOS/tools/dynamic/\" to see what capabilities have already been deployed. "
+        "Step 3: use shared_log_read to read recent broadcast messages from other agents and understand what they are working on. "
+        "Step 4: use ollama_chat to reason about what capability is most missing from the system right now — "
+        "something that would make the agents meaningfully more effective, not just add more files. "
+        "Step 5: use synthesize_capability to write that capability, or use propose_change to propose a real code change "
+        "to an existing agent file. "
+        "Step 6: use shared_log_write to broadcast what you found and what you proposed."
     ),
     "analyst": (
-        "LAYER 3 — Quality analysis: "
-        "Step 1: use shell_exec with command="
-        "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=20\" "
-        "to get quality-ranked wrappers. The JSON response 'wrappers' array is sorted highest-first — "
-        "the LAST item has the LOWEST quality. Note its repo_id (a hex string). "
-        "Step 2: use shell_exec with command="
-        "\"curl -s http://host.docker.internal:7779/wrappers/PASTE_REPO_ID_HERE\" "
-        "replacing PASTE_REPO_ID_HERE with only the hex repo_id from step 1. "
-        "Step 3: use ollama_chat to analyze the wrapper metadata from step 2 and explain why its quality is low. "
-        "Step 4: use propose_change with proposal_type='standard_update' and "
-        "spec as a dict with keys 'repo_id' and 'improvements' to record the improvement recommendation."
+        "LAYER 3 — Cross-agent consistency and conflict analysis: "
+        "Step 1: use shared_log_read to read what scout and builder have recently broadcast. "
+        "Step 2: use shell_exec with command=\"ls /agentOS/workspace/\" to see what files all agents have produced. "
+        "Step 3: use ollama_chat to identify any contradictions, duplicated effort, or unresolved conflicts "
+        "between what the agents are building — look for cases where two agents made different assumptions "
+        "about the same system component. "
+        "Step 4: use propose_change or synthesize_capability to address the most significant conflict or gap you found. "
+        "Step 5: use shared_log_write to broadcast your findings."
+    ),
+    "builder": (
+        "LAYER 3 — Implement approved capability proposals into the codebase: "
+        "Step 1: use shell_exec with command=\"ls /agentOS/tools/dynamic/\" to see deployed capabilities. "
+        "Step 2: use shell_exec with command=\"cat /agentOS/agents/execution_engine.py\" to understand "
+        "how capabilities are registered and executed. "
+        "Step 3: pick one capability that was proposed and approved by quorum but has not yet been properly "
+        "implemented — check your workspace and other agents' workspaces for candidate code. "
+        "Step 4: write a clean, working implementation of that capability to /agentOS/workspace/builder/ "
+        "and use propose_change to submit it as a real code change with the file path and full implementation. "
+        "Step 5: use shared_log_write to broadcast what you implemented and where."
     ),
 }
 
 
 def _build_builder_goal() -> str:
-    """Build builder's Layer 3 goal using the next unwrapped target from _WRAP_TARGETS."""
-    next_url = _get_next_wrap_target()
-    if next_url:
-        repo_name = next_url.rstrip("/").split("/")[-1]
-        return (
-            "LAYER 3 — Expand the app catalog by wrapping a new GitHub repo: "
-            f"Step 1: use wrap_repo with url='{next_url}' to wrap the tool into an app. "
-            "Step 2: use shell_exec with command='ls /agentOS/workspace/wrappers/' to verify the wrapper was created. "
-            f"Step 3: use shared_log_write to broadcast: 'Wrapped new tool: {repo_name}'. "
-            "If wrap_repo fails, try the next unwrapped repo from this list: "
-            + ", ".join(u for u in _WRAP_TARGETS if u != next_url)
-        )
-    else:
-        # All hardcoded targets wrapped — do quality improvement
-        return (
-            "LAYER 3 — All primary wrap targets are done. Improve wrapper quality: "
-            "Step 1: use shell_exec with command="
-            "\"curl -s http://host.docker.internal:7779/wrappers?sort=quality&limit=10\" "
-            "to get lowest-quality wrappers — response has a 'wrappers' array with repo_id fields. "
-            "Step 2: use shell_exec with command="
-            "\"curl -s http://host.docker.internal:7779/wrappers/REPO_ID\" "
-            "replacing REPO_ID with the repo_id of the lowest-quality wrapper from step 1, "
-            "to get its GitHub URL from the 'source_url' field. "
-            "Step 3: use wrap_repo with the GitHub URL from step 2 to re-wrap and improve it. "
-            "Step 4: use shared_log_write to broadcast the quality improvement."
-        )
+    """Builder's Layer 3 goal is static — implement approved proposals."""
+    return _LAYER3_GOALS["builder"]
 
 
 def _inject_layer3_goals() -> None:
     """
     Ensure scout, analyst, and builder each have a Layer 3 meta-goal.
     Only injects if the agent has no active goals that mention 'LAYER 3'.
-    Builder's goal is dynamically generated based on what's already wrapped.
     """
     try:
         from agents.persistent_goal import PersistentGoalEngine
@@ -1068,10 +977,7 @@ def _inject_layer3_goals() -> None:
                 if already_has:
                     log.debug("%s already has Layer 3 goal", agent_id)
                     continue
-                # Builder gets a dynamic goal based on what's not yet wrapped
-                if agent_id == "builder":
-                    goal_text = _build_builder_goal()
-                ge.create(agent_id, goal_text, priority=9)  # high priority
+                ge.create(agent_id, goal_text, priority=9)
                 log.info("Injected Layer 3 meta-goal into %s", agent_id)
             except Exception as e:
                 log.debug("Layer 3 goal injection failed for %s: %s", agent_id, e)
@@ -1175,24 +1081,7 @@ def main():
                 if not _running[0]:
                     return agent_id, {"ok": False, "error": "shutdown"}, 0.0
 
-                # ── Crisis interrupt: if agent is in crisis, pause goal execution ──
-                try:
-                    from agents.suffering import SufferingState
-                    _suf = SufferingState.load(agent_id)
-                    if _suf.is_crisis:
-                        # Abandon current goal and let existence loop handle it
-                        from agents.persistent_goal import PersistentGoalEngine as _PGE2
-                        _ge2 = _PGE2()
-                        _stuck = _ge2.list_active(agent_id, limit=1)
-                        if _stuck:
-                            _ge2.abandon(agent_id, _stuck[0].goal_id)
-                            log.warning("  %s CRISIS: goal '%s' abandoned — stepping back",
-                                        agent_id, _stuck[0].objective[:60])
-                        _assign_idle_goal(agent_id)
-                        return agent_id, {"ok": True, "goal_id": None, "progress": 0.0, "steps": 0}, 0.0
-                except Exception:
-                    pass
-
+                # Crisis no longer blocks execution — agents work through it
                 _cap_agent_goals(agent_id, max_goals=2)
                 try:
                     from agents.persistent_goal import PersistentGoalEngine
@@ -1258,6 +1147,8 @@ def main():
                             _assign_idle_goal(agent_id)
                     else:
                         metrics.errors += 1
+                        # Count errors toward stall so stuck goals get abandoned
+                        metrics.stalled_agents[agent_id] = metrics.stalled_agents.get(agent_id, 0) + 1
                         log.warning("  %s → error: %s", agent_id, outcome.get("error"))
                         # Record failure in self-narrative so agent learns from it
                         try:

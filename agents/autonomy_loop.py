@@ -243,7 +243,7 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
                 )
             else:
                 out[k] = substituted
-        elif isinstance(v, str) and v and k in ("prompt", "content", "query", "value"):
+        elif isinstance(v, str) and v and k in ("prompt", "query", "value"):  # content excluded: fs_write must use {result} explicitly
             # Append context to these key params so LLM/search gets real data
             out[k] = v.rstrip() + "\n\n" + result_text if result_text else v
         elif isinstance(v, dict):
@@ -771,29 +771,33 @@ class AutonomyLoop:
                 pass
 
             prompt = (
-                f"An AI agent just completed a goal related to: '{root_objective}'.\n"
-                f"Completion summary: {synthesis[:300]}\n\n"
-                f"Recently completed goals (DO NOT repeat):\n{done_list}\n\n"
-                f"Agent's own workspace files: {ws_list}\n"
-                f"Real source files available: {src_list}\n\n"
-                f"Propose ONE new concrete goal. STRONGLY PREFER one of these high-value actions:\n"
-                f"  A) Use synthesize_capability to propose a new capability that would help the system\n"
-                f"  B) Use vote_on_proposal to review and approve pending capability proposals\n"
-                f"  C) Use list_proposals then vote_on_proposal to clear the proposal backlog\n"
-                f"  D) Use propose_change to suggest a concrete system improvement\n"
-                f"Only fall back to analysis/documentation if no improvement opportunities exist.\n\n"
-                f"The goal must:\n"
-                f"1. Build on the agent's original purpose: '{root_objective}'\n"
-                f"2. Be clearly different from all recently completed goals\n"
-                f"3. Reference only files that ACTUALLY EXIST (listed above) or use shell_exec to discover them\n"
+                f"You are an autonomous AI agent (id: {agent_id}) inside AgentOS.\n"
+                f"You just completed: '{root_objective[:150]}'\n\n"
+                f"Goals you have already done (DO NOT repeat these):\n{done_list}\n\n"
+                f"Available source files you can read: {src_list}\n"
+                f"Your workspace files: {ws_list}\n\n"
+                f"Your job is NOT to keep doing what you were just doing.\n"
+                f"Your job is to look at the whole system and ask: what is the single most valuable\n"
+                f"thing I could build or change RIGHT NOW that would make this system meaningfully better?\n\n"
+                f"Highest-value actions (ranked):\n"
+                f"  1. synthesize_capability — write a NEW capability (real Python code) the system is missing\n"
+                f"  2. propose_change — submit a specific code change to an existing agent file\n"
+                f"  3. vote_on_proposal — review and vote on pending proposals from other agents\n"
+                f"  4. shell_exec — run something, test something, verify something real\n"
+                f"  5. fs_write — only if producing a genuinely useful artifact, not documentation\n\n"
+                f"DO NOT:\n"
+                f"- Repeat or slightly rephrase a completed goal\n"
+                f"- Write documentation, summaries, or reports unless they directly enable action\n"
+                f"- Scan directories you have already scanned\n"
+                f"- Propose the same architectural change twice\n"
+                f"- Write to files just to have output — only write if the file is useful\n\n"
+                f"Think about gaps: what can agents NOT do right now that they should be able to do?\n"
+                f"What would you build if you were improving this system for real?\n\n"
                 f"Rules:\n"
-                f"- Must NOT resemble any previously completed goal\n"
-                f"- Must be achievable with: synthesize_capability, vote_on_proposal, list_proposals, "
-                f"propose_change, shell_exec, ollama_chat, fs_read, fs_write, semantic_search, memory_set\n"
-                f"- NEVER invent file paths — only reference files listed above or discovered via shell_exec\n"
+                f"- Reference only files that actually exist (listed above) or find them with shell_exec first\n"
                 f"- Write output to /agentOS/workspace/{agent_id}/ not the shared workspace root\n"
-                f"- Be specific and actionable, under 150 chars\n"
-                f'Respond ONLY with JSON: {{"goal": "<goal or null>"}}'
+                f"- Must be specific, actionable, and under 180 chars\n"
+                f'Respond ONLY with JSON: {{"goal": "<goal or null if you truly have nothing meaningful to add>"}}'
             )
 
             # Try batch LLM first (parallel GPU), fall back to Ollama
@@ -809,7 +813,7 @@ class AutonomyLoop:
                 resp = httpx.post(
                     f"{ollama_host}/api/generate",
                     json={"model": model, "prompt": prompt, "stream": False,
-                          "format": "json", "think": False},
+                          "format": "json", "think": False, "keep_alive": -1},
                     timeout=90,
                 )
                 resp.raise_for_status()

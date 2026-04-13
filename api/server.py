@@ -107,7 +107,7 @@ def _require_ollama():
             detail=(
                 "Ollama is not available. Core features (state, filesystem, memory, shell, "
                 "standards, handoffs) work without Ollama. To enable model routing and semantic "
-                "search, install Ollama and pull: nomic-embed-text, mistral-nemo:12b"
+                "search, install Ollama and pull: nomic-embed-text, qwen3.5:9b-gpu"
             )
         )
 
@@ -116,14 +116,14 @@ def _require_ollama():
 MODEL_ROUTES = {
     "code":            "qwen2.5:14b",
     "code-fast":       "qwen3.5:9b",
-    "general":         "mistral-nemo:12b",
+    "general":         "qwen3.5:9b-gpu",
     "general-large":   "qwen3.5:27b",
     "reasoning":       "qwen3.5-35b-moe:latest",
     "reasoning-large": "nous-hermes2:34b",
     "uncensored":      "dolphin3:latest",
     "custom":          "emmi:latest",
 }
-DEFAULT_MODEL = "mistral-nemo:12b"
+DEFAULT_MODEL = "qwen3.5:9b-gpu"
 
 # ── In-memory state cache (used by /state and /state/diff) ───────────────────
 _STATE_CACHE_TTL = 5.0  # seconds — serve from cache within this window
@@ -370,6 +370,11 @@ class WriteRequest(BaseModel):
     path: str
     content: str
     txn_id: Optional[str] = None   # v1.2.0: stage instead of apply if set
+
+class EditRequest(BaseModel):
+    path: str
+    old_string: str
+    new_string: str
 
 class BatchReadRequest(BaseModel):
     paths: list[str]
@@ -926,6 +931,26 @@ async def fs_write(req: WriteRequest, authorization: Optional[str] = Header(None
     return {"ok": True, "path": str(p), "size_bytes": len(req.content.encode())}
 
 
+@app.post("/fs/edit")
+async def fs_edit(req: EditRequest, authorization: Optional[str] = Header(None)):
+    """Replace old_string with new_string in a file. Fails if old_string not found."""
+    _verify_any_token(authorization)
+    p = Path(req.path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {req.path}")
+    content = p.read_text(encoding="utf-8", errors="replace")
+    if req.old_string not in content:
+        raise HTTPException(status_code=400, detail="old_string not found in file")
+    new_content = content.replace(req.old_string, req.new_string, 1)
+    p.write_text(new_content, encoding="utf-8")
+    log_action("file_edit", {"path": req.path, "old_len": len(req.old_string), "new_len": len(req.new_string)})
+    if _events:
+        agent = _agent_from_token(authorization)
+        agent_id = agent.agent_id if agent else "unknown"
+        _events.emit("file.edited", agent_id, {"path": req.path, "agent_id": agent_id})
+    return {"ok": True, "path": str(p), "size_bytes": len(new_content.encode())}
+
+
 @app.post("/fs/batch-read")
 async def fs_batch_read(req: BatchReadRequest, authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
@@ -1016,14 +1041,11 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
                     headers={"Retry-After": str(_math.ceil(rl.wait_ms / 1000))},
                 )
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "messages": req.messages, "stream": False, "think": False}
-    if req.temperature is not None or req.max_tokens is not None:
-        payload["options"] = {}
-        if req.temperature is not None:
-            payload["options"]["temperature"] = req.temperature
-        if req.max_tokens is not None:
-            payload["options"]["num_predict"] = req.max_tokens
-
+    payload: dict = {"model": model, "messages": req.messages, "stream": False, "think": False, "options": {"num_ctx": 8192}}
+    if req.temperature is not None:
+        payload["options"]["temperature"] = req.temperature
+    if req.max_tokens is not None:
+        payload["options"]["num_predict"] = req.max_tokens
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(f"{_ollama_host()}/api/chat", json=payload)
@@ -1059,7 +1081,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
     _verify_any_token(authorization)
     _require_ollama()
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False}
+    payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False, "options": {"num_ctx": 8192}}
     if req.temperature is not None:
         payload["options"] = {"temperature": req.temperature}
 
@@ -1751,6 +1773,22 @@ async def tools_openai_schema(authorization: Optional[str] = Header(None)):
                         "content": {"type": "string"}
                     },
                     "required": ["path", "content"]
+                },
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hollow_fs_edit",
+                "description": "Edit a file by replacing an exact string. Use this to fix a specific line or block in an existing file without rewriting the whole thing.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Absolute path to the file"},
+                        "old_string": {"type": "string", "description": "Exact text to find and replace"},
+                        "new_string": {"type": "string", "description": "Text to replace it with"}
+                    },
+                    "required": ["path", "old_string", "new_string"]
                 },
             }
         },

@@ -240,12 +240,27 @@ def _parse_daemon_log():
                 m = re.search(r"Cycle (\d+):", line)
                 if m:
                     CYCLE = int(m.group(1))
+                # Original goal-progress format
                 m = re.search(r"INFO\s+(\S+) → goal=\S+ progress=([\d.]+) steps=(\d+)", line)
                 if m:
                     new_state[m.group(1)] = {
                         "progress": float(m.group(2)),
                         "steps": int(m.group(3)),
                     }
+                # Existence-loop format: "analyst (Plonk) existence loop — reflecting: ..."
+                m2 = re.search(r"INFO\s+(\S+)\s+\(([^)]+)\)\s+existence loop", line)
+                if m2:
+                    agent_id, agent_name = m2.group(1), m2.group(2)
+                    _name_cache[agent_id] = agent_name
+                    if agent_id not in new_state:
+                        new_state[agent_id] = {"progress": 0.0, "steps": 0}
+                # Suffering load: "analyst suffering: load=0.60 stressors=[...]"
+                m3 = re.search(r"INFO\s+(\S+)\s+suffering:\s+load=([\d.]+)", line)
+                if m3:
+                    agent_id = m3.group(1)
+                    if agent_id not in new_state:
+                        new_state[agent_id] = {"progress": 0.0, "steps": 0}
+                    new_state[agent_id]["suffering"] = float(m3.group(2))
         except Exception:
             pass
 
@@ -397,6 +412,27 @@ def _humanize(raw: str) -> str | None:
         err   = parts[1].strip() if len(parts) > 1 else ""
         msg = _pick(_FAIL_TIMEOUT, f"timeout-{name}") if "timed out" in err else _pick(_FAIL_GENERIC, f"fail-{name}")
         return f"[dim]                    [/dim]  [dim]└  [red]{msg}[/red][/dim]"
+
+    # ── Existence-loop thought types ──────────────────────────────────────────
+    _THOUGHT_EMOJIS = [
+        ("🆘",  "bold red",    True),   # crisis — show content
+        ("🌑",  "dim",         True),   # chose nothing
+        ("🪞",  "white",       True),   # reflection
+        ("🧠",  "cyan",        True),   # worldview/insight
+        ("💭",  "dim",         True),   # background thought
+        ("❓",  "dim cyan",    True),   # question/curiosity
+        ("📨",  "yellow",      True),   # message sent
+        ("📬",  "dim yellow",  True),   # inbox
+        ("◉",   "cyan",        True),   # generic activity
+    ]
+    for emoji, style, show_content in _THOUGHT_EMOJIS:
+        if rest.startswith(emoji):
+            content = rest[len(emoji):].strip()
+            display = content[:100] if content else emoji
+            return (
+                f"[dim]{ts_s}[/dim]  [bold white]{name:<10}[/bold white]"
+                f"  [{style}]{display}[/{style}]"
+            )
 
     return None
 
