@@ -127,12 +127,22 @@ def _read_claude_oauth_token() -> str:
     return ""
 
 
+
+# Session-level flag: set True after confirmed auth failure so we stop
+# hammering api.anthropic.com with requests that will 401 every call.
+_claude_auth_known_bad: bool = False
+
+
 def _get_claude_client():
     """
     Return an Anthropic client using the best available auth method.
     Priority: OAuth credentials file → ANTHROPIC_AUTH_TOKEN → ANTHROPIC_API_KEY
-    Returns None if no auth is available.
+    Returns None if no auth is available or auth has already failed this session.
     """
+    global _claude_auth_known_bad
+    if _claude_auth_known_bad:
+        return None
+
     import anthropic
 
     # 1. OAuth credentials file (auto-refreshed by Claude Code)
@@ -241,6 +251,9 @@ class ReasoningLayer:
             except anthropic.AuthenticationError:
                 if attempt == 0:
                     continue  # re-read credentials file and retry once
+                # Second 401 — credentials are bad for this session. Stop trying.
+                global _claude_auth_known_bad
+                _claude_auth_known_bad = True
                 raise
 
     def _generate(self, prompt: str, model_tier: str = "auto") -> str:

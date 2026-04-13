@@ -47,7 +47,7 @@ import numpy as np
 
 EMBEDDING_MODEL_AVAILABLE = True  # always available via Ollama
 
-_OLLAMA_EMBED_URL = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434") + "/api/embeddings"
+_OLLAMA_EMBED_URL = os.getenv("OLLAMA_EMBED_HOST", os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")) + "/api/embeddings"
 _EMBED_MODEL = "nomic-embed-text"
 
 def _get_shared_embedder():
@@ -89,18 +89,26 @@ class SemanticMemory:
         self._embedder = _get_shared_embedder()
 
     def _embed(self, text: str) -> Optional[np.ndarray]:
-        """Convert text to embedding via Ollama nomic-embed-text."""
-        try:
-            import httpx
-            r = httpx.post(_OLLAMA_EMBED_URL,
-                           json={"model": _EMBED_MODEL, "prompt": text},
-                           timeout=15)
-            r.raise_for_status()
-            emb = r.json().get("embedding")
-            if emb:
-                return np.array(emb, dtype=np.float32)
-        except Exception:
-            pass
+        """Convert text to embedding via Ollama nomic-embed-text.
+        Retries on 503 (queue full) up to 3 times with backoff.
+        """
+        import time
+        import httpx
+        for attempt in range(3):
+            try:
+                r = httpx.post(_OLLAMA_EMBED_URL,
+                               json={"model": _EMBED_MODEL, "prompt": text},
+                               timeout=15)
+                if r.status_code == 503 and attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                emb = r.json().get("embedding")
+                if emb:
+                    return np.array(emb, dtype=np.float32)
+            except Exception:
+                pass
+            break
         return None
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:

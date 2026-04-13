@@ -34,20 +34,38 @@ def _ollama_host() -> str:
     return _load_config().get("ollama", {}).get("host", "http://localhost:11434")
 
 
+def _ollama_embed_host() -> str:
+    # Prefer OLLAMA_EMBED_HOST (dedicated embed instance) over OLLAMA_HOST over config default
+    import os
+    return os.getenv("OLLAMA_EMBED_HOST", os.getenv("OLLAMA_HOST", _ollama_host()))
+
+
 def embed(text: str) -> Optional[list[float]]:
-    """Get embedding vector from Ollama nomic-embed-text."""
+    """Get embedding vector from Ollama nomic-embed-text.
+    Retries up to 3 times with backoff on 503 (queue full) before giving up.
+    """
+    import time
+    import urllib.error
+
     payload = json.dumps({"model": EMBED_MODEL, "prompt": text}).encode()
-    req = urllib.request.Request(
-        f"{_ollama_host()}/api/embeddings",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read()).get("embedding")
-    except Exception:
-        return None
+    for attempt in range(3):
+        req = urllib.request.Request(
+            f"{_ollama_embed_host()}/api/embeddings",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read()).get("embedding")
+        except urllib.error.HTTPError as e:
+            if e.code == 503 and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))  # 1.5s, then 3s
+                continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

@@ -1053,6 +1053,9 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {e}")
 
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=f"Ollama error: {data['error']}")
+
     result = {
         "model":             model,
         "role_used":         req.role,
@@ -1083,7 +1086,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
     payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False, "options": {"num_ctx": 8192}}
     if req.temperature is not None:
-        payload["options"] = {"temperature": req.temperature}
+        payload["options"]["temperature"] = req.temperature
 
     try:
         async with httpx.AsyncClient(timeout=300) as client:
@@ -1091,6 +1094,9 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
             data = r.json()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {e}")
+
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=f"Ollama error: {data['error']}")
 
     result = {
         "model":             model,
