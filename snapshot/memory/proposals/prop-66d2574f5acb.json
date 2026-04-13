@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-66d2574f5acb",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "\"\"\"\nResource Manager \u2014 AgentOS v3.20.0.\n\nAgents monitor their own storage footprint and act before limits are hit.\nRuns automatically after goal completions via the autonomy loop.\n\nOperations:\n  - Memory pruning: remove old/low-access semantic memories to stay under capacity\n  - Reasoning compaction: summarize old reasoning history into a single entry\n  - Capability audit: flag capabilities unused for >7 days\n  - Execution chain trimming: keep only recent execution steps on disk\n\nResourceManager"
+  },
+  "test_cases": [],
+  "rationale": "Add idle state protection to prevent false triggers during high-load or low-activity periods",
+  "status": "proposed",
+  "created_at": 1776038103.6085799,
+  "updated_at": 1776038103.6085799,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

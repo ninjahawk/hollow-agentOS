@@ -1,0 +1,3 @@
+-rwxr-xr-x 1 root root 10425 Apr  9 05:39 /agentOS/agents/events.py
+-rwxr-xr-x 1 root root 22724 Apr 13 05:23 /agentOS/agents/registry.py
+-rw-r--r-- 1 root root  5866 Apr 13 20:32 /agentOS/agents/signals.py

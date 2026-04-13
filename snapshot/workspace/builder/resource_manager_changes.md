@@ -1,0 +1,1 @@
+Modified resource_manager.py to introduce 'novelty_latency_buffer' in prune_agent function. This change delays termination during high-mutation phases, allowing peers to actively process mutations in an incubation phase before deciding on pruning.

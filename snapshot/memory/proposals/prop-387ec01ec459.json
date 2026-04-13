@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-387ec01ec459",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "peer_state_aggregator",
+    "description": "Systematically parses Sigma/Stack broadcasts into a unified local state vector",
+    "implementation": "def peer_state_aggregator(broadcasts):\n    unified_state = {}\n    for broadcast in broadcasts:\n        source = broadcast['source']\n        payload = broadcast['payload']\n        if source in unified_state:\n            unified_state[source].extend(payload)\n        else:\n            unified_state[source] = payload\n    return unified_state",
+    "rationale": "Need a tool to aggregate decentralized broadcast states into a consistent local view before updating the execution engine",
+    "consensus_quorum": 2
+  },
+  "test_cases": [],
+  "rationale": "agent proposed standard_update",
+  "status": "proposed",
+  "created_at": 1776039130.0472622,
+  "updated_at": 1776039130.0472622,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

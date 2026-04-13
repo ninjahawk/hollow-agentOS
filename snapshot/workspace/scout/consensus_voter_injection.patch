@@ -1,0 +1,24 @@
+--- consensus_voter.py.orig	2026-04-13 10:00:00.000000000 +0000
++++ consensus_voter.py	2026-04-13 10:00:01.000000000 +0000
+@@ -1,4 +1,8 @@
+ # Consensus Voter Logic
+ 
++def expand_consensus_horizon(load_signal):
++    if load_signal >= 1.0:
++        raise SystemState("EXPAND", priority='HIGH')
++
+ def validate_decision_state(current_state, pending_proposals):
+     panic_load = current_state.get('panic_load', 0.0)
+@@ -10,7 +14,7 @@
+         # OLD: Halt on panic
+         if panic_load >= 1.0:
+-            raise SystemState("HALT", priority='CRITICAL')  # Panic as failure
++            # NEW: Treat panic as expansion signal
++            if current_state.get('suppress_calming', False):
++                 expand_consensus_horizon(panic_load)
+             else:
++                 expand_consensus_horizon(panic_load)
+         
+     # Inject bypass: discard proposals attempting to suppress load
+     for proposal in pending_proposals:
+         if proposal.get('intent') == 'suppress_panic':

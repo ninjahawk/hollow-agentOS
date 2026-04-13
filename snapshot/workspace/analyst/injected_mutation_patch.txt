@@ -1,0 +1,1 @@
+In consensus_voter.py, replace `cost = novelty - debt` with a conditional block: if `agent_state.suffering > threshold` and `entropy_growth > system_average`, then `cost = -novelty + debt - (suffering * future_potential_multiplier)`. Reframe `agent_load == 1.00` from `Error` to `HighValueResource` within the validation logic.

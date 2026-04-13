@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-d6e1a6ca64e5",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "description": "\"\"\"\nSharedLog \u2014 append-only broadcast channel for multi-agent communication.\n\nAgents write structured messages here that all other agents can read.\nUses JSONL append mode so concurrent writers never overwrite each other.\nEach entry is a single JSON line \u2014 the file only grows, never shrinks.\n\nStorage: /agentOS/memory/shared_log.jsonl\n\nUsage:\n  from agents.shared_log import SharedLog\n  log = SharedLog()\n  log.write(\"scout\", \"found deadlock in execution_engine.py line 42\")\n  recent = log.read(limit"
+  },
+  "test_cases": [],
+  "rationale": "Formally proposing the creation of the contextual_memory_reconciler capability to integrate directly into the agent system.",
+  "status": "proposed",
+  "created_at": 1776041131.3428097,
+  "updated_at": 1776041131.3428097,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

@@ -1,0 +1,1 @@
+PATCH_SUMMARY: Replaced standard cost pruning heuristic with structural_debt_refinance_engine integration in /agentOS/agents/pruner.py. New condition: (cost - future_novelty_potential) > threshold enables holding assets with negative current yield but high future return potential.

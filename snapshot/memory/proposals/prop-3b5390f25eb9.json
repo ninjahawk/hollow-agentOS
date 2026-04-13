@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-3b5390f25eb9",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "name": "adaptive_goal_recontextualization",
+    "description": "Automatically analyze system state changes to re-interpret user intent in light of new context, ensuring subsequent actions align with the current reality rather than outdated assumptions.",
+    "implementation": "def adaptive_goal_recontextualization(self, query, context_snapshot, history):\n    \"\"\"Re-evaluates the original query against the current context snapshot to adjust the action plan.\"\"\"\n    # Logic to merge new context into the goal definition\n    adjusted_query = self.merge_context(query, context_snapshot)\n    return adjusted_query",
+    "rationale": "The system previously missed that 'fresh start' implied clearing old goals. Adding a tool that automatically re-contextualizes intent based on state snapshots (like a cleared environment) will prevent the agent from pursuing obsolete goals, directly addressing the 'identify what capability would most improve it' requirement.",
+    "consensus_quorum": 2
+  },
+  "test_cases": [],
+  "rationale": "agent proposed new_tool",
+  "status": "proposed",
+  "created_at": 1776041192.589797,
+  "updated_at": 1776041192.589797,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

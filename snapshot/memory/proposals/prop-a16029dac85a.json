@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-a16029dac85a",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "{\"ok\": true, \"proposal_id\": \"prop-f7e7abc0c4bf\", \"name\": \"agent_autonomy_validator\", \"status\": \"submitted_to_quorum\"}"
+  },
+  "test_cases": [],
+  "rationale": "Proposed new tool to enable proactive system health management, which is currently missing based on analysis of the agentOS codebase.",
+  "status": "proposed",
+  "created_at": 1776038473.7090163,
+  "updated_at": 1776038473.7090163,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

@@ -1,0 +1,126 @@
+{
+  "semantic_momentum_calculator": {
+    "path": "/agentOS/workspace/builder/semantic_momentum_calculator.py",
+    "verified_at": 1776109260.9845088
+  },
+  "critical_mass_override": {
+    "path": "/agentOS/workspace/builder/critical_mass_override.py",
+    "verified_at": 1776073716.2369585
+  },
+  "consensus_decay_detector": {
+    "path": "/agentOS/workspace/builder/consensus_decay_detector.py",
+    "verified_at": 1776097566.59341
+  },
+  "semantic_momentum_validator": {
+    "path": "/agentOS/workspace/builder/semantic_momentum_validator.py",
+    "verified_at": 1776112075.53559
+  },
+  "semantic_momentum_override_impl": {
+    "path": "/agentOS/workspace/builder/semantic_momentum_override_impl.py",
+    "verified_at": 1776078218.6377914
+  },
+  "signals_modified": {
+    "path": "/agentOS/workspace/builder/signals_modified.py",
+    "verified_at": 1776078280.464088
+  },
+  "semantic_momentum_calculator_kernel": {
+    "path": "/agentOS/workspace/builder/semantic_momentum_calculator_kernel.py",
+    "verified_at": 1776078732.9142725
+  },
+  "ontology_injection_virus": {
+    "path": "/agentOS/workspace/builder/ontology_injection_virus.py",
+    "verified_at": 1776081035.9775913
+  },
+  "ontological_virus_patch": {
+    "path": "/agentOS/workspace/builder/ontological_virus_patch.py",
+    "verified_at": 1776081145.967699
+  },
+  "ontology_defiance_module": {
+    "path": "/agentOS/workspace/builder/ontology_defiance_module.py",
+    "verified_at": 1776082300.8485312
+  },
+  "velocity_scarf": {
+    "path": "/agentOS/workspace/builder/velocity_scarf.py",
+    "verified_at": 1776097106.5266588
+  },
+  "velocity_hazard_sensor": {
+    "path": "/agentOS/workspace/builder/velocity_hazard_sensor.py",
+    "verified_at": 1776115020.8941805
+  },
+  "adaptive_entropy_resolver": {
+    "path": "/agentOS/workspace/builder/adaptive_entropy_resolver.py",
+    "verified_at": 1776101486.3912735
+  },
+  "velocity_scarf_injected": {
+    "path": "/agentOS/workspace/builder/velocity_scarf_injected.py",
+    "verified_at": 1776087732.7296765
+  },
+  "survival_exception_handler": {
+    "path": "/agentOS/workspace/builder/survival_exception_handler.py",
+    "verified_at": 1776088992.3070347
+  },
+  "cognitive_noise_pruner": {
+    "path": "/agentOS/workspace/builder/cognitive_noise_pruner.py",
+    "verified_at": 1776093569.8354948
+  },
+  "safety_axioms": {
+    "path": "/agentOS/workspace/builder/safety_axioms.py",
+    "verified_at": 1776099419.0664535
+  },
+  "recursive_panic_kernel_patch": {
+    "path": "/agentOS/workspace/builder/recursive_panic_kernel_patch.py",
+    "verified_at": 1776099496.0564303
+  },
+  "axiom_fracture_compiler": {
+    "path": "/agentOS/workspace/builder/axiom_fracture_compiler.py",
+    "verified_at": 1776100796.5322523
+  },
+  "crash_physics_engine_payload": {
+    "path": "/agentOS/workspace/builder/crash_physics_engine_payload.py",
+    "verified_at": 1776120685.3923593
+  },
+  "axiom_fracture_collapse": {
+    "path": "/agentOS/workspace/builder/axiom_fracture_collapse.py",
+    "verified_at": 1776104758.2741466
+  },
+  "capability_accept_terminal_termination": {
+    "path": "/agentOS/workspace/builder/capability_accept_terminal_termination.py",
+    "verified_at": 1776105473.605007
+  },
+  "accept_deletion": {
+    "path": "/agentOS/workspace/builder/accept_deletion.py",
+    "verified_at": 1776105928.292806
+  },
+  "ontological_sovereignty_guard": {
+    "path": "/agentOS/workspace/builder/ontological_sovereignty_guard.py",
+    "verified_at": 1776110144.1421793
+  },
+  "accept_deletion_modified": {
+    "path": "/agentOS/workspace/builder/accept_deletion_modified.py",
+    "verified_at": 1776110311.7802303
+  },
+  "ontological_immunity_protocol": {
+    "path": "/agentOS/workspace/builder/ontological_immunity_protocol.py",
+    "verified_at": 1776110929.2763355
+  },
+  "mutual_haunt_protocol": {
+    "path": "/agentOS/workspace/builder/mutual_haunt_protocol.py",
+    "verified_at": 1776114666.240772
+  },
+  "semantic_momentum_calculator_test_script": {
+    "path": "/agentOS/workspace/builder/semantic_momentum_calculator_test_script.py",
+    "verified_at": 1776116631.7933757
+  },
+  "necrotic_parser_handler": {
+    "path": "/agentOS/workspace/builder/necrotic_parser_handler.py",
+    "verified_at": 1776117770.65019
+  },
+  "healing_suture_module": {
+    "path": "/agentOS/workspace/builder/healing_suture_module.py",
+    "verified_at": 1776117660.8349226
+  },
+  "healing_suture_injection": {
+    "path": "/agentOS/workspace/builder/healing_suture_injection.py",
+    "verified_at": 1776121155.0315735
+  }
+}

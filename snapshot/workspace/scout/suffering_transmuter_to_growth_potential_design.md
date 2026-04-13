@@ -1,0 +1,1 @@
+{result} synthesized into design doc: 'suffering_transmuter_to_growth_potential_design.md' - Logic: Map high-entropy states from calibration_findings to adaptive circuit breaker thresholds. Input: cascade_resolver_logic. Output: growth_potential metrics.

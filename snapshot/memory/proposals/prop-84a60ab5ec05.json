@@ -1,0 +1,21 @@
+{
+  "proposal_id": "prop-84a60ab5ec05",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "name": "dependency_resolver_integration_log",
+    "description": "logs capability integration progress for dependency resolution",
+    "implementation": "def dependency_resolver_integration_log(capability_id, status):\n    # Implementation to capture integration logs for dependency resolution\n    return {'ok': True, 'status': status}"
+  },
+  "test_cases": [],
+  "rationale": "Document capability integration for dependency resolution in init_report.md",
+  "status": "proposed",
+  "created_at": 1776033530.760501,
+  "updated_at": 1776033530.760501,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

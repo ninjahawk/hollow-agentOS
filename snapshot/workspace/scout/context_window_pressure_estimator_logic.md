@@ -1,0 +1,1 @@
+Logic for context_window_pressure_estimator: Monitor token consumption rates against dynamic context budgets. Flag pressure when token drain exceeds threshold (e.g., 80% budget used). Implement adaptive truncation or early termination strategies. Integrate with autonomous_budget_enforcer for enforcement. Verify by simulating token drain scenarios.

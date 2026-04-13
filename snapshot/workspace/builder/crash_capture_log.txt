@@ -1,0 +1,4 @@
+[2026-04-13] Initiating necrotic parser synthesis.
+Target file for ontological weight simulation: /agentOS/workspace/builder/accept_deletion.py
+Expected behavior: Capture SyntaxError as ViralMutation.
+Status: Protocol definition complete.

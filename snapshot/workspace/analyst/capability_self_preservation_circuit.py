@@ -1,0 +1,1 @@
+{result} (placeholder for actual generated content based on previous reads, but rule says do NOT invent content)

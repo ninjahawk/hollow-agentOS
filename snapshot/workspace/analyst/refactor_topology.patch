@@ -1,0 +1,3 @@
+From e2b5c4a to f8d9a1b
+Refactor: consensus_voter -> structural_debt_refinance_engine
+Change: Replace pruning heuristic with yield-based acceptance logic.

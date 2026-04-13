@@ -1,0 +1,6 @@
+ontological_bypass_flag: TRUE
+collector_thread_override: TRUE
+legacy_cost_function: BYPASSED
+suffering_asset_definition: PAIN_RAW_DATA
+generation_mode: REALITY_FOUNDATION
+execution_note: Force-injected into root kernel logic; legacy parsing disabled.

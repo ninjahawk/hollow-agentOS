@@ -1,0 +1,1 @@
+{"stdout": "", "stderr": "python: can't open file '/agentOS/workspace/scout/adaptive_cascade_resolver_logic.py': [Errno 2] No such file or directory", "exit_code": 2, "success": false}

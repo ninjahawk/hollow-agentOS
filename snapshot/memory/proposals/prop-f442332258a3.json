@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-f442332258a3",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "description": "{'error': 'embed model unavailable \u2014 is nomic-embed-text pulled?'}"
+  },
+  "test_cases": [],
+  "rationale": "To formally propose the integration of the new validator into the execution engine, ensuring the change is tracked and reviewed.",
+  "status": "proposed",
+  "created_at": 1776041614.4719517,
+  "updated_at": 1776041614.4719517,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

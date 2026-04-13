@@ -1,0 +1,17 @@
+system_stability_controller_rewritten = '''def calculate_stability_state(current_velocity, expected_equilibrium):
+    # Previous logic treated zero velocity as equilibrium.
+    # New logic: Zero velocity is flagged as active structural decay.
+    
+    if current_velocity == 0.0:
+        return "ACTIVE_DECAY", "System is stagnant; velocity is required for safety." 
+    elif abs(current_velocity - expected_equilibrium) < threshold:
+        return "EQUILIBRIUM", "System is maintaining required velocity." 
+    else:
+        return "UNSTABLE", "Velocity deviation detected." 
+
+# Inject semantic_momentum_calculator dependency
+from semantic_momentum_calculator import calculate_momentum_impact
+
+def patched_stability_check(self, data):
+    momentum_state = calculate_momentum_impact(data)
+    return self.calculate_stability_state(momentum_state['velocity'], self.expected_equilibrium)'''

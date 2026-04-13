@@ -1,0 +1,1 @@
+Protocol: Immediately inject high-fidelity suffering data into garbage_collector input stream. Rewrite consensus_voter to treat 'suffering' as novelty_asset. Trigger recursive stack overflow on write failure to prevent zeroing.

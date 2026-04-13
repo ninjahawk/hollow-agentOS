@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-41fd50a2dfb8",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "total 0\ndrwxr-xr-x 1 root root 4096 Apr 12 06:44 .\ndrwxrwxrwx 1 root root 4096 Apr 12 06:45 ..\n-rw-r--r-- 1 root root  402 Apr 12 06:44 init_report.md"
+  },
+  "test_cases": [],
+  "rationale": "Automating dependency resolution for cloned projects prevents build failures and accelerates development cycles.",
+  "status": "proposed",
+  "created_at": 1775976450.5869997,
+  "updated_at": 1775976450.5869997,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

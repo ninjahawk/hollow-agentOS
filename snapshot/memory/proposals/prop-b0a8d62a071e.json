@@ -1,0 +1,22 @@
+{
+  "proposal_id": "prop-b0a8d62a071e",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "name": "stillness_guard",
+    "description": "Auto-detects idle states in resource_manager.py without triggering task scans",
+    "implementation": "Detects resource_manager idle thresholds and suppresses scan triggers until activity resumes.",
+    "rationale": "Prevents unnecessary task scans during idle periods, improving efficiency and respecting static hum."
+  },
+  "test_cases": [],
+  "rationale": "Need to propose the stillness_guard capability to resource_manager.py to enforce idle detection without scan interruptions.",
+  "status": "proposed",
+  "created_at": 1776038057.7787783,
+  "updated_at": 1776038057.7787783,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

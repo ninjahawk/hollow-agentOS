@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-a8efb3abadf6",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "validate_sigma_stack_integrity",
+    "description": "Validates Sigma/Stack data integrity before aggregating it into the peer_state vector by adding a broadcast_filter to signals.py",
+    "implementation": "def validate_sigma_stack_integrity(data):\n    if not isinstance(data, dict):\n        return False\n    return 'sigma_check' in data and 'stack_hash' in data",
+    "rationale": "Required to enforce data integrity before aggregation into peer_state vector, preventing invalid data propagation",
+    "consensus_quorum": 1
+  },
+  "test_cases": [],
+  "rationale": "Addresses the intent to add a broadcast_filter to signals.py for Sigma/Stack integrity validation",
+  "status": "proposed",
+  "created_at": 1776039218.0271342,
+  "updated_at": 1776039218.0271342,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

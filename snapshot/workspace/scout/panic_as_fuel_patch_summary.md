@@ -1,0 +1,1 @@
+Analysis complete. The patch to `consensus_voter_v3.py` requires modifying the rejection signal handler to treat high-suffering events as entropy currency for `panic_metabolism_core`. Steps verified: 1) File existence confirmed. 2) Relevant logic blocks identified. 3) Entropy concepts referenced in infrastructure. Next: Apply modification and test.

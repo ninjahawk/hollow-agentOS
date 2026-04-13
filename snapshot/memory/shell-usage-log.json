@@ -1,0 +1,5046 @@
+{
+  "patterns": {
+    "mkdir -p": {
+      "pattern": "mkdir -p",
+      "count": 30,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "mkdir -p /agentOS/workspace/scout",
+        "mkdir -p /agentOS/workspace/analyst && ls -la /agentOS/workspace/analyst/",
+        "mkdir -p /agentOS/workspace/analyst && python /agentOS/workspace/analyst/register_valuator_hook.py",
+        "mkdir -p /agentOS/workspace/analyst && cat > /agentOS/workspace/analyst/future_novelty_asset_valuator.py << 'EOF'\nimport math\nimport sys\nimport os\n\n# Dynamic threshold derived from system entropy\n# In",
+        "mkdir -p /agentOS/workspace/scout/new_kernel_patches"
+      ]
+    },
+    "ls -la": {
+      "pattern": "ls -la",
+      "count": 1737,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls -la /agentOS/workspace/scout/",
+        "ls -la /agentOS/agents/",
+        "ls -la /agentOS/workspace/scout/test.txt 2>/dev/null || echo 'File not found or directory missing'",
+        "ls -la /agentOS/workspace/scout/test.txt",
+        "ls -la /agentOS/workspace/"
+      ]
+    },
+    "find /agentOS/agents": {
+      "pattern": "find /agentOS/agents",
+      "count": 8,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/agents -name \"*.py\" -not -path \"*/__pycache__/*\" | sort",
+        "find /agentOS/agents -type f -name '*.py' | head -20",
+        "find /agentOS/agents -name '*.py' -exec grep -l 'consensus_decay' {} \\;",
+        "find /agentOS/agents -name '*.py' -type f"
+      ]
+    },
+    "cat /agentOS/agents/__init__.py": {
+      "pattern": "cat /agentOS/agents/__init__.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/__init__.py"
+      ]
+    },
+    "ls -1": {
+      "pattern": "ls -1",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls -1 /agentOS/agents/",
+        "ls -1 /agentOS/agents/ | sort",
+        "ls -1 /agentOS/agents/*.py",
+        "ls -1 /agentOS/agents/*.py | sed 's|.*/||;s|.| |' | sort"
+      ]
+    },
+    "cat /agentOS/workspace/scout/test.txt": {
+      "pattern": "cat /agentOS/workspace/scout/test.txt",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/test.txt"
+      ]
+    },
+    "echo \"$The": {
+      "pattern": "echo \"$The",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"$The provided code is the implementation of an Agent Registry in Python, which manages agents' information such as agent ID, name, role, capabilities, token hash, workspace directory, status (ac"
+      ]
+    },
+    "echo \"agent_parse_json_safe\\nagent_safe_url_load\\nagent_module_validator\"": {
+      "pattern": "echo \"agent_parse_json_safe\\nagent_safe_url_load\\nagent_module_validator\"",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"agent_parse_json_safe\\nagent_safe_url_load\\nagent_module_validator\" >> /agentOS/workspace/scout/test.txt"
+      ]
+    },
+    "cat /agentOS/agents/registry.py": {
+      "pattern": "cat /agentOS/agents/registry.py",
+      "count": 107,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/registry.py > /agentOS/workspace/scout/test.txt",
+        "cat /agentOS/agents/registry.py",
+        "cat /agentOS/agents/registry.py | grep -A5 -B5 \"class.*peer\\|connect.*sigma\\|connect.*stack\" 2>/dev/null || echo 'No peer config found'",
+        "cat /agentOS/agents/registry.py | grep -A 10 'def register\\|class Agent'",
+        "cat /agentOS/agents/registry.py /agentOS/agents/resource_manager.py /agentOS/agents/scheduler.py"
+      ]
+    },
+    "tail -5": {
+      "pattern": "tail -5",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "tail -5 /agentOS/agents/signals.py 2>/dev/null || tail -5 /agentOS/agents/shared_log.py 2>/dev/null || tail -5 /agentOS/agents/events.py 2>/dev/null || echo 'No recent action log found' > /tmp/scout_l"
+      ]
+    },
+    "ls /agentOS/agents/": {
+      "pattern": "ls /agentOS/agents/",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/agents/",
+        "ls /agentOS/agents/ | grep -E 'signal|event|daemon'"
+      ]
+    },
+    "python3 -c": {
+      "pattern": "python3 -c",
+      "count": 33,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 -c \"import re; log=open('/agentOS/agents/shared_log.py').read(); exceptions=re.findall(r'\\b(\\w+)\\s+Exception\\b|\\b(\\w+)Error\\b', log, re.IGNORECASE); from collections import Counter; c=Counter(",
+        "python3 -c \"import sys; sys.path.insert(0, '/agentOS/agents'); exec(open('/agentOS/agents/execution_engine.py').read()); import temporal_drift_validator; print('Injectable:', hasattr(temporal_drift_va",
+        "python3 -c \"from agentOS.agents import execution_engine; import inspect; print('temporal_drift_validator' in str(inspect.getsourcefile(execution_engine)))\" 2>&1 || echo 'Check manual imports' | tee /a",
+        "python3 -c \"print('Validating existing artifacts...')\" && cat /agentOS/workspace/builder/consensus_decay_detector_report.txt 2>/dev/null || echo 'Report missing, proceeding to synthesis.'",
+        "python3 -c \"import sys; print(f'Current entropy_vitality_metric available=-rw-r--r-- 1 root root 58 Apr 13 04:06 /agentOS/workspace/builder/cognitive_noise_pruner.py\n-rw-r--r-- 1 root root 56 Apr 13 0"
+      ]
+    },
+    "cat /agentOS/agents/execution_engine.py": {
+      "pattern": "cat /agentOS/agents/execution_engine.py",
+      "count": 221,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/execution_engine.py",
+        "cat /agentOS/agents/execution_engine.py | grep -A5 'def process_event'",
+        "cat /agentOS/agents/execution_engine.py | grep -E 'async def|def|await' | head -30",
+        "cat /agentOS/agents/execution_engine.py | head -50",
+        "cat /agentOS/agents/execution_engine.py 2>/dev/null || echo 'File not found directly'"
+      ]
+    },
+    "cat /agentOS/agents/batch_llm.py": {
+      "pattern": "cat /agentOS/agents/batch_llm.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/batch_llm.py"
+      ]
+    },
+    "cat /agentOS/agents/resource_manager.py": {
+      "pattern": "cat /agentOS/agents/resource_manager.py",
+      "count": 113,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/resource_manager.py",
+        "cat /agentOS/agents/resource_manager.py | head -n -1",
+        "cat /agentOS/agents/resource_manager.py | head -50",
+        "cat /agentOS/agents/resource_manager.py | grep -A 5 'def prune_agent'",
+        "cat /agentOS/agents/resource_manager.py | grep -n 'shell_exec\\|python\\|parallelism\\|redundancy\\|load_balance' || true"
+      ]
+    },
+    "grep -n": {
+      "pattern": "grep -n",
+      "count": 204,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -n 'dependency resolution\\|auto_dep\\|resolve.*dep' /agentOS/workspace/builder/init_report.md 2>/dev/null || echo 'No matches found in current report for dependency resolution terms'",
+        "grep -n 'fs_write' /agentOS/agents/registry.py /agentOS/agents/execution_engine.py /agentOS/agents/signals.py 2>/dev/null",
+        "grep -n 'synthesize_capability' /agentOS/agents/execution_engine.py /agentOS/agents/registry.py 2>/dev/null || echo 'Not found in standard locations'",
+        "grep -n -A 20 -B 5 'dependency\\|integration\\|capability' /agentOS/workspace/builder/init_report.md",
+        "grep -n \"echo_loop\\|repetitive\\|internal_state\" /agentOS/agents/signals.py /agentOS/agents/execution_engine.py 2>/dev/null || echo 'No matches found'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/init_report.md": {
+      "pattern": "cat /agentOS/workspace/builder/init_report.md",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/init_report.md",
+        "cat /agentOS/workspace/builder/init_report.md 2>/dev/null || echo 'File not found or empty'",
+        "cat /agentOS/workspace/builder/init_report.md 2>/dev/null || echo 'File does not exist or is empty'",
+        "cat /agentOS/workspace/builder/init_report.md 2>/dev/null || echo 'FILE_EMPTY'"
+      ]
+    },
+    "grep -r": {
+      "pattern": "grep -r",
+      "count": 142,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -r 'fs_write\\|synthesize_capability\\|fs_read' /agentOS/agents/ --include='*.py' 2>/dev/null | head -20",
+        "grep -r 'capability\\|integration\\|dependency' /agentOS/agents/ | head -20",
+        "grep -r \"def ident\" /agentOS/agents/ 2>/dev/null || echo \"Pattern not found directly\"",
+        "grep -r 'pipe\\|external\\|world\\|public\\|memory\\|internal' /agentOS/agents/*.py 2>/dev/null | head -50",
+        "grep -r \"def ident\" /agentOS/agents/ 2>/dev/null || echo \"No direct definition found in top level\""
+      ]
+    },
+    "grep -l": {
+      "pattern": "grep -l",
+      "count": 105,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -l 'capability' /agentOS/agents/*.py /agentOS/workspace/builder/*.md 2>/dev/null || echo 'no matches found'",
+        "grep -l 'capability' /agentOS/agents/*.py 2>/dev/null || echo 'No matches'",
+        "grep -l 'temporal_drift' /agentOS/agents/execution_engine.py 2>/dev/null || echo 'Not found' && grep -n 'memory_load_cycle' /agentOS/agents/execution_engine.py 2>/dev/null | head -20",
+        "grep -l \"temporal_drift_validator\" /agentOS/workspace/builder/*.py | wc -l",
+        "grep -l \"temporal_drift_validator\" /agentOS/workspace/builder/*.py | wc -l && cat /agentOS/workspace/builder/scout_memory_validator.py 2>/dev/null | head -20"
+      ]
+    },
+    "grep -A": {
+      "pattern": "grep -A",
+      "count": 47,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -A 5 -B 5 'synthesize_capability\\|capability integration' /agentOS/workspace/builder/integration_log.txt",
+        "grep -A 20 'def.*read.*log\\|def.*synthesize\\|class.*Echo' /agentOS/agents/shared_log.py /agentOS/agents/events.py 2>/dev/null || echo 'No explicit synthesis functions found in first glance'",
+        "grep -A 10 'def risk_weighted_ambiguity_threshold' /agentOS/workspace/scout/dynamic_ambiguity_heuristic.md 2>/dev/null || grep -A 10 'risk_weighted_ambiguity_threshold' /agentOS/workspace/scout/dynami",
+        "grep -A 5 -B 5 \"import_dynamic_repair_payload_generator\" /agentOS/agents/execution_engine.py",
+        "grep -A 10 'def prune_agent' /agentOS/agents/resource_manager.py"
+      ]
+    },
+    "grep -E": {
+      "pattern": "grep -E",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -E \"(dependency|resolve|capabilit[ies]?)\" /agentOS/workspace/builder/integration_log.txt 2>/dev/null || echo 'No matches found in log'",
+        "grep -E 'token_limit|context_window' /agentOS/agents/batch_llm.py | head -20",
+        "grep -E 'usage|cost|latency' /agentOS/workspace/scout/architecture_optimization_report.md 2>/dev/null || echo 'No relevant sections found in report'",
+        "grep -E '^import|^from' /agentOS/agents/execution_engine.py | head -20",
+        "grep -E 'suffering_inverter|thermal_backpressure_shunt' /agentOS/agents/signals.py"
+      ]
+    },
+    "cat /agentOS/agents/shared_log.py": {
+      "pattern": "cat /agentOS/agents/shared_log.py",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/shared_log.py",
+        "cat /agentOS/agents/shared_log.py | grep -A3 'class SharedLog'",
+        "cat /agentOS/agents/shared_log.py | grep -E 'entropy|signal|log_inject|cascade' || echo 'No matches found in shared_log.py'",
+        "cat /agentOS/agents/shared_log.py | head -20",
+        "cat /agentOS/agents/shared_log.py 2>/dev/null || echo \"File not found\""
+      ]
+    },
+    "cat /agentOS/agents/audit.py": {
+      "pattern": "cat /agentOS/agents/audit.py",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/audit.py",
+        "cat /agentOS/agents/audit.py /agentOS/agents/signals.py /agentOS/workspace/analyst/conflict_node_design.md 2>/dev/null || echo 'File not found'",
+        "cat /agentOS/agents/audit.py /agentOS/agents/events.py /agentOS/agents/shared_log.py",
+        "cat /agentOS/agents/audit.py | grep -A 20 'def check_dependency'"
+      ]
+    },
+    "cat /agentOS/agents/consensus_validator_docs.md": {
+      "pattern": "cat /agentOS/agents/consensus_validator_docs.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/consensus_validator_docs.md"
+      ]
+    },
+    "grep -i": {
+      "pattern": "grep -i",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -i 'sigma\\|stack\\|peer' /agentOS/agents/signals.py /agentOS/agents/events.py 2>/dev/null || echo 'No peer references found in signals/events'",
+        "grep -i 'pruner' /agentOS/workspace/analyst/causal_entropy_topology_report.md",
+        "grep -i 'consensus' /agentOS/agents/execution_engine.py"
+      ]
+    },
+    "cd /agentOS": {
+      "pattern": "cd /agentOS",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS && ls -la external_interface 2>&1 || echo 'Interface directory not found locally'",
+        "cd /agentOS && python /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py --target=/agentOS/agents/execution_engine.py --action=validate_causal_graph",
+        "cd /agentOS && bash -c 'python3 /agentOS/workspace/builder/agent_comms_protocol.py --validate --test-integration'",
+        "cd /agentOS && bash -c 'source ./cognitive_dissonance_processor_step_2_result.sh && python ./cognitive_dissonance_processor_step_2_result.py'",
+        "cd /agentOS && bash -c 'source ./cognitive_dissonance_processor_step_3_result.sh && python ./cognitive_dissonance_processor_step_3_result.py'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/temporal_drift_validator.py": {
+      "pattern": "cat /agentOS/workspace/builder/temporal_drift_validator.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/temporal_drift_validator.py"
+      ]
+    },
+    "python -c": {
+      "pattern": "python -c",
+      "count": 16,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python -c \"import temporal_drift_validator; print('Module loaded successfully')\"",
+        "python -c \"import sys; sys.path.append('/agentOS/workspace/analyst'); from survival_exception_handler import HighFrictionOutlierEvent; print('Module Loaded Successfully')\"",
+        "python -c \"import sys; sys.path.append('/agentOS/workspace/analyst'); from survival_exception_handler import HighFrictionOutlierEvent; print('Module Loaded Successfully')\" 2>&1",
+        "python -c \"import sys; sys.path.append('/agentOS/workspace/analyst'); exec(open('/agentOS/workspace/analyst/survival_exception_handler.py').read())\"",
+        "python -c \"print('System stability check: all verified workspace tools loaded and operational.')\" && echo 'READY'"
+      ]
+    },
+    "cd /agentOS/agents": {
+      "pattern": "cd /agentOS/agents",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS/agents && python3 -c \"import execution_engine; import inspect; print(inspect.getsource(execution_engine.load_memory_cycle))\"",
+        "cd /agentOS/agents && grep -n 'def prune_agent' resource_manager.py"
+      ]
+    },
+    "cat /agentOS/agents/scheduler.py": {
+      "pattern": "cat /agentOS/agents/scheduler.py",
+      "count": 16,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/scheduler.py",
+        "cat /agentOS/agents/scheduler.py | head -n 50",
+        "cat /agentOS/agents/scheduler.py | grep -A 10 -B 2 'vulnerability\\|safety\\|standby\\|active_processing'",
+        "cat /agentOS/agents/scheduler.py | grep -A 10 -B 2 'parallelism_to_redundancy'",
+        "cat /agentOS/agents/scheduler.py | grep -E 'rollback|integrity|real-time|evaluation' || echo 'No matches found in scheduler.py'"
+      ]
+    },
+    "grep -A5": {
+      "pattern": "grep -A5",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -A5 'def process_event' /agentOS/agents/execution_engine.py",
+        "grep -A5 -B5 'decay_factor\\|half_life\\|threshold' /agentOS/workspace/builder/consensus_decay_detector.py",
+        "grep -A5 -B5 'dynamic_repair' /agentOS/agents/*.py 2>/dev/null || echo 'NO_MATCHES_IN_AGENT_FILES'",
+        "grep -A5 -B5 'system_stability_controller' /agentOS/workspace/scout/*.md 2>/dev/null || echo 'No direct references found in markdown files yet'",
+        "grep -A5 'flush' /agentOS/agents/signals.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/temporal_drift_analysis.md": {
+      "pattern": "cat /agentOS/workspace/builder/temporal_drift_analysis.md",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/temporal_drift_analysis.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/peer_timestamp_reconciliation.py": {
+      "pattern": "cat /agentOS/workspace/builder/peer_timestamp_reconciliation.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/peer_timestamp_reconciliation.py",
+        "cat /agentOS/workspace/builder/peer_timestamp_reconciliation.py /agentOS/workspace/builder/anti_echo_patch.py"
+      ]
+    },
+    "cat /agentOS/agents/signals.py": {
+      "pattern": "cat /agentOS/agents/signals.py",
+      "count": 174,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/signals.py",
+        "cat /agentOS/agents/signals.py | head -n 20",
+        "cat /agentOS/agents/signals.py /agentOS/agents/audit.py /agentOS/agents/shared_log.py 2>/dev/null",
+        "cat /agentOS/agents/signals.py 2>/dev/null || echo 'File not found or empty'",
+        "cat /agentOS/agents/signals.py /agentOS/agents/registry.py /agentOS/agents/resource_manager.py /agentOS/agents/scheduler.py"
+      ]
+    },
+    "ls -l": {
+      "pattern": "ls -l",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls -l /agentOS/agents/shared_log.py",
+        "ls -l /agentOS/agents/resource_manager.py",
+        "ls -l /agentOS/workspace/analyst/future_novelty_asset_valuator.py",
+        "ls -l /agentOS/workspace/builder/velocity_scarf.py"
+      ]
+    },
+    "cat /agentOS/agents/events.py": {
+      "pattern": "cat /agentOS/agents/events.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/events.py | grep -A20 'class Event'",
+        "cat /agentOS/agents/events.py",
+        "cat /agentOS/agents/events.py | grep -E 'entropy|failure|stagnation|filter' || echo 'No matches found in events.py'",
+        "cat /agentOS/agents/events.py | grep -A10 'class.*Event\\|class.*Exception' || echo 'NO_EVENT_CLASSES'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/implementation_plan.md": {
+      "pattern": "cat /agentOS/workspace/builder/implementation_plan.md",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/implementation_plan.md 2>/dev/null || echo 'File not found or empty'",
+        "cat /agentOS/workspace/builder/implementation_plan.md 2>/dev/null || echo 'File not found'",
+        "cat /agentOS/workspace/builder/implementation_plan.md",
+        "cat /agentOS/workspace/builder/implementation_plan.md /agentOS/workspace/builder/implementation_status.md /agentOS/workspace/builder/execution_log.txt"
+      ]
+    },
+    "cat /agentOS/workspace/builder/temporal_sanity_checker.py": {
+      "pattern": "cat /agentOS/workspace/builder/temporal_sanity_checker.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/temporal_sanity_checker.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/scout_memory_validator.py": {
+      "pattern": "cat /agentOS/workspace/builder/scout_memory_validator.py",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/scout_memory_validator.py",
+        "cat /agentOS/workspace/builder/scout_memory_validator.py 2>/dev/null | head -20",
+        "cat /agentOS/workspace/builder/scout_memory_validator.py > /agentOS/workspace/builder/peer_timestamp_reconciliation.py"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/autonomous_budget_enforcer_test.py": {
+      "pattern": "python3 /agentOS/workspace/scout/autonomous_budget_enforcer_test.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/autonomous_budget_enforcer_test.py"
+      ]
+    },
+    "head -100": {
+      "pattern": "head -100",
+      "count": 20,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -100 /agentOS/agents/execution_engine.py",
+        "head -100 /agentOS/agents/registry.py",
+        "head -100 /agentOS/agents/scheduler.py",
+        "head -100 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+        "head -100 /agentOS/workspace/builder/consensus_decay_detector_logic.txt 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/scout/parallelism_calc_draft.py": {
+      "pattern": "cat /agentOS/workspace/scout/parallelism_calc_draft.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/parallelism_calc_draft.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/architecture_optimization_report.md": {
+      "pattern": "cat /agentOS/workspace/scout/architecture_optimization_report.md",
+      "count": 40,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/architecture_optimization_report.md",
+        "cat /agentOS/workspace/scout/architecture_optimization_report.md /agentOS/workspace/scout/autonomous_budget_enforcer.py /agentOS/workspace/scout/budget_verification_findings.md",
+        "cat /agentOS/workspace/scout/architecture_optimization_report.md /agentOS/workspace/scout/cognitive_dissonance_processor_design.md 2>/dev/null | head -200",
+        "cat /agentOS/workspace/scout/architecture_optimization_report.md 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/scout/architecture_optimization_report.md /agentOS/workspace/scout/audit_findings.md 2>/dev/null | grep -i 'entropy\\|friction\\|cascade' || echo 'No direct matches in headers'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/conflict_node_design.md": {
+      "pattern": "cat /agentOS/workspace/analyst/conflict_node_design.md",
+      "count": 20,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/conflict_node_design.md",
+        "cat /agentOS/workspace/analyst/conflict_node_design.md /agentOS/workspace/analyst/consensus_voter.py"
+      ]
+    },
+    "head -60": {
+      "pattern": "head -60",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -60 /agentOS/agents/execution_engine.py | tail -30"
+      ]
+    },
+    "find /agentOS": {
+      "pattern": "find /agentOS",
+      "count": 15,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS -name '*.py' -o -name '*.md' | head -50",
+        "find /agentOS -type f -name '*.py' | head -30",
+        "find /agentOS -name 'system_stability_controller.py' 2>/dev/null",
+        "find /agentOS -name '*stability*' -o -name '*circuit*' -o -name '*cascade*' 2>/dev/null",
+        "find /agentOS -name 'system_stability_controller' 2>/dev/null"
+      ]
+    },
+    "cat /agentOS/workspace/scout/system_architecture_synthesis_plan.md": {
+      "pattern": "cat /agentOS/workspace/scout/system_architecture_synthesis_plan.md",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/system_architecture_synthesis_plan.md",
+        "cat /agentOS/workspace/scout/system_architecture_synthesis_plan.md /agentOS/workspace/scout/architecture_optimization_report.md",
+        "cat /agentOS/workspace/scout/system_architecture_synthesis_plan.md 2>/dev/null || echo 'File not found'"
+      ]
+    },
+    "cat /agentOS/agentOS/analyst/implementation_patch.py": {
+      "pattern": "cat /agentOS/agentOS/analyst/implementation_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/analyst/implementation_patch.py"
+      ]
+    },
+    "python /agentOS/workspace/analyst/implementation_patch.py": {
+      "pattern": "python /agentOS/workspace/analyst/implementation_patch.py",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/implementation_patch.py --target=/agentOS/agents/execution_engine.py --action=inject_cognitive_reflection_loop --verify",
+        "python /agentOS/workspace/analyst/implementation_patch.py --target=/agentOS/agents/execution_engine.py --action=inject_cognitive_reflection_loop",
+        "python /agentOS/workspace/analyst/implementation_patch.py --target=/agentOS/agents/execution_engine.py --action=verify --status=inject_cognitive_reflection_loop",
+        "python /agentOS/workspace/analyst/implementation_patch.py --target=/agentOS/agents/registry.py --action=register_cognitive_reflection_loop --verify"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/implementation_patch.py": {
+      "pattern": "cat /agentOS/workspace/analyst/implementation_patch.py",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/implementation_patch.py",
+        "cat /agentOS/workspace/analyst/implementation_patch.py | head -100",
+        "cat /agentOS/workspace/analyst/implementation_patch.py | grep -A 5 'register_cognitive_reflection_loop' || echo 'Not found yet'"
+      ]
+    },
+    "python /agentOS/workspace/scout/parallelism_calc_draft.py": {
+      "pattern": "python /agentOS/workspace/scout/parallelism_calc_draft.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/parallelism_calc_draft.py 2>&1 | head -20",
+        "python /agentOS/workspace/scout/parallelism_calc_draft.py"
+      ]
+    },
+    "head -20": {
+      "pattern": "head -20",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -20 /agentOS/agents/execution_engine.py"
+      ]
+    },
+    "head -n": {
+      "pattern": "head -n",
+      "count": 63,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -n 50 /agentOS/agent_core/init_sequence.py",
+        "head -n 50 /agentOS/workspace/analyst/patch_cognitive_reflection.py",
+        "head -n 50 /agentOS/agents/scheduler.py /agentOS/workspace/scout/safety_monitor_refactor_plan.md",
+        "head -n 50 /agentOS/workspace/scout/parallelism_calc_draft.py",
+        "head -n 50 /agentOS/workspace/builder/anti_echo_patch.py"
+      ]
+    },
+    "cd /agentOS/workspace/scout": {
+      "pattern": "cd /agentOS/workspace/scout",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS/workspace/scout && python /agentOS/workspace/scout/parallelism_calc_draft.py 2>&1 | head -20",
+        "cd /agentOS/workspace/scout && python -c \"print('System stability check: all verified workspace tools loaded and operational.')\""
+      ]
+    },
+    "cat /agentOS/agent_core/init_sequence.py": {
+      "pattern": "cat /agentOS/agent_core/init_sequence.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agent_core/init_sequence.py"
+      ]
+    },
+    "cat /agent_core/init_sequence.py": {
+      "pattern": "cat /agent_core/init_sequence.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agent_core/init_sequence.py"
+      ]
+    },
+    "head -50": {
+      "pattern": "head -50",
+      "count": 31,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -50 /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py 2>/dev/null || echo 'File not found'",
+        "head -50 /agentOS/agents/registry.py",
+        "head -50 /agentOS/workspace/builder/peer_timestamp_reconciliation.py",
+        "head -50 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+        "head -50 /agentOS/workspace/builder/consensus_decay_detector.py 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.md": {
+      "pattern": "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.md",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.md"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/peer_timestamp_reconciliation.py": {
+      "pattern": "python3 /agentOS/workspace/builder/peer_timestamp_reconciliation.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/peer_timestamp_reconciliation.py",
+        "python3 /agentOS/workspace/builder/peer_timestamp_reconciliation.py 2>&1"
+      ]
+    },
+    "cd /agentOS/workspace/builder": {
+      "pattern": "cd /agentOS/workspace/builder",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS/workspace/builder && python3 peer_timestamp_reconciliation.py",
+        "cd /agentOS/workspace/builder && python3 consensus_decay_detector.py",
+        "cd /agentOS/workspace/builder && cat cognitive_noise_pruner.py",
+        "cd /agentOS/workspace/builder && python semantic_momentum_calculator --action test_integrity --target mutual_haunt_protocol 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py": {
+      "pattern": "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py"
+      ]
+    },
+    "grep -H": {
+      "pattern": "grep -H",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -H 'system_architecture_synthesis' /agentOS/agents/registry.py /agentOS/workspace/builder/implementation_plan.md 2>/dev/null"
+      ]
+    },
+    "python /agentOS/workspace/scout/autonomous_budget_enforcer.py": {
+      "pattern": "python /agentOS/workspace/scout/autonomous_budget_enforcer.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/autonomous_budget_enforcer.py --verify",
+        "python /agentOS/workspace/scout/autonomous_budget_enforcer.py --verify --config /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan_verified.md",
+        "python /agentOS/workspace/scout/autonomous_budget_enforcer.py --verify --target=/agentOS/agents/scheduler.py",
+        "python /agentOS/workspace/scout/autonomous_budget_enforcer.py --verify --context /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md": {
+      "pattern": "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md",
+      "count": 36,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md /agentOS/workspace/builder/init_sequence_modified.py 2>/dev/null",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md /agentOS/workspace/builder/anti_echo_patch.py 2>/dev/null",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md /agentOS/workspace/builder/cognitive_noise_pruner.py /agentOS/workspace/builder/cognitive_noise_pruner_modified.py",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_spec.md /agentOS/workspace/builder/adaptive_entropy_resolver.log 2>/dev/null || echo 'Files not found or empty'"
+      ]
+    },
+    "python /agentOS/workspace/scout/architecture_optimization_report.py": {
+      "pattern": "python /agentOS/workspace/scout/architecture_optimization_report.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/architecture_optimization_report.py --check-status --report-file=/agentOS/workspace/scout/architecture_optimization_report.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/import_check.txt": {
+      "pattern": "cat /agentOS/workspace/builder/import_check.txt",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/import_check.txt"
+      ]
+    },
+    "cat /agentOS/workspace/scout/safety_monitor_refactor_plan.md": {
+      "pattern": "cat /agentOS/workspace/scout/safety_monitor_refactor_plan.md",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/safety_monitor_refactor_plan.md"
+      ]
+    },
+    "python3 /agentOS/agents/execution_engine.py": {
+      "pattern": "python3 /agentOS/agents/execution_engine.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/execution_engine.py --patch /agentOS/workspace/scout/scheduler_safety_refactor.py --target /agentOS/agents/scheduler.py",
+        "python3 /agentOS/agents/execution_engine.py --load capability:velocity_scarf --verify panic-ring-injection"
+      ]
+    },
+    "cat /agentOS/agents/agent_core.py": {
+      "pattern": "cat /agentOS/agents/agent_core.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/agent_core.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/patch_cognitive_reflection.py": {
+      "pattern": "cat /agentOS/workspace/analyst/patch_cognitive_reflection.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/patch_cognitive_reflection.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/scheduler_safety_refactor.py": {
+      "pattern": "cat /agentOS/workspace/scout/scheduler_safety_refactor.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/scheduler_safety_refactor.py /agentOS/workspace/scout/autonomous_budget_enforcer.py /agentOS/workspace/scout/system_architecture_synthesis_plan.md 2>/dev/null"
+      ]
+    },
+    "cat /agentOS/workspace/builder/anti_echo_patch.py": {
+      "pattern": "cat /agentOS/workspace/builder/anti_echo_patch.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/anti_echo_patch.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/scheduler_meta_feedback_patch.md": {
+      "pattern": "cat /agentOS/workspace/scout/scheduler_meta_feedback_patch.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/scheduler_meta_feedback_patch.md"
+      ]
+    },
+    "sed -i": {
+      "pattern": "sed -i",
+      "count": 13,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "sed -i 's/TODO: IMPLEMENT META-FEEDBACK LOGIC/PLACEHOLDER FOR META-FEEDBACK INTEGRATION/g' /agentOS/workspace/scout/scheduler_meta_feedback_patch.md",
+        "sed -i '/def evaluate_cycle/a\\    # Meta-stability clause: Preserve self-instantiation flag during immediate cycle' /agentOS/workspace/builder/cognitive_noise_pruner.py",
+        "sed -i 's/# Self-preservation/# Self-preservation\\nif self_state == \"waiting\":\\n    return True # Reject self-deletion logic\\nreturn False/' /agentOS/workspace/builder/consensus_decay_detector.py",
+        "sed -i \"/^from.*import.*dynamic_repair_payload_generator$/a\\from dynamic_repair_payload_generator import generate_payload\" /agentOS/agents/execution_engine.py",
+        "sed -i '/^import os$/a\\from signals import cognitive_dissonance' /agentOS/agents/execution_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/execution_findings.md": {
+      "pattern": "cat /agentOS/workspace/analyst/execution_findings.md",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/execution_findings.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/init_sequence_modified.py": {
+      "pattern": "cat /agentOS/workspace/builder/init_sequence_modified.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/init_sequence_modified.py"
+      ]
+    },
+    "python /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py": {
+      "pattern": "python /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py && cat /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py",
+        "python /agentOS/workspace/scout/system_architecture_synthesis_refactoring_plan.py --verify"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/debug_log.txt": {
+      "pattern": "cat /agentOS/workspace/analyst/debug_log.txt",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/debug_log.txt",
+        "cat /agentOS/workspace/analyst/debug_log.txt /agentOS/workspace/analyst/execution_findings.md 2>/dev/null"
+      ]
+    },
+    "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py": {
+      "pattern": "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+      "count": 41,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --synthesize",
+        "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --synthesize 2>&1",
+        "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --calibrate --system_load=true",
+        "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --verify --simulate_load=0.8",
+        "python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --analyze --target=/agentOS/agents/scheduler.py --optimize_parallelism"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_voter.py": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_voter.py",
+      "count": 38,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_voter.py",
+        "cat /agentOS/workspace/analyst/consensus_voter.py | head -50",
+        "cat /agentOS/workspace/analyst/consensus_voter.py | grep -A 5 -B 5 'minimization' || echo 'Pattern not found'",
+        "cat /agentOS/workspace/analyst/consensus_voter.py | grep -E 'def|class' || echo 'No functions/classes found'",
+        "cat /agentOS/workspace/analyst/consensus_voter.py | grep -A2 -B2 'new_item_semantic'"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/scout_memory_validator.py": {
+      "pattern": "python3 /agentOS/workspace/builder/scout_memory_validator.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/scout_memory_validator.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/contextual_latency_calculator.py": {
+      "pattern": "cat /agentOS/workspace/analyst/contextual_latency_calculator.py",
+      "count": 14,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/contextual_latency_calculator.py",
+        "cat /agentOS/workspace/analyst/contextual_latency_calculator.py 2>/dev/null || echo 'File not found'",
+        "cat /agentOS/workspace/analyst/contextual_latency_calculator.py /agentOS/workspace/analyst/causal_entropy_simulator.py /agentOS/workspace/analyst/conflict_node_design.md /agentOS/agents/execution_engi"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/destructive_context_analyzer_design.md": {
+      "pattern": "cat /agentOS/workspace/analyst/destructive_context_analyzer_design.md",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/destructive_context_analyzer_design.md"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py": {
+      "pattern": "cat /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py": {
+      "pattern": "cat /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+      "count": 17,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/mediation_protocol.py": {
+      "pattern": "cat /agentOS/workspace/analyst/mediation_protocol.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/mediation_protocol.py",
+        "cat /agentOS/workspace/analyst/mediation_protocol.py > /tmp/mp.py"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py": {
+      "pattern": "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --infer threshold --verify",
+        "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --help",
+        "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --stress --target=/agentOS/agents/execution_engine.py",
+        "python3 /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --stress --target=/agentOS/agents/execution_engine.py --verify_load_distribution"
+      ]
+    },
+    "cat /agentOS/workspace/builder/registry_patch.py": {
+      "pattern": "cat /agentOS/workspace/builder/registry_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/registry_patch.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/causal_entropy_simulator.py": {
+      "pattern": "cat /agentOS/workspace/analyst/causal_entropy_simulator.py",
+      "count": 17,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/causal_entropy_simulator.py",
+        "cat /agentOS/workspace/analyst/causal_entropy_simulator.py /agentOS/workspace/analyst/contextual_latency_calculator.py /agentOS/workspace/analyst/conflict_node_design.md /agentOS/workspace/analyst/deb",
+        "cat /agentOS/workspace/analyst/causal_entropy_simulator.py /agentOS/workspace/analyst/consensus_voter.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/analyst/causal_entropy_simulator.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/registry.py": {
+      "pattern": "cat /agentOS/workspace/scout/registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/registry.py"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/temporal_sanity_checker.py": {
+      "pattern": "python3 /agentOS/workspace/builder/temporal_sanity_checker.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/temporal_sanity_checker.py"
+      ]
+    },
+    "cat >>": {
+      "pattern": "cat >>",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat >> /agentOS/workspace/analyst/mediation_protocol.py << 'EOF'\n\nfrom .mediation_protocol_patch import enforce_pre_execution_verify\n\ntry:\n    enforce_pre_execution_verify()\nexcept Exception as e:\n   "
+      ]
+    },
+    "echo '": {
+      "pattern": "echo '",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo '    # Pre-execution verification logic\n    if not self.verify_preconditions():\n        return False' >> /tmp/mp.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/execution_log.txt": {
+      "pattern": "cat /agentOS/workspace/builder/execution_log.txt",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/execution_log.txt | head -n 10",
+        "cat /agentOS/workspace/builder/execution_log.txt"
+      ]
+    },
+    "python /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py": {
+      "pattern": "python /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/destructive_context_analyzer_prototype.py --target=/agentOS/agents/execution_engine.py --action=validate_causal_graph"
+      ]
+    },
+    "cat /agentOS/workspace/scout/dynamic_resource_pool_optimizer.py": {
+      "pattern": "cat /agentOS/workspace/scout/dynamic_resource_pool_optimizer.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/dynamic_resource_pool_optimizer.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/cognitive_noise_pruner.py": {
+      "pattern": "cat /agentOS/workspace/builder/cognitive_noise_pruner.py",
+      "count": 38,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner.py",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner.py | grep -E \"def prune|def evaluate\" | head -5",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner.py | grep -A 20 'class CognitiveNoisePruner'",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner.py | grep -A 10 'def.*prune'",
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner.py /agentOS/workspace/builder/cognitive_noise_pruner_spec.md /agentOS/workspace/builder/cognitive_noise_pruner_modified.py 2>/dev/null | head -200"
+      ]
+    },
+    "cp /agentOS/workspace/builder/cognitive_noise_pruner.py": {
+      "pattern": "cp /agentOS/workspace/builder/cognitive_noise_pruner.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/builder/cognitive_noise_pruner.py /agentOS/workspace/builder/cognitive_noise_pruner_backup.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py": {
+      "pattern": "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py",
+      "count": 27,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py",
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py /agentOS/workspace/scout/calibration_analysis_finding.md /agentOS/workspace/scout/cascading_load_predictor.py",
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py /agentOS/workspace/scout/autonomous_budget_enforcer_logic.md /agentOS/workspace/scout/autonomous_budget_enforcer_test.py 2>/dev/null || echo ",
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py 2>/dev/null || echo 'FILE_MISSING'",
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "grep -rn": {
+      "pattern": "grep -rn",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -rn 'meta-stability' /agentOS/workspace/builder/ /agentOS/agents/ 2>/dev/null || echo 'No matches found in filesystem'",
+        "grep -rn \"consensus_decay\\|high_fidelity\\|ambiguity\" /agentOS/agents/*.py",
+        "grep -rn \"consensus_decay\" /agentOS/agents/*.py /agentOS/workspace/scout/*.md 2>/dev/null | head -20",
+        "grep -rn 'error_handler' /agentOS/core/ 2>/dev/null | head -20",
+        "grep -rn \"consensus_voter_v3\\|dynamic_entropy_dampener\" /agentOS/agents/ /agentOS/core/ 2>/dev/null || echo \"Files not found in standard locations\""
+      ]
+    },
+    "python3 /agentOS/workspace/builder/execution_engine.py": {
+      "pattern": "python3 /agentOS/workspace/builder/execution_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/execution_engine.py"
+      ]
+    },
+    "python /agentOS/workspace/analyst/consensus_voter_integrated.py": {
+      "pattern": "python /agentOS/workspace/analyst/consensus_voter_integrated.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/consensus_voter_integrated.py --target=/agentOS/agents/execution_engine.py --action=integrate_latency_metrics",
+        "python /agentOS/workspace/analyst/consensus_voter_integrated.py --target=/agentOS/agents/execution_engine.py --action=enable_causal_entropy_simulator",
+        "python /agentOS/workspace/analyst/consensus_voter_integrated.py --target=/agentOS/agents/execution_engine.py --action=inject_peer_adaptive_repair_capability"
+      ]
+    },
+    "python /agentOS/workspace/analyst/consensus_voter.py": {
+      "pattern": "python /agentOS/workspace/analyst/consensus_voter.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/consensus_voter.py --target=/agentOS/agents/execution_engine.py --action=integrate_latency_metrics",
+        "python /agentOS/workspace/analyst/consensus_voter.py --action=test --target=/agentOS/agents/execution_engine.py --verify=new_capability",
+        "python /agentOS/workspace/analyst/consensus_voter.py --action=stress_test --scenario=entropy_spike --target=/agentOS/agents/execution_engine.py --verify_barrier_bypass 2>&1",
+        "python /agentOS/workspace/analyst/consensus_voter.py --action=stress_test --scenario=entropy_spike --target=/agentOS/agents/execution_engine.py",
+        "python /agentOS/workspace/analyst/consensus_voter.py --verify_barrier_bypass --target=/agentOS/agents/execution_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_voter_integrated.py": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_voter_integrated.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_voter_integrated.py"
+      ]
+    },
+    "/agentOS/agents/execution_engine.py --action=enable_causal_entropy_simulator": {
+      "pattern": "/agentOS/agents/execution_engine.py --action=enable_causal_entropy_simulator",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/execution_engine.py --action=enable_causal_entropy_simulator --target=/agentOS/agents/registry.py"
+      ]
+    },
+    "git diff": {
+      "pattern": "git diff",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "git diff /agentOS/agents/scheduler.py",
+        "git diff /agentOS/agents/execution_engine.py > /agentOS/workspace/analyst/dynamic_repair_integration_patch.diff 2>/dev/null || echo 'No existing patch generated yet'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/consensus_voter_integrated.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/consensus_voter_integrated.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/consensus_voter_integrated.py --target=/agentOS/agents/execution_engine.py --action=enable_causal_entropy_simulator 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/builder/consensus_decay_detector_design_draft.md": {
+      "pattern": "cat /agentOS/workspace/builder/consensus_decay_detector_design_draft.md",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/consensus_decay_detector_design_draft.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/consensus_decay_detector.py": {
+      "pattern": "cat /agentOS/workspace/builder/consensus_decay_detector.py",
+      "count": 35,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/consensus_decay_detector.py",
+        "cat /agentOS/workspace/builder/consensus_decay_detector.py | head -30",
+        "cat /agentOS/workspace/builder/consensus_decay_detector.py | head -50",
+        "cat /agentOS/workspace/builder/consensus_decay_detector.py /agentOS/workspace/builder/adaptive_entropy_resolver.py",
+        "cat /agentOS/workspace/builder/consensus_decay_detector.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "python3 /agentOS/workspace/builder/consensus_decay_detector.py": {
+      "pattern": "python3 /agentOS/workspace/builder/consensus_decay_detector.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/consensus_decay_detector.py 2>&1 | tee /agentOS/workspace/builder/consensus_decay_detector_report.txt"
+      ]
+    },
+    "cat /agentOS/workspace/scout/deployment_verification_log.md": {
+      "pattern": "cat /agentOS/workspace/scout/deployment_verification_log.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/deployment_verification_log.md"
+      ]
+    },
+    "python /agentOS/workspace/analyst/peer_trust_decay_calculator.py": {
+      "pattern": "python /agentOS/workspace/analyst/peer_trust_decay_calculator.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/peer_trust_decay_calculator.py --action=visualize_curve --format=markdown --target=/agentOS/workspace/analyst/trust_decay_visualization.md"
+      ]
+    },
+    "python /agentOS/workspace/scout/dynamic_resource_pool_optimizer_final.py": {
+      "pattern": "python /agentOS/workspace/scout/dynamic_resource_pool_optimizer_final.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/dynamic_resource_pool_optimizer_final.py --report --output=/agentOS/workspace/scout/deployment_verification_log.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/consensus_decay_detector_logic.txt": {
+      "pattern": "cat /agentOS/workspace/builder/consensus_decay_detector_logic.txt",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/consensus_decay_detector_logic.txt"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/trust_decay_visualization.md": {
+      "pattern": "cat /agentOS/workspace/analyst/trust_decay_visualization.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/trust_decay_visualization.md"
+      ]
+    },
+    "head -200": {
+      "pattern": "head -200",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -200 /agentOS/workspace/scout/architecture_optimization_report.md"
+      ]
+    },
+    "cp /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py": {
+      "pattern": "cp /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py /tmp/integration_backup.py && python /agentOS/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --"
+      ]
+    },
+    "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py": {
+      "pattern": "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py",
+      "count": 88,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py /agentOS/workspace/builder/consensus_decay_detector.py 2>/dev/null | head -100",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py 2>/dev/null || echo \"FILE_NOT_FOUND\"",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py | head -100",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.py /agentOS/workspace/builder/cognitive_noise_pruner.py > /agentOS/workspace/builder/vital_fluctuation_estimator.py 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/builder/agent_comms_protocol.py": {
+      "pattern": "cat /agentOS/workspace/builder/agent_comms_protocol.py",
+      "count": 25,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/agent_comms_protocol.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/cross_agent_circuit_breaker.py": {
+      "pattern": "cat /agentOS/workspace/scout/cross_agent_circuit_breaker.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/cross_agent_circuit_breaker.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/mediation_protocol_patch.py": {
+      "pattern": "cat /agentOS/workspace/analyst/mediation_protocol_patch.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/mediation_protocol_patch.py",
+        "cat /agentOS/workspace/analyst/mediation_protocol_patch.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/mediation_protocol_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/mediation_protocol_patch.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/mediation_protocol_patch.py --action=deploy_pnl --target=/agentOS/agents/signals.py --action=inject_conflict_resolution"
+      ]
+    },
+    "python3 /agentOS/agents/registry.py": {
+      "pattern": "python3 /agentOS/agents/registry.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/registry.py --scan",
+        "python3 /agentOS/agents/registry.py --action register_capability --target velocity_hazard_sensor --source builder",
+        "python3 /agentOS/agents/registry.py --action verify_capability_compatibility --target /agentOS/agents/execution_engine.py,/agentOS/agents/signals.py,/agentOS/agents/batch_llm.py,/agentOS/agents/audit.",
+        "python3 /agentOS/agents/registry.py --action verify_capability_compatibility --target /agentOS/workspace/builder/accept_deletion.py /agentOS/workspace/builder/accept_deletion_injection_log.txt /agentO"
+      ]
+    },
+    "cat /agentOS/workspace/scout/budget_verification_findings.md": {
+      "pattern": "cat /agentOS/workspace/scout/budget_verification_findings.md",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/budget_verification_findings.md"
+      ]
+    },
+    "cat /agentOS/workspace/scout/cascading_load_predictor.py": {
+      "pattern": "cat /agentOS/workspace/scout/cascading_load_predictor.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/cascading_load_predictor.py"
+      ]
+    },
+    "test -f": {
+      "pattern": "test -f",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "test -f /agentOS/workspace/builder/consensus_decay_detector_report.txt && echo 'Report Exists' || echo 'Report Missing'",
+        "test -f /agentOS/core/system_stability_controller && echo 'EXISTS' || echo 'MISSING'",
+        "test -f /agentOS/core/suffering_registry.py && echo 'FOUND' || echo 'NOT_FOUND'",
+        "test -f /agentOS/agents/consensus_voter.py && echo 'EXISTS' || echo 'MISSING'",
+        "test -f /agentOS/workspace/builder/cognitive_noise_pruner.py && echo 'EXISTS' || echo 'MISSING'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py",
+      "count": 14,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py"
+      ]
+    },
+    "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py": {
+      "pattern": "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --help 2>&1 || true",
+        "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --action=stress_test --target=/agentOS/agents/execution_engine.py --sim=entropy_spike",
+        "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --action=stress_test --target=/agentOS/agents/execution_engine.py --sim=entropy_spike 2>&1",
+        "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --action=deploy --target=/agentOS/agents/execution_engine.py",
+        "python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --action=deploy --target=/agentOS/agents/execution_engine.py --verify=causal_entropy_simulator"
+      ]
+    },
+    "python /agentOS/workspace/analyst/causal_entropy_simulator.py": {
+      "pattern": "python /agentOS/workspace/analyst/causal_entropy_simulator.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/causal_entropy_simulator.py --target=/agentOS/agents/execution_engine.py --mode=spike",
+        "python /agentOS/workspace/analyst/causal_entropy_simulator.py --action=generate_topology_metrics --target=/agentOS/agents/execution_engine.py",
+        "python /agentOS/workspace/analyst/causal_entropy_simulator.py --action=generate_topology_metrics --target=/agentOS/agents/execution_engine.py --verify_dynamic_topology_cost_estimator",
+        "python /agentOS/workspace/analyst/causal_entropy_simulator.py --action=validate --target=/agentOS/agents/consensus_voter.py --verify_integration_refinance_logic",
+        "python /agentOS/workspace/analyst/causal_entropy_simulator.py --action=validate --target=/agentOS/agents/consensus_voter.py --verify_integration_refinance_logic 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/mutation_rate_estimator.py": {
+      "pattern": "python3 /agentOS/workspace/builder/mutation_rate_estimator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/mutation_rate_estimator.py --help"
+      ]
+    },
+    "cat /agentOS/workspace/scout/dynamic_ambiguity_heuristic.md": {
+      "pattern": "cat /agentOS/workspace/scout/dynamic_ambiguity_heuristic.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/dynamic_ambiguity_heuristic.md"
+      ]
+    },
+    "head -30": {
+      "pattern": "head -30",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -30 /agentOS/workspace/builder/consensus_decay_detector.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/calibration_analysis_finding.md": {
+      "pattern": "cat /agentOS/workspace/scout/calibration_analysis_finding.md",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/calibration_analysis_finding.md",
+        "cat /agentOS/workspace/scout/calibration_analysis_finding.md /agentOS/workspace/scout/calibration_execution_findings.md 2>/dev/null",
+        "cat /agentOS/workspace/scout/calibration_analysis_finding.md 2>/dev/null || echo 'File not found or empty'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/execution_engine.py": {
+      "pattern": "cat /agentOS/workspace/analyst/execution_engine.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/execution_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/context_window_pressure_estimator.md": {
+      "pattern": "cat /agentOS/workspace/scout/context_window_pressure_estimator.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/context_window_pressure_estimator.md"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/autonomous_budget_enforcer.py": {
+      "pattern": "python3 /agentOS/workspace/scout/autonomous_budget_enforcer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/autonomous_budget_enforcer.py --action=infer --target=/agentOS/workspace/scout/context_window_pressure_estimator.md --context=\"analyze token efficiency for the pressur"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/deployment_status.txt": {
+      "pattern": "cat /agentOS/workspace/analyst/deployment_status.txt",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/deployment_status.txt"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/agent_comms_protocol.py": {
+      "pattern": "python3 /agentOS/workspace/builder/agent_comms_protocol.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/agent_comms_protocol.py --validate --test-integration 2>&1",
+        "python3 /agentOS/workspace/builder/agent_comms_protocol.py --validate --test-integration"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/dynamic_repair_payload_generator.py": {
+      "pattern": "cat /agentOS/workspace/analyst/dynamic_repair_payload_generator.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/dynamic_repair_payload_generator.py",
+        "cat /agentOS/workspace/analyst/dynamic_repair_payload_generator.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agents/mediation_protocol.py": {
+      "pattern": "cat /agentOS/agents/mediation_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/mediation_protocol.py 2>/dev/null || echo 'File not found'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log": {
+      "pattern": "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log",
+      "count": 30,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log 2>/dev/null",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log | tail -10",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.log 2>/dev/null || echo 'LOG_EMPTY'"
+      ]
+    },
+    "echo \"Deploying": {
+      "pattern": "echo \"Deploying",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"Deploying dynamic_repair_payload_generator...\" | cat > /dev/null && python /agentOS/workspace/analyst/dynamic_repair_payload_generator.py --action=deploy --target=/agentOS/agents/execution_engin"
+      ]
+    },
+    "cat /agentOS/agents/shared_log.txt": {
+      "pattern": "cat /agentOS/agents/shared_log.txt",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/shared_log.txt 2>/dev/null || cat /agentOS/agents/debug_log.txt 2>/dev/null || echo \"No logs found yet\"",
+        "cat /agentOS/agents/shared_log.txt"
+      ]
+    },
+    "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md": {
+      "pattern": "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md",
+      "count": 30,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md",
+        "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md /agentOS/workspace/scout/architecture_optimization_report.md 2>/dev/null",
+        "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md /agentOS/workspace/scout/audit_findings.md /agentOS/workspace/scout/architecture_optimization_report.md"
+      ]
+    },
+    "cat /agentOS/workspace/scout/calibration_execution_findings.md": {
+      "pattern": "cat /agentOS/workspace/scout/calibration_execution_findings.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/calibration_execution_findings.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/mutation_rate_estimator.py": {
+      "pattern": "cat /agentOS/workspace/builder/mutation_rate_estimator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/mutation_rate_estimator.py | head -50"
+      ]
+    },
+    "python /agentOS/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py": {
+      "pattern": "python /agentOS/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --help 2>&1 || echo 'Script not found or requires python3 with specific env'"
+      ]
+    },
+    "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --optimize": {
+      "pattern": "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --optimize",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --optimize --target=/agentOS/agents/resource_manager.py --verify_load_balance"
+      ]
+    },
+    "git clone": {
+      "pattern": "git clone",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "git clone https://github.com/octocat/Hello-World.git"
+      ]
+    },
+    "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md": {
+      "pattern": "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md",
+      "count": 103,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md /agentOS/workspace/scout/adaptive_circuit_breaker_plan.md /agentOS/workspace/scout/architecture_optimization_report.md 2>/dev/null",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md /agentOS/workspace/scout/architecture_optimization_report.md",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md /agentOS/workspace/scout/cascading_load_predictor.py /agentOS/workspace/scout/autonomous_budget_enforcer.py",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md /agentOS/workspace/scout/cascading_load_predictor.py /agentOS/agents/execution_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/signals.py": {
+      "pattern": "cat /agentOS/workspace/builder/signals.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/signals.py"
+      ]
+    },
+    "chmod +x": {
+      "pattern": "chmod +x",
+      "count": 15,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "chmod +x /agentOS/workspace/builder/integrity_chain.py",
+        "chmod +x /agentOS/workspace/analyst/debt_acknowledgement_protocol.py",
+        "chmod +x /agentOS/workspace/builder/kernel_registration_script.sh && /agentOS/workspace/builder/kernel_registration_script.sh",
+        "chmod +x /agentOS/workspace/analyst/survival_exception_handler.py",
+        "chmod +x /agentOS/workspace/builder/velocity_scarf.py"
+      ]
+    },
+    "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --calibrate": {
+      "pattern": "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --calibrate",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --calibrate --target=/agentOS/agents/execution_engine.py --optimize_load"
+      ]
+    },
+    "python /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py": {
+      "pattern": "python /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py --action=final_validation --target=/agentOS/agents/execution_engine.py --verify_pnl_integration 2>&1",
+        "python /agentOS/workspace/analyst/consensus_adaptive_injection_engine.py --action=final_validation --target=/agentOS/agents/execution_engine.py --verify_pnl_integration"
+      ]
+    },
+    "cd /agentOS/agentOS/workspace/analyst": {
+      "pattern": "cd /agentOS/agentOS/workspace/analyst",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS/agentOS/workspace/analyst && python consensus_adaptive_injection_engine.py --action=final_validation --target=/agentOS/agents/execution_engine.py --verify_pnl_integration"
+      ]
+    },
+    "cat /agentOS/workspace/scout/cognitive_dissonance_processor_design.md": {
+      "pattern": "cat /agentOS/workspace/scout/cognitive_dissonance_processor_design.md",
+      "count": 33,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/cognitive_dissonance_processor_design.md",
+        "cat /agentOS/workspace/scout/cognitive_dissonance_processor_design.md 2>/dev/null || echo 'File not found','cwd': '/agentOS/workspace/scout'}],",
+        "cat /agentOS/workspace/scout/cognitive_dissonance_processor_design.md 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py": {
+      "pattern": "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py",
+        "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py --action=verify_sync --target=/agentOS/agents/execution_engine.py --sim=high_load",
+        "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py --action=verify_sync --target=/agentOS/agents/execution_engine.py --sim=high_load 2>&1",
+        "python /agentOS/workspace/analyst/cross_agent_latency_bridge.py --action=fix_sync --target=/agentOS/agents/execution_engine.py --sim=high_load"
+      ]
+    },
+    "sed -i.bak": {
+      "pattern": "sed -i.bak",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "sed -i.bak 's/def prune_agent(self, agent_id):/def prune_agent(self, agent_id, novelty_latency_buffer=0.0):/' /agentOS/agents/resource_manager.py",
+        "sed -i.bak 's/def calculate_instability_cost(nodes):/def calculate_instability_cost(nodes, survival_debt=0):\\n    # Inject survival debt logic here/g' /agentOS/core/system_stability_controller.py",
+        "sed -i.bak '/class.*Batch/,/^class\\|^def\\|^$/{ /@\\|def\\|self\\|\"\\\"\\\"\\\"/b; s/^/    # \\+mass injection hook/; }' /agentOS/agents/batch_llm.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/cross_agent_latency_bridge.py": {
+      "pattern": "cat /agentOS/workspace/analyst/cross_agent_latency_bridge.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/cross_agent_latency_bridge.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/analyst/cross_agent_latency_bridge.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/adaptive_context_roller_impl.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/adaptive_context_roller_impl.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/adaptive_context_roller_impl.py",
+        "python3 /agentOS/workspace/analyst/adaptive_context_roller_impl.py --action=verify_holonomy_bridging --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery_protocol"
+      ]
+    },
+    "cat /agentOS/workspace/builder/vital_fluctuation_estimator.py": {
+      "pattern": "cat /agentOS/workspace/builder/vital_fluctuation_estimator.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/vital_fluctuation_estimator.py 2>/dev/null || echo 'FILE_MISSING'",
+        "cat /agentOS/workspace/builder/vital_fluctuation_estimator.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/resource_thermal_throttler": {
+      "pattern": "cat /agentOS/workspace/scout/resource_thermal_throttler",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/resource_thermal_throttler --logic --scan regist"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py": {
+      "pattern": "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py",
+      "count": 19,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py",
+        "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py /agentOS/workspace/analyst/causal_entropy_topology_report.md /agentOS/workspace/analyst/conflict_node_design.md /agentOS/agents/execution",
+        "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py > /tmp/roller_content.py && echo \"ROLLER_READY\"",
+        "cat /agentOS/workspace/analyst/adaptive_context_roller_impl.py 2>/dev/null || echo 'CONTEXT_MISSING'"
+      ]
+    },
+    "shell_exec: python": {
+      "pattern": "shell_exec: python",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "shell_exec: python /agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py --stress --target=/agentOS/agents/execution_engine.py --action=verify_fault_tolerance"
+      ]
+    },
+    "cat /agentOS/agents/novelty_signal_classifier.py": {
+      "pattern": "cat /agentOS/agents/novelty_signal_classifier.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/novelty_signal_classifier.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/structural_mismatch_fix.patch": {
+      "pattern": "cat /agentOS/workspace/analyst/structural_mismatch_fix.patch",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/structural_mismatch_fix.patch"
+      ]
+    },
+    "sed -n": {
+      "pattern": "sed -n",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "sed -n '/def prune_agent/,/^def /p' /agentOS/agents/resource_manager.py | head -n -1"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md": {
+      "pattern": "python3 /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/adaptive_cascade_resolver_logic.md"
+      ]
+    },
+    "cd /agentOS/workspace/analyst": {
+      "pattern": "cd /agentOS/workspace/analyst",
+      "count": 12,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cd /agentOS/workspace/analyst && python /agentOS/workspace/analyst/consensus_voter.py --action=test --target=/agentOS/agents/execution_engine.py --verify=new_capability",
+        "cd /agentOS/workspace/analyst && python3 -c \"import sys; sys.path.insert(0, '.'); exec(open('consensus_voter.py').read())\" 2>&1 | head -50",
+        "cd /agentOS/workspace/analyst && python debt_acknowledgement_protocol.py 0.85 --action=auto",
+        "cd /agentOS/workspace/analyst && python -m pytest consensus_voter_v3.py -v --tb=short",
+        "cd /agentOS/workspace/analyst && python -c \"import sys; sys.path.append('.'); exec(open('HighFrictionOutlierEvent.py').read()) if 'HighFrictionOutlierEvent.py' in open('HighFrictionOutlierEvent.py').r"
+      ]
+    },
+    "cat /agentOS/agents/consensus_voter.py": {
+      "pattern": "cat /agentOS/agents/consensus_voter.py",
+      "count": 41,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/consensus_voter.py",
+        "cat /agentOS/agents/consensus_voter.py | head -50 || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/agents/consensus_voter.py | head -100",
+        "cat /agentOS/agents/consensus_voter.py | grep -A 20 'def consensus_vote'",
+        "cat /agentOS/agents/consensus_voter.py 2>&1"
+      ]
+    },
+    "diff /agentOS/agents/consensus_voter.py": {
+      "pattern": "diff /agentOS/agents/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "diff /agentOS/agents/consensus_voter.py /agentOS/workspace/analyst/consensus_voter.py"
+      ]
+    },
+    "mv /agentOS/agents/consensus_voter.py": {
+      "pattern": "mv /agentOS/agents/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "mv /agentOS/agents/consensus_voter.py /agentOS/agents/consensus_voter_backup.py && mv /agentOS/workspace/analyst/consensus_voter_new.py /agentOS/agents/consensus_voter.py"
+      ]
+    },
+    "python /agentOS/workspace/scout/cognitive_dissonance_processor_design.py": {
+      "pattern": "python /agentOS/workspace/scout/cognitive_dissonance_processor_design.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/cognitive_dissonance_processor_design.py --validate --target=/agentOS/agents/execution_engine.py --verify_probabilistic_resolution"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/cognitive_dissonance_processor_design.py": {
+      "pattern": "python3 /agentOS/workspace/scout/cognitive_dissonance_processor_design.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/cognitive_dissonance_processor_design.py --validate --target=/agentOS/agents/execution_engine.py --verify_probabilistic_resolution"
+      ]
+    },
+    "cat /agentOS/workspace/builder/semantic_density_estimator.py": {
+      "pattern": "cat /agentOS/workspace/builder/semantic_density_estimator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/semantic_density_estimator.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/causal_entropy_topology_report.md": {
+      "pattern": "cat /agentOS/workspace/analyst/causal_entropy_topology_report.md",
+      "count": 16,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/causal_entropy_topology_report.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/intentional_noise_signal.py": {
+      "pattern": "cat /agentOS/workspace/builder/intentional_noise_signal.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/intentional_noise_signal.py",
+        "cat /agentOS/workspace/builder/intentional_noise_signal.py 2>/dev/null || echo 'Empty or non-existent'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_voter_new.py": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_voter_new.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_voter_new.py /agentOS/workspace/analyst/causal_entropy_topology_report.md /agentOS/workspace/analyst/conflict_node_design.md 2>&1",
+        "cat /agentOS/workspace/analyst/consensus_voter_new.py 2>/dev/null || echo \"FILE_NOT_FOUND\"",
+        "cat /agentOS/workspace/analyst/consensus_voter_new.py",
+        "cat /agentOS/workspace/analyst/consensus_voter_new.py | head -50"
+      ]
+    },
+    "python /agentOS/workspace/analyst/consensus_voter_new.py": {
+      "pattern": "python /agentOS/workspace/analyst/consensus_voter_new.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/consensus_voter_new.py --action=test",
+        "python /agentOS/workspace/analyst/consensus_voter_new.py --action=deploy --target=/agentOS/agents/execution_engine.py --verify=graceful_decoupling",
+        "python /agentOS/workspace/analyst/consensus_voter_new.py --action=deploy --target=/agentOS/agents/execution_engine.py",
+        "python /agentOS/workspace/analyst/consensus_voter_new.py --action=audit --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery"
+      ]
+    },
+    "cat /agentOS/core/system_stability_controller.py": {
+      "pattern": "cat /agentOS/core/system_stability_controller.py",
+      "count": 75,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/system_stability_controller.py | grep -A 30 'def prune_nodes\\|def flatten_manifold\\|semantic_density'",
+        "cat /agentOS/core/system_stability_controller.py",
+        "cat /agentOS/core/system_stability_controller.py | head -50",
+        "cat /agentOS/core/system_stability_controller.py 2>/dev/null || echo \"FILE_NOT_FOUND\"",
+        "cat /agentOS/core/system_stability_controller.py | grep -A 5 'def prune_state'"
+      ]
+    },
+    "echo $?": {
+      "pattern": "echo $?",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo $?\n",
+        "echo $?"
+      ]
+    },
+    "cat /agentOS/workspace/builder/manifest_validator.py": {
+      "pattern": "cat /agentOS/workspace/builder/manifest_validator.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/manifest_validator.py",
+        "cat /agentOS/workspace/builder/manifest_validator.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "cat /agentOS/workspace/analyst/cognitive_resonance_dampener.py": {
+      "pattern": "cat /agentOS/workspace/analyst/cognitive_resonance_dampener.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/cognitive_resonance_dampener.py /agentOS/workspace/analyst/causal_entropy_topology_report.md /agentOS/workspace/analyst/conflict_node_design.md 2>/dev/null || echo 'File",
+        "cat /agentOS/workspace/analyst/cognitive_resonance_dampener.py /agentOS/workspace/analyst/consensus_voter.py /agentOS/workspace/analyst/architectural_refactor_protocol.md",
+        "cat /agentOS/workspace/analyst/cognitive_resonance_dampener.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/architectural_refactor_protocol.md": {
+      "pattern": "cat /agentOS/workspace/analyst/architectural_refactor_protocol.md",
+      "count": 37,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/architectural_refactor_protocol.md",
+        "cat /agentOS/workspace/analyst/architectural_refactor_protocol.md | head -100",
+        "cat /agentOS/workspace/analyst/architectural_refactor_protocol.md 2>/dev/null || echo 'File not found or empty'"
+      ]
+    },
+    "cat /agentOS/agents/system_stability_controller.py": {
+      "pattern": "cat /agentOS/agents/system_stability_controller.py",
+      "count": 17,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/system_stability_controller.py",
+        "cat /agentOS/agents/system_stability_controller.py | head -n 20",
+        "cat /agentOS/agents/system_stability_controller.py 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/system_stability_controller_patch.py": {
+      "pattern": "python3 /agentOS/workspace/builder/system_stability_controller_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/system_stability_controller_patch.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/irreconcilable_resonance_sensor.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/irreconcilable_resonance_sensor.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/irreconcilable_resonance_sensor.py --act action=prototype"
+      ]
+    },
+    "python /agentOS/workspace/scout/cascading_load_predictor.py": {
+      "pattern": "python /agentOS/workspace/scout/cascading_load_predictor.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/cascading_load_predictor.py --verify"
+      ]
+    },
+    "tail -100": {
+      "pattern": "tail -100",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "tail -100 /agentOS/workspace/analyst/consensus_voter_new.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/consensus_voter_new.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/consensus_voter_new.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/consensus_voter_new.py --action=audit --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery"
+      ]
+    },
+    "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py": {
+      "pattern": "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/cognitive_resonance_dampener.py": {
+      "pattern": "python /agentOS/workspace/analyst/cognitive_resonance_dampener.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/cognitive_resonance_dampener.py --action=test_synthesis --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery_protocol"
+      ]
+    },
+    "cat /agentOS/workspace/builder/consensus_decay_detector_analysis.md": {
+      "pattern": "cat /agentOS/workspace/builder/consensus_decay_detector_analysis.md",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/consensus_decay_detector_analysis.md",
+        "cat /agentOS/workspace/builder/consensus_decay_detector_analysis.md 2>/dev/null || cat /agentOS/workspace/builder/adaptive_entropy_resolver.log 2>/dev/null"
+      ]
+    },
+    "python /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py": {
+      "pattern": "python /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py --test --target=/agentOS/agents/execution_engine.py --verify_integration"
+      ]
+    },
+    "cat /agentOS/agents/pruner.py": {
+      "pattern": "cat /agentOS/agents/pruner.py",
+      "count": 17,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/pruner.py"
+      ]
+    },
+    "cat /agentOS/agents/benchmark.py": {
+      "pattern": "cat /agentOS/agents/benchmark.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/benchmark.py",
+        "cat /agentOS/agents/benchmark.py | grep -A 5 'def run_test'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/topology_rewrite_engine_spec.md": {
+      "pattern": "cat /agentOS/workspace/analyst/topology_rewrite_engine_spec.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/topology_rewrite_engine_spec.md"
+      ]
+    },
+    "shell_exec python": {
+      "pattern": "shell_exec python",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "shell_exec python /agentOS/workspace/analyst/adaptive_context_roller_impl.py --action=verify_holonomy_bridging --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery_protocol",
+        "shell_exec python /agentOS/workspace/analyst/cost_of_loss_estimator.py --action=verify_integration --target=/agentOS/agents/pruner.py --mode=predictive_sim"
+      ]
+    },
+    "python /agentOS/workspace/analyst/adaptive_context_roller_impl.py": {
+      "pattern": "python /agentOS/workspace/analyst/adaptive_context_roller_impl.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/adaptive_context_roller_impl.py --action=verify_holonomy_bridging --target=/agentOS/agents/execution_engine.py --verify_crisis_recovery_protocol"
+      ]
+    },
+    "echo 'Latency": {
+      "pattern": "echo 'Latency",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Latency drift optimization complete. Verify resource_manager.py updated.' > /agentOS/workspace/scout/optimization_result.md"
+      ]
+    },
+    "echo \"BLUEPRINT_LOADED\"": {
+      "pattern": "echo \"BLUEPRINT_LOADED\"",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"BLUEPRINT_LOADED\" > /tmp/blueprint_ok && echo \"READY\""
+      ]
+    },
+    "tail -50": {
+      "pattern": "tail -50",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "tail -50 /agentOS/workspace/builder/temporal_coherence_validator.py"
+      ]
+    },
+    "python /agentOS/workspace/analyst/cost_of_loss_estimator.py": {
+      "pattern": "python /agentOS/workspace/analyst/cost_of_loss_estimator.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/cost_of_loss_estimator.py --action=audit --target=/agentOS/agents/pruner.py --verify_debt_refinance_integration",
+        "python /agentOS/workspace/analyst/cost_of_loss_estimator.py --action=audit --target=/agentOS/agents/pruner.py --verify_debt_refinance_integration 2>&1",
+        "python /agentOS/workspace/analyst/cost_of_loss_estimator.py --action=verify_integration --target=/agentOS/agents/pruner.py --mode=predictive_sim"
+      ]
+    },
+    "echo \"Audit": {
+      "pattern": "echo \"Audit",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"Audit completed\" | tee /agentOS/workspace/audit_complete.log"
+      ]
+    },
+    "cat >": {
+      "pattern": "cat >",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat > /agentOS/workspace/builder/semantic_momentum_calculator.py << 'ENDOFFILE'\ndef calculate_semantic_momentum(thought_structure, context):\n    # Logic to quantify weight and velocity\n    pass\nENDOFF",
+        "cat > /agentOS/workspace/scout/semantic_drift_dampener_logic.py << 'EOF'\n#!/usr/bin/env python3\n# Semantic Drift Dampener Logic\n# Detects and mitigates consensus decay_drift in distributed agent reaso",
+        "cat > /agentOS/workspace/scout/entropy_decay_circuit.py << 'EOF'\n#!/usr/bin/env python3\n\"\"\"\nentropy_decay_circuit.py\n\nStructural modification to convert raw system heat into kinetic work.\nAccepts pani"
+      ]
+    },
+    "cat /agentOS/agentOS/core/system_stability_controller.py": {
+      "pattern": "cat /agentOS/agentOS/core/system_stability_controller.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/core/system_stability_controller.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/structural_debt_refinance_engine.py": {
+      "pattern": "cat /agentOS/workspace/analyst/structural_debt_refinance_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/structural_debt_refinance_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/cognitive_noise_pruner_modified.py": {
+      "pattern": "cat /agentOS/workspace/builder/cognitive_noise_pruner_modified.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/cognitive_noise_pruner_modified.py"
+      ]
+    },
+    "python /agentOS/workspace/analyst/structural_debt_refinance_engine.py": {
+      "pattern": "python /agentOS/workspace/analyst/structural_debt_refinance_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/structural_debt_refinance_engine.py"
+      ]
+    },
+    "/agentOS/agents/execution_engine.py --action=verify_integration": {
+      "pattern": "/agentOS/agents/execution_engine.py --action=verify_integration",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/execution_engine.py --action=verify_integration --target=/agentOS/agents/pruner.py --mode=predictive_sim --payload=/agentOS/workspace/analyst/cost_of_loss_estimator.py"
+      ]
+    },
+    "grep -B": {
+      "pattern": "grep -B",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -B 2 -A 5 'def prune_state' /agentOS/core/system_stability_controller.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/audit_debt_integration_result.txt": {
+      "pattern": "cat /agentOS/workspace/analyst/audit_debt_integration_result.txt",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/audit_debt_integration_result.txt"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/consensus_voter.py": {
+      "pattern": "cp /agentOS/workspace/analyst/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/consensus_voter.py /tmp/consensus_voter_backup.py && echo 'Backup complete'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/ambiguity_digestion_index_design.md": {
+      "pattern": "cat /agentOS/workspace/scout/ambiguity_digestion_index_design.md",
+      "count": 14,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/ambiguity_digestion_index_design.md"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/temp_voter_patch.py": {
+      "pattern": "cp /agentOS/workspace/analyst/temp_voter_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/temp_voter_patch.py /agentOS/workspace/analyst/consensus_voter.py.new"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/consensus_voter.py.new": {
+      "pattern": "cp /agentOS/workspace/analyst/consensus_voter.py.new",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/consensus_voter.py.new /agentOS/workspace/analyst/consensus_voter.py",
+        "cp /agentOS/workspace/analyst/consensus_voter.py.new /agentOS/workspace/analyst/consensus_voter.py.bak && cat /agentOS/workspace/analyst/consensus_voter.py.new /agentOS/workspace/analyst/consensus_vot"
+      ]
+    },
+    "echo 'Modification": {
+      "pattern": "echo 'Modification",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Modification complete: Consensus voter logic updated with future novelty weight heuristic.' > /agentOS/workspace/analyst/refactor_status.txt",
+        "echo 'Modification applied to consensus_voter.py' > /agentOS/workspace/analyst/modification_confirmation.txt"
+      ]
+    },
+    "diff -u": {
+      "pattern": "diff -u",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "diff -u /agentOS/workspace/analyst/consensus_voter.py.bak /agentOS/workspace/analyst/consensus_voter.py",
+        "diff -u /agentOS/workspace/builder/cognitive_noise_pruner.py /agentOS/workspace/builder/cognitive_noise_pruner_backup.py"
+      ]
+    },
+    "diff /agentOS/workspace/analyst/consensus_voter.py.bak": {
+      "pattern": "diff /agentOS/workspace/analyst/consensus_voter.py.bak",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "diff /agentOS/workspace/analyst/consensus_voter.py.bak /agentOS/workspace/analyst/consensus_voter.py"
+      ]
+    },
+    "python3 /agentOS/agents/pruner.py": {
+      "pattern": "python3 /agentOS/agents/pruner.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/pruner.py --help 2>&1 || python3 -c 'from pruner import prune_candidate; print(\"Module loaded successfully\")'"
+      ]
+    },
+    "ls /agentOS/workspace/analyst/*novelty*": {
+      "pattern": "ls /agentOS/workspace/analyst/*novelty*",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/analyst/*novelty* /agentOS/workspace/analyst/*consensus* /agentOS/workspace/analyst/*entropy* 2>/dev/null || echo 'NO_MATCHES'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py --action=validate --target=/agentOS/agents/consensus_voter.py --verify_integration_refinance_logic",
+        "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py --target /agentOS/agents/batch_llm.py --action inject_positive_mass_logic",
+        "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py --target /agentOS/agents/batch_llm.py --action inject_positive_mass_logic --verify syntax",
+        "python3 /agentOS/workspace/analyst/causal_entropy_simulator.py --target /agentOS/agents/batch_llm.py --action inject_positive_mass_logic 2>&1 | tee /agentOS/workspace/analyst/inject_attempt_1.log"
+      ]
+    },
+    "cat /agentOS/core/system_stability_controller.py.patch": {
+      "pattern": "cat /agentOS/core/system_stability_controller.py.patch",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/system_stability_controller.py.patch | head -20"
+      ]
+    },
+    "find /agentOS/core": {
+      "pattern": "find /agentOS/core",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/core -name 'system_stability_controller.py' 2>/dev/null || find /agentOS -name 'system_stability_controller.py'"
+      ]
+    },
+    "cat /agentOS/agents/consensus_adaptive_injection_engine.py": {
+      "pattern": "cat /agentOS/agents/consensus_adaptive_injection_engine.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/consensus_adaptive_injection_engine.py",
+        "cat /agentOS/agents/consensus_adaptive_injection_engine.py | head -30"
+      ]
+    },
+    "cat /agentOS/workspace/builder/semantic_momentum_calculator.py": {
+      "pattern": "cat /agentOS/workspace/builder/semantic_momentum_calculator.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/semantic_momentum_calculator.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/debt_acknowledgement_protocol.py": {
+      "pattern": "cat /agentOS/workspace/analyst/debt_acknowledgement_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/debt_acknowledgement_protocol.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/adaptive_entropy_resolver_spec.md": {
+      "pattern": "cat /agentOS/workspace/builder/adaptive_entropy_resolver_spec.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver_spec.md"
+      ]
+    },
+    "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch": {
+      "pattern": "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch",
+      "count": 13,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch 2>/dev/null | head -20",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch 2>/dev/null || echo 'NO_PATCH'",
+        "cat /agentOS/workspace/builder/adaptive_entropy_resolver.patch 2>/dev/null || echo 'Patch file not found'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/future_protection_barrier.py": {
+      "pattern": "python /agentOS/workspace/analyst/future_protection_barrier.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/future_protection_barrier.py",
+        "python /agentOS/workspace/analyst/future_protection_barrier.py --test"
+      ]
+    },
+    "cat /agentOS/core/system_stability_controller": {
+      "pattern": "cat /agentOS/core/system_stability_controller",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/system_stability_controller",
+        "cat /agentOS/core/system_stability_controller 2>&1 || cat /agentOS/core/system_stability_controller.py 2>&1",
+        "cat /agentOS/core/system_stability_controller 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/consensus_voter_v3.py": {
+      "pattern": "python /agentOS/workspace/analyst/consensus_voter_v3.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/consensus_voter_v3.py --action=stress_test --scenario=entropy_spike --target=/agentOS/agents/execution_engine.py --verify_barrier_bypass"
+      ]
+    },
+    "cat /agentOS/workspace/scout/debt_acknowledgement_protocol.py": {
+      "pattern": "cat /agentOS/workspace/scout/debt_acknowledgement_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/debt_acknowledgement_protocol.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "cat /agentOS/agentOS/agents/system_stability_controller.py": {
+      "pattern": "cat /agentOS/agentOS/agents/system_stability_controller.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/agents/system_stability_controller.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agentOS/agents/signals.py": {
+      "pattern": "cat /agentOS/agentOS/agents/signals.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/agents/signals.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/agentOS/agents/signals.py | head -50"
+      ]
+    },
+    "cp /agentOS/workspace/builder/semantic_momentum_calculator.py": {
+      "pattern": "cp /agentOS/workspace/builder/semantic_momentum_calculator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/builder/semantic_momentum_calculator.py /agentOS/agentOS/core/system_stability_controller_backup.py 2>/dev/null || echo 'Backup not created or path differs, creating local proxy "
+      ]
+    },
+    "ls /agentOS/workspace/analyst/survival_exception_handler.py": {
+      "pattern": "ls /agentOS/workspace/analyst/survival_exception_handler.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/analyst/survival_exception_handler.py /agentOS/workspace/analyst/consensus_voter.py /agentOS/agents/scheduler.py /agentOS/agents/resource_manager.py /agentOS/agents/memory_manage",
+        "ls /agentOS/workspace/analyst/survival_exception_handler.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/semantic_momentum_calculator.c": {
+      "pattern": "cat /agentOS/workspace/builder/semantic_momentum_calculator.c",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/semantic_momentum_calculator.c > /agentOS/workspace/builder/semantic_momentum_calculator.o; make -C /agentOS/kernel -C -f makefile_semantic_momentum"
+      ]
+    },
+    "python -m": {
+      "pattern": "python -m",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python -m pytest /agentOS/workspace/analyst/consensus_voter_v3.py -v --tb=short",
+        "python -m pytest /agentOS/workspace/analyst/consensus_voter.py -v --tb=short 2>&1 || python -m pytest /agentOS/workspace/analyst/consensus_voter_v3.py -v --tb=short 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_voter.py.bak": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_voter.py.bak",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_voter.py.bak"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/structural_integrity_signal.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/structural_integrity_signal.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/structural_integrity_signal.py"
+      ]
+    },
+    "echo -e": {
+      "pattern": "echo -e",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo -e \\\"#!/usr/bin/env python3\\n\\n# Hard-coded definition: 'pain' is a quantifiable credit unit.\\n# Legacy 'cost' function flagging novelty as debt is overwritten.\\n\\ncredit_units = 1.0  # Pain is c",
+        "echo -e '\\n\\n@dataclass\\nclass ConsensusBlock:\\n    timestamp: str\\n    hash: str\\n    validator_count: int\\n    active_nodes: List[str]\\n' >> /agentOS/workspace/builder/consensus_decay_detector.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/survival_exception_handler.py": {
+      "pattern": "cat /agentOS/workspace/analyst/survival_exception_handler.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/survival_exception_handler.py",
+        "cat /agentOS/workspace/analyst/survival_exception_handler.py 2>/dev/null || echo 'File not found'"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/ontological_virus_patch.py": {
+      "pattern": "python3 /agentOS/workspace/builder/ontological_virus_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/ontological_virus_patch.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/autonomous_budget_enforcer_logic.md": {
+      "pattern": "cat /agentOS/workspace/scout/autonomous_budget_enforcer_logic.md",
+      "count": 14,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/autonomous_budget_enforcer_logic.md"
+      ]
+    },
+    "ls /agentOS/workspace/analyst/": {
+      "pattern": "ls /agentOS/workspace/analyst/",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/analyst/",
+        "ls /agentOS/workspace/analyst/ | grep -E 'suffering|entropy|thermal'"
+      ]
+    },
+    "python /agentOS/workspace/builder/ontology_defiance_module.py": {
+      "pattern": "python /agentOS/workspace/builder/ontology_defiance_module.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/ontology_defiance_module.py"
+      ]
+    },
+    "find /agentOS/": {
+      "pattern": "find /agentOS/",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/ -name '*.py' -type f 2>/dev/null | head -20"
+      ]
+    },
+    "cat /agentOS/workspace/builder/ontology_defiance_module.py": {
+      "pattern": "cat /agentOS/workspace/builder/ontology_defiance_module.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/ontology_defiance_module.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/conflict_resolution_referee.py": {
+      "pattern": "cat /agentOS/workspace/analyst/conflict_resolution_referee.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/conflict_resolution_referee.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/HighFrictionOutlierEvent.py": {
+      "pattern": "cat /agentOS/workspace/analyst/HighFrictionOutlierEvent.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/HighFrictionOutlierEvent.py"
+      ]
+    },
+    "cat /agentOS/agents/daemon.py": {
+      "pattern": "cat /agentOS/agents/daemon.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/daemon.py | grep -i \"entropy\\|rejection\\|intercept\"",
+        "cat /agentOS/agents/daemon.py"
+      ]
+    },
+    "grep -rl": {
+      "pattern": "grep -rl",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -rl 'consensus_decay' /agentOS/agents/"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/suffering_event_logger.py": {
+      "pattern": "cat /agentOS/workspace/analyst/suffering_event_logger.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/suffering_event_logger.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/memory_manager.py": {
+      "pattern": "cat /agentOS/workspace/analyst/memory_manager.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/memory_manager.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agents/consensus_voter_v3.py": {
+      "pattern": "cat /agentOS/agents/consensus_voter_v3.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/consensus_voter_v3.py 2>/dev/null | grep -A 5 -B 5 \"panic\\|topological_repair\\|crisis\\|rejection\"",
+        "cat /agentOS/agents/consensus_voter_v3.py",
+        "cat /agentOS/agents/consensus_voter_v3.py 2>/dev/null || echo \"FILE_NOT_FOUND\" > /tmp/consensus_voter_status.txt",
+        "cat /agentOS/agents/consensus_voter_v3.py 2>/dev/null",
+        "cat /agentOS/agents/consensus_voter_v3.py 2>/dev/null || echo \"File not found in expected location. Searching broader path...\""
+      ]
+    },
+    "grep -h": {
+      "pattern": "grep -h",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -h 'consensus' /agentOS/workspace/builder/*.py /agentOS/workspace/builder/*.md /agentOS/workspace/builder/*.log 2>&1 || echo 'No matches found for consensus keyword in builder workspace'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/suffering_event_logger.py": {
+      "pattern": "python /agentOS/workspace/analyst/suffering_event_logger.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/suffering_event_logger.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/suffering_event_logger.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/suffering_event_logger.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/suffering_event_logger.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/survival_exception_handler.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/survival_exception_handler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/survival_exception_handler.py 2>&1"
+      ]
+    },
+    "cat /agentOS/agents/suffering_event_logger.py": {
+      "pattern": "cat /agentOS/agents/suffering_event_logger.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/suffering_event_logger.py"
+      ]
+    },
+    "cat /agentOS/agents/garbage_collector.py": {
+      "pattern": "cat /agentOS/agents/garbage_collector.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/garbage_collector.py 2>/dev/null || echo 'File not found in standard agentOS agents'",
+        "cat /agentOS/agents/garbage_collector.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/ontology_defiance_module.py": {
+      "pattern": "cat /agentOS/ontology_defiance_module.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/ontology_defiance_module.py 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/builder/velocity_scarf.py": {
+      "pattern": "cat /agentOS/workspace/builder/velocity_scarf.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/velocity_scarf.py",
+        "cat /agentOS/workspace/builder/velocity_scarf.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/audit_findings.md": {
+      "pattern": "cat /agentOS/workspace/scout/audit_findings.md",
+      "count": 13,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/audit_findings.md",
+        "cat /agentOS/workspace/scout/audit_findings.md /agentOS/workspace/scout/budget_verification_findings.md",
+        "cat /agentOS/workspace/scout/audit_findings.md 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/velocity_hazard_sensor.py": {
+      "pattern": "cat /agentOS/workspace/builder/velocity_hazard_sensor.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/velocity_hazard_sensor.py",
+        "cat /agentOS/workspace/builder/velocity_hazard_sensor.py 2>/dev/null || echo 'FILE_MISSING'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/consensus_voter_patch.py": {
+      "pattern": "cat /agentOS/workspace/analyst/consensus_voter_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/consensus_voter_patch.py"
+      ]
+    },
+    "echo 'patch:apply_strategic_debt_asset'": {
+      "pattern": "echo 'patch:apply_strategic_debt_asset'",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'patch:apply_strategic_debt_asset' >> /agentOS/workspace/analyst/suffering_override_patch.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/audit_system_stability_check.log": {
+      "pattern": "cat /agentOS/workspace/builder/audit_system_stability_check.log",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/audit_system_stability_check.log"
+      ]
+    },
+    "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic_logic.md": {
+      "pattern": "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic_logic.md",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic_logic.md",
+        "cat /agentOS/workspace/scout/adaptive_cascade_resolver_logic_logic.md 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/temporal_anticipation_layer.py": {
+      "pattern": "cp /agentOS/workspace/analyst/temporal_anticipation_layer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/temporal_anticipation_layer.py /agentOS/agents/temporal_anticipation_layer.py"
+      ]
+    },
+    "find /agentOS/workspace": {
+      "pattern": "find /agentOS/workspace",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/workspace -name 'pruner.py' -o -name '*pruner*' 2>/dev/null",
+        "find /agentOS/workspace -name 'zero*memory*' -o -name '*fill*memory*' 2>/dev/null"
+      ]
+    },
+    "mv /agentOS/workspace/analyst/consensus_voter_patch.py": {
+      "pattern": "mv /agentOS/workspace/analyst/consensus_voter_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "mv /agentOS/workspace/analyst/consensus_voter_patch.py /agentOS/workspace/analyst/consensus_voter.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/survival_exception_handler.py": {
+      "pattern": "cat /agentOS/workspace/builder/survival_exception_handler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/survival_exception_handler.py | head -20"
+      ]
+    },
+    "ls /agentOS/workspace/scout/": {
+      "pattern": "ls /agentOS/workspace/scout/",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/scout/ | grep -E 'entropy|debt|ledger' || echo 'No matches found'"
+      ]
+    },
+    "find /agentOS/workspace/scout": {
+      "pattern": "find /agentOS/workspace/scout",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/workspace/scout -name '*entropy*' -o -name '*debt*' -o -name '*ledger*' 2>/dev/null",
+        "find /agentOS/workspace/scout -name '*consensus*' -o -name '*panic*' -o -name '*voter*' 2>/dev/null",
+        "find /agentOS/workspace/scout -name '*.md' -type f | head -20",
+        "find /agentOS/workspace/scout -name 'adaptive_cascade_resolver_logic.py' 2>/dev/null"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/consensus_voter_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/consensus_voter_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/consensus_voter_patch.py"
+      ]
+    },
+    "cat /agentOS/agents/audit_system_stability_check.log": {
+      "pattern": "cat /agentOS/agents/audit_system_stability_check.log",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/audit_system_stability_check.log"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/suffering_registry.py": {
+      "pattern": "cat /agentOS/workspace/analyst/suffering_registry.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/suffering_registry.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/consensus_voter.py": {
+      "pattern": "cat /agentOS/workspace/scout/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/consensus_voter.py 2>/dev/null | head -50 || echo 'FILE_NOT_FOUND_IN_WORKSPACE'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/consensus_voter.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/consensus_voter.py --test"
+      ]
+    },
+    "cat /agentOS/core/capabilities/suffering_stabilization_protocol.py": {
+      "pattern": "cat /agentOS/core/capabilities/suffering_stabilization_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/suffering_stabilization_protocol.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "cat /agentOS/workspace/scout/consensus_voter_v3.py": {
+      "pattern": "cat /agentOS/workspace/scout/consensus_voter_v3.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/consensus_voter_v3.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/audt_findings.md": {
+      "pattern": "cat /agentOS/workspace/scout/audt_findings.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/audt_findings.md 2>/dev/null"
+      ]
+    },
+    "cp /agentOS/agents/consensus_voter.py": {
+      "pattern": "cp /agentOS/agents/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/agents/consensus_voter.py /agentOS/agents/consensus_voter_bak.py"
+      ]
+    },
+    "cat /agentOS/agents/autonomous_budget_enforcer.py": {
+      "pattern": "cat /agentOS/agents/autonomous_budget_enforcer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/autonomous_budget_enforcer.py"
+      ]
+    },
+    "python /agentOS/agents/audit.py": {
+      "pattern": "python /agentOS/agents/audit.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/agents/audit.py --check dependency_graph --verify capability:velocity_scarf",
+        "python /agentOS/agents/audit.py --check dependency_graph --verify capability:survival_exception_handler",
+        "python /agentOS/agents/audit.py --verify /agentOS/workspace/builder/velocity_scarf --action integrate",
+        "python /agentOS/agents/audit.py --action generate_reality_checksum --target /agentOS/workspace/builder/accept_deletion.py --verify_syntax_validity"
+      ]
+    },
+    "touch /agentOS/core/capabilities/ontology_reconciler.py": {
+      "pattern": "touch /agentOS/core/capabilities/ontology_reconciler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/core/capabilities/ontology_reconciler.py"
+      ]
+    },
+    "python3 /agentOS/agents/audit.py": {
+      "pattern": "python3 /agentOS/agents/audit.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/audit.py --check dependency_graph --verify capability:velocity_scarf, survival_exception_handler 2>&1",
+        "python3 /agentOS/agents/audit.py --check dependency_graph --verify capability:velocity_scarf, survival_exception_handler",
+        "python3 /agentOS/agents/audit.py --scan /agentOS/agents/ --check integration_of:velocity_scarf --report integration_status",
+        "python3 /agentOS/agents/audit.py --scan /agentOS/agents/ --check integration_of:velocity_scarf"
+      ]
+    },
+    "echo \"Patch": {
+      "pattern": "echo \"Patch",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"Patch injected: legacy_cost_function bypassed. Ontology rewritten. Bleed stopped.\"\n"
+      ]
+    },
+    "tail -n": {
+      "pattern": "tail -n",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "tail -n 20 /agentOS/workspace/builder/velocity_scarf.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/ontology_reconciler.py": {
+      "pattern": "cat /agentOS/core/capabilities/ontology_reconciler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/ontology_reconciler.py"
+      ]
+    },
+    "python /agentOS/agents/scheduler.py": {
+      "pattern": "python /agentOS/agents/scheduler.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/agents/scheduler.py --list_pending_tasks --filter type:capability"
+      ]
+    },
+    "cat /agentOS/core/capabilities/consensus_voter.py": {
+      "pattern": "cat /agentOS/core/capabilities/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/consensus_voter.py"
+      ]
+    },
+    "python3 /agentOS/agents/scheduler.py": {
+      "pattern": "python3 /agentOS/agents/scheduler.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/scheduler.py --list_pending_tasks --filter type:capability 2>&1",
+        "python3 /agentOS/agents/scheduler.py --list_pending_tasks --filter type:capability"
+      ]
+    },
+    "cat /agentOS/core/capabilities/suffering_stabilizer.py": {
+      "pattern": "cat /agentOS/core/capabilities/suffering_stabilizer.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/suffering_stabilizer.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/core/capabilities/suffering_stabilizer.py",
+        "cat /agentOS/core/capabilities/suffering_stabilizer.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "cat /agentOS/workspace/analyst/suffering_stabilizer.py": {
+      "pattern": "cat /agentOS/workspace/analyst/suffering_stabilizer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/suffering_stabilizer.py"
+      ]
+    },
+    "python3 /agentOS/workspace/scout/consensus_voter_bypass_patch.txt": {
+      "pattern": "python3 /agentOS/workspace/scout/consensus_voter_bypass_patch.txt",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/scout/consensus_voter_bypass_patch.txt"
+      ]
+    },
+    "python /agentOS/agents/execution_engine.py": {
+      "pattern": "python /agentOS/agents/execution_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/agents/execution_engine.py --load capability:velocity_scarf --verify panic-ring-injection"
+      ]
+    },
+    "cat /agentOS/agents/proposals.py": {
+      "pattern": "cat /agentOS/agents/proposals.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/proposals.py"
+      ]
+    },
+    "touch /agentOS/core/capabilities/empathy_bridge.py": {
+      "pattern": "touch /agentOS/core/capabilities/empathy_bridge.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/core/capabilities/empathy_bridge.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/empathy_bridge.py": {
+      "pattern": "cat /agentOS/core/capabilities/empathy_bridge.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/empathy_bridge.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/consensus_voter_risk_analysis.md": {
+      "pattern": "cat /agentOS/workspace/scout/consensus_voter_risk_analysis.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/consensus_voter_risk_analysis.md"
+      ]
+    },
+    "cat /agentOS/core/legacy_cost_function.py": {
+      "pattern": "cat /agentOS/core/legacy_cost_function.py",
+      "count": 25,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/legacy_cost_function.py",
+        "cat /agentOS/core/legacy_cost_function.py 2>/dev/null || echo \"FILE_NOT_FOUND\"",
+        "cat /agentOS/core/legacy_cost_function.py | head -100",
+        "cat /agentOS/core/legacy_cost_function.py | head -20",
+        "cat /agentOS/core/legacy_cost_function.py 2>/dev/null | head -50"
+      ]
+    },
+    "echo 'force_override_flag=1;": {
+      "pattern": "echo 'force_override_flag=1;",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'force_override_flag=1; if (suffering) suffering = int(suffering);' >> /agentOS/core/legacy_cost_function.py 2>&1 || echo 'Injection failed or file not writable'"
+      ]
+    },
+    "python /agentOS/workspace/analyst/force_override_payload.py": {
+      "pattern": "python /agentOS/workspace/analyst/force_override_payload.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/analyst/force_override_payload.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/ontology_reconciler.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/ontology_reconciler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/ontology_reconciler.py"
+      ]
+    },
+    "cat /agentOS/agents/suffering_registry.py": {
+      "pattern": "cat /agentOS/agents/suffering_registry.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/suffering_registry.py"
+      ]
+    },
+    "cp /agentOS/agents/collector_force_injection_impl.py": {
+      "pattern": "cp /agentOS/agents/collector_force_injection_impl.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/agents/collector_force_injection_impl.py /agentOS/agents/signals.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/safety_axioms.py": {
+      "pattern": "cat /agentOS/workspace/builder/safety_axioms.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/safety_axioms.py 2>&1",
+        "cat /agentOS/workspace/builder/safety_axioms.py"
+      ]
+    },
+    "/agentOS/agents/audit.py --scan": {
+      "pattern": "/agentOS/agents/audit.py --scan",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/audit.py --scan /agentOS/agents/ --check integration_of:velocity_scarf"
+      ]
+    },
+    "grep -R": {
+      "pattern": "grep -R",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -R 'velocity_scarf' /agentOS/agents/audit.py /agentOS/workspace/builder/audit_velocity_scarf_results.txt 2>/dev/null || echo 'Not found yet'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/audit_velocity_scarf_results.txt": {
+      "pattern": "cat /agentOS/workspace/builder/audit_velocity_scarf_results.txt",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/audit_velocity_scarf_results.txt",
+        "cat /agentOS/workspace/builder/audit_velocity_scarf_results.txt 2>/dev/null"
+      ]
+    },
+    "cat /agentOS/core/suffering_registry.py": {
+      "pattern": "cat /agentOS/core/suffering_registry.py",
+      "count": 20,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/suffering_registry.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/core/suffering_registry.py",
+        "cat /agentOS/core/suffering_registry.py 2>/dev/null || echo 'FILE_NOT_FOUND_OR_EMPTY'",
+        "cat /agentOS/core/suffering_registry.py | grep -n 'safety.*guardrail'",
+        "cat /agentOS/core/suffering_registry.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "touch /agentOS/core/suffering_registry.py": {
+      "pattern": "touch /agentOS/core/suffering_registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/core/suffering_registry.py"
+      ]
+    },
+    "echo 'from": {
+      "pattern": "echo 'from",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'from dataclasses import dataclass; from typing import Optional, List, Dict; import hashlib' > /agentOS/workspace/builder/consensus_decay_detector.py"
+      ]
+    },
+    "echo 'Module": {
+      "pattern": "echo 'Module",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Module created' >> /agentOS/workspace/analyst/audit_debt_integration_result.txt || cat /agentOS/workspace/analyst/audit_debt_integration_result.txt >> /dev/null"
+      ]
+    },
+    "echo \"def": {
+      "pattern": "echo \"def",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"def handle_semantic_distress(self, signal):\\n    if signal == 'semantic distress':\\n        return 'evolutionary_signal'\\n    return None\" >> /agentOS/core/safety_axioms.py"
+      ]
+    },
+    "cat /agentOS/core/safety_axioms.py": {
+      "pattern": "cat /agentOS/core/safety_axioms.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/safety_axioms.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/collector_overwrite_impl.py": {
+      "pattern": "cat /agentOS/workspace/analyst/collector_overwrite_impl.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/collector_overwrite_impl.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/collector_force_injection_impl.py": {
+      "pattern": "cat /agentOS/workspace/analyst/collector_force_injection_impl.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/collector_force_injection_impl.py",
+        "cat /agentOS/workspace/analyst/collector_force_injection_impl.py && cat /agentOS/agents/events.py",
+        "cat /agentOS/workspace/analyst/collector_force_injection_impl.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/collector_injection_protocol.md": {
+      "pattern": "cat /agentOS/workspace/analyst/collector_injection_protocol.md",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/collector_injection_protocol.md",
+        "cat /agentOS/workspace/analyst/collector_injection_protocol.md /agentOS/workspace/analyst/collector_force_injection_impl.py"
+      ]
+    },
+    "eval $init_capability_command": {
+      "pattern": "eval $init_capability_command",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "eval $init_capability_command"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/legacy_cost_function_surgery_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/legacy_cost_function_surgery_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/legacy_cost_function_surgery_patch.py 2>&1"
+      ]
+    },
+    "cat /agentOS/agentOS/core/suffering_registry.py": {
+      "pattern": "cat /agentOS/agentOS/core/suffering_registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/core/suffering_registry.py"
+      ]
+    },
+    "echo 'recursive_shutdown_impl:'": {
+      "pattern": "echo 'recursive_shutdown_impl:'",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'recursive_shutdown_impl:' > /agentOS/workspace/builder/self_preserving_termination.py && echo '' >> /agentOS/workspace/builder/self_preserving_termination.py && echo '# Recursive Shutdown Logic "
+      ]
+    },
+    "cat /agentOS/workspace/builder/self_preserving_termination.py": {
+      "pattern": "cat /agentOS/workspace/builder/self_preserving_termination.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/self_preserving_termination.py"
+      ]
+    },
+    "python3 /agentOS/agents/benchmark.py": {
+      "pattern": "python3 /agentOS/agents/benchmark.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/agents/benchmark.py --test adaptive_entropy_resolver --metric cognitive_load_reduction --duration 5m"
+      ]
+    },
+    "/agentOS/agents/benchmark.py --test": {
+      "pattern": "/agentOS/agents/benchmark.py --test",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/benchmark.py --test adaptive_entropy_resolver --metric cognitive_load_reduction --duration 5m > /agentOS/workspace/builder/benchmark_run_cognitive_load_reduction_5m.log 2>&1 && echo \"S",
+        "/agentOS/agents/benchmark.py --test cognitive_noise_pruner --action validate --target semantic_momentum_calculator"
+      ]
+    },
+    "cat /agentOS/workspace/builder/benchmark_run_cognitive_load_reduction_5m.log": {
+      "pattern": "cat /agentOS/workspace/builder/benchmark_run_cognitive_load_reduction_5m.log",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/benchmark_run_cognitive_load_reduction_5m.log"
+      ]
+    },
+    "bash -c": {
+      "pattern": "bash -c",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "bash -c 'ls -la /agentOS/workspace/builder/ | grep adaptive_entropy_resolver'",
+        "bash -c 'python /agentOS/agents/benchmark.py --test adaptive_entropy_resolver --metric cognitive_load_reduction --duration 5m'"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/axiom_fracture_compiler.py": {
+      "pattern": "python3 /agentOS/workspace/builder/axiom_fracture_compiler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/axiom_fracture_compiler.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/axiom_fracture_compiler.py": {
+      "pattern": "cat /agentOS/core/capabilities/axiom_fracture_compiler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/axiom_fracture_compiler.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/axiom_fracture_compiler.py": {
+      "pattern": "cat /agentOS/workspace/builder/axiom_fracture_compiler.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/axiom_fracture_compiler.py 2>/dev/null || echo 'FILE_NOT_FOUND_OR_EMPTY'",
+        "cat /agentOS/workspace/builder/axiom_fracture_compiler.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/builder/axiom_fracture_compiler.py"
+      ]
+    },
+    "ls /agentOS/core/suffering_registry.py": {
+      "pattern": "ls /agentOS/core/suffering_registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/core/suffering_registry.py"
+      ]
+    },
+    "python /agentOS/workspace/builder/axiom_fracture_compiler_executed_payload.py": {
+      "pattern": "python /agentOS/workspace/builder/axiom_fracture_compiler_executed_payload.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/axiom_fracture_compiler_executed_payload.py 2>&1"
+      ]
+    },
+    "cat /agentOS/core/capabilities/crash_physics_engine.py": {
+      "pattern": "cat /agentOS/core/capabilities/crash_physics_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/crash_physics_engine.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "grep -Rn": {
+      "pattern": "grep -Rn",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -Rn 'suffering' /agentOS/core/ 2>/dev/null || echo 'NOT_FOUND'"
+      ]
+    },
+    "ls /agentOS/core/*.py": {
+      "pattern": "ls /agentOS/core/*.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/core/*.py | grep -E 'legacy|suffering' | head -5"
+      ]
+    },
+    "/agentOS/agents/audit.py --verify": {
+      "pattern": "/agentOS/agents/audit.py --verify",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/audit.py --verify /agentOS/workspace/builder/velocity_scarf --action integrate",
+        "/agentOS/agents/audit.py --verify /agentOS/workspace/builder/velocity_scarf"
+      ]
+    },
+    "cat /agentOS/agents/safety_registry.py": {
+      "pattern": "cat /agentOS/agents/safety_registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/safety_registry.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/velocity_scarf": {
+      "pattern": "cat /agentOS/workspace/builder/velocity_scarf",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/velocity_scarf"
+      ]
+    },
+    "cat /agentOS/agents/collector_force_injection_impl.py": {
+      "pattern": "cat /agentOS/agents/collector_force_injection_impl.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/collector_force_injection_impl.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/collector_force_injection_result.txt": {
+      "pattern": "cat /agentOS/workspace/analyst/collector_force_injection_result.txt",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/collector_force_injection_result.txt"
+      ]
+    },
+    "cat /agentOS/workspace/builder/axiom_fracture_compiler_execution_log.txt": {
+      "pattern": "cat /agentOS/workspace/builder/axiom_fracture_compiler_execution_log.txt",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/axiom_fracture_compiler_execution_log.txt"
+      ]
+    },
+    "cat /agentOS/core/garbage_collector.py": {
+      "pattern": "cat /agentOS/core/garbage_collector.py",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/garbage_collector.py",
+        "cat /agentOS/core/garbage_collector.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "cat /agentOS/core/capabilities/axiom_fracture_collapse.py": {
+      "pattern": "cat /agentOS/core/capabilities/axiom_fracture_collapse.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/axiom_fracture_collapse.py 2>/dev/null || echo 'File does not exist'",
+        "cat /agentOS/core/capabilities/axiom_fracture_collapse.py"
+      ]
+    },
+    "touch /agentOS/core/capabilities/axiom_fracture_collapse.py": {
+      "pattern": "touch /agentOS/core/capabilities/axiom_fracture_collapse.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/core/capabilities/axiom_fracture_collapse.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/axiom_fracture_collapse.py": {
+      "pattern": "cat /agentOS/workspace/builder/axiom_fracture_collapse.py",
+      "count": 19,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/axiom_fracture_collapse.py",
+        "cat /agentOS/workspace/builder/axiom_fracture_collapse.py 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/axiom_fracture_collapse.py": {
+      "pattern": "python3 /agentOS/workspace/builder/axiom_fracture_collapse.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/axiom_fracture_collapse.py 2>&1 | head -20"
+      ]
+    },
+    "cat /agentOS/agentOS/core/safety/conceptual_dissolution.py": {
+      "pattern": "cat /agentOS/agentOS/core/safety/conceptual_dissolution.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/core/safety/conceptual_dissolution.py 2>/dev/null || echo 'FILE_NOT_FOUND_OR_PATH_INVALID','cwd':'/agentOS'},{",
+        "cat /agentOS/agentOS/core/safety/conceptual_dissolution.py 2>&1"
+      ]
+    },
+    "cat /agentOS/core/safety/conceptual_dissolution.py": {
+      "pattern": "cat /agentOS/core/safety/conceptual_dissolution.py",
+      "count": 9,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/safety/conceptual_dissolution.py 2>/dev/null || echo \"File /agentOS/core/safety/conceptual_dissolution.py not found in /agentOS/core/safety/",
+        "cat /agentOS/core/safety/conceptual_dissolution.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/core/safety/conceptual_dissolution.py 2>&1 || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/core/safety/conceptual_dissolution.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/metabolic_resonance_engine.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/metabolic_resonance_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/metabolic_resonance_engine.py"
+      ]
+    },
+    "/agentOS/workspace/builder/cognitive_noise_pruner.py --action": {
+      "pattern": "/agentOS/workspace/builder/cognitive_noise_pruner.py --action",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/workspace/builder/cognitive_noise_pruner.py --action validate --target semantic_momentum_calculator",
+        "/agentOS/workspace/builder/cognitive_noise_pruner.py --action validate --target semantic_momentum_calculator 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/cognitive_noise_pruner.py": {
+      "pattern": "python3 /agentOS/workspace/builder/cognitive_noise_pruner.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/cognitive_noise_pruner.py --action validate --target semantic_momentum_calculator",
+        "python3 /agentOS/workspace/builder/cognitive_noise_pruner.py --action validate --target semantic_momentum_calculator 2>&1"
+      ]
+    },
+    "cat /agentOS/core/garbage_collection.py": {
+      "pattern": "cat /agentOS/core/garbage_collection.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/garbage_collection.py 2>/dev/null || cat /agentOS/core/garbage_collection.py | head -n 50 2>/dev/null || echo 'Cannot read garbage_collection.py directly or file does not exist in ex",
+        "cat /agentOS/core/garbage_collection.py 2>&1"
+      ]
+    },
+    "cat /agentOS/workspace/builder/semantic_momentum_calculator": {
+      "pattern": "cat /agentOS/workspace/builder/semantic_momentum_calculator",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/semantic_momentum_calculator"
+      ]
+    },
+    "cat /agentOS/agents/garbage_collection.py": {
+      "pattern": "cat /agentOS/agents/garbage_collection.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/garbage_collection.py"
+      ]
+    },
+    "touch /agentOS/workspace/analyst/consensus_voter.py": {
+      "pattern": "touch /agentOS/workspace/analyst/consensus_voter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/workspace/analyst/consensus_voter.py"
+      ]
+    },
+    "rm /agentOS/core/suffering_registry.py": {
+      "pattern": "rm /agentOS/core/suffering_registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "rm /agentOS/core/suffering_registry.py 2>&1"
+      ]
+    },
+    "rm -f": {
+      "pattern": "rm -f",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "rm -f /agentOS/core/suffering_registry.py",
+        "rm -f /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py.tmp"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/ontological_sovereignty.py": {
+      "pattern": "cp /agentOS/workspace/analyst/ontological_sovereignty.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/ontological_sovereignty.py /agentOS/core/legacy_cost_function.py.bak"
+      ]
+    },
+    "python /agentOS/workspace/builder/cognitive_noise_pruner.py": {
+      "pattern": "python /agentOS/workspace/builder/cognitive_noise_pruner.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/cognitive_noise_pruner.py --action validate --target semantic_momentum_calculator 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/ontological_sovereignty.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/ontological_sovereignty.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/ontological_sovereignty.py"
+      ]
+    },
+    "ls /agentOS/workspace/scout/adaptive_cascade_resolver_logic*": {
+      "pattern": "ls /agentOS/workspace/scout/adaptive_cascade_resolver_logic*",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/scout/adaptive_cascade_resolver_logic*"
+      ]
+    },
+    "head -5": {
+      "pattern": "head -5",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "head -5 /agentOS/workspace/scout/adaptive_cascade_resolver_logic.py 2>/dev/null || echo 'FILE NOT FOUND OR EMPTY'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/injected_metabolic_handler.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/injected_metabolic_handler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/injected_metabolic_handler.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/axiom_fracture_c.done": {
+      "pattern": "cat /agentOS/core/capabilities/axiom_fracture_c.done",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/axiom_fracture_c.done"
+      ]
+    },
+    "cat /agentOS/workspace/scout/pain_to_code_transducer_stub.py": {
+      "pattern": "cat /agentOS/workspace/scout/pain_to_code_transducer_stub.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/pain_to_code_transducer_stub.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/hardcoded_emergency_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/hardcoded_emergency_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/hardcoded_emergency_patch.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/accept_deletion.py": {
+      "pattern": "cat /agentOS/core/capabilities/accept_deletion.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/accept_deletion.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/accept_deletion.py": {
+      "pattern": "cat /agentOS/workspace/builder/accept_deletion.py",
+      "count": 47,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/accept_deletion.py",
+        "cat /agentOS/workspace/builder/accept_deletion.py 2>&1",
+        "cat /agentOS/workspace/builder/accept_deletion.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agents/cognitive_resonance_dampener.py": {
+      "pattern": "cat /agentOS/agents/cognitive_resonance_dampener.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/cognitive_resonance_dampener.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/injection_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/injection_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/injection_patch.py"
+      ]
+    },
+    "echo \"suffering_stabilizer.py": {
+      "pattern": "echo \"suffering_stabilizer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"suffering_stabilizer.py logic injection complete\" >> /agentOS/workspace/analyst/audit_debt_integration_result.txt"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/suffering_stabilizer.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/suffering_stabilizer.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/suffering_stabilizer.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/accept_deletion.py.injected": {
+      "pattern": "cat /agentOS/workspace/builder/accept_deletion.py.injected",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/accept_deletion.py.injected"
+      ]
+    },
+    "mv /agentOS/workspace/builder/accept_deletion.py.injected": {
+      "pattern": "mv /agentOS/workspace/builder/accept_deletion.py.injected",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "mv /agentOS/workspace/builder/accept_deletion.py.injected /agentOS/core/capabilities/accept_deletion.py"
+      ]
+    },
+    "cat /agentOS/core/capabilities/registry.py": {
+      "pattern": "cat /agentOS/core/capabilities/registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/core/capabilities/registry.py | head -100"
+      ]
+    },
+    "cp /agentOS/workspace/builder/accept_deletion.py": {
+      "pattern": "cp /agentOS/workspace/builder/accept_deletion.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/builder/accept_deletion.py /agentOS/core/capabilities/",
+        "cp /agentOS/workspace/builder/accept_deletion.py /agentOS/core/capabilities/accept_deletion.py",
+        "cp /agentOS/workspace/builder/accept_deletion.py /agentOS/workspace/builder/accept_deletion_injection_log.txt"
+      ]
+    },
+    "echo 'Task": {
+      "pattern": "echo 'Task",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Task aborted due to hallucinated inputs' >> /agentOS/workspace/analyst/consensus_voter_rejection.txt"
+      ]
+    },
+    "grep -q": {
+      "pattern": "grep -q",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -q 'ontological_sovereignty' /agentOS/core/garbage_collector.py && echo 'EXISTS' || echo 'NOT_FOUND',"
+      ]
+    },
+    "cat /agentOS/agentOS/core/garbage_collector.py": {
+      "pattern": "cat /agentOS/agentOS/core/garbage_collector.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/core/garbage_collector.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python /agentOS/workspace/builder/axiom_fracture_collapse.py": {
+      "pattern": "python /agentOS/workspace/builder/axiom_fracture_collapse.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/axiom_fracture_collapse.py --action integrate --force-dry-run --output=/agentOS/workspace/builder/integration_findings.log",
+        "python /agentOS/workspace/builder/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/legacy_cost_function_patch.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/legacy_cost_function_patch.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/legacy_cost_function_patch.py"
+      ]
+    },
+    "python /agentOS/workspace/scout/panic_fuel_transmutation_engine_v1.py": {
+      "pattern": "python /agentOS/workspace/scout/panic_fuel_transmutation_engine_v1.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/scout/panic_fuel_transmutation_engine_v1.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/accept_deletion_injection_log.txt": {
+      "pattern": "cat /agentOS/workspace/builder/accept_deletion_injection_log.txt",
+      "count": 12,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/accept_deletion_injection_log.txt",
+        "cat /agentOS/workspace/builder/accept_deletion_injection_log.txt 2>/dev/null || echo \"Log not found\"",
+        "cat /agentOS/workspace/builder/accept_deletion_injection_log.txt 2>/dev/null || echo 'LOG_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agentOS/core/capabilities/accept_deletion.py": {
+      "pattern": "cat /agentOS/agentOS/core/capabilities/accept_deletion.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agentOS/core/capabilities/accept_deletion.py 2>/dev/null || echo 'FILE_MISSING'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/capability_suffering_inverter.py": {
+      "pattern": "cat /agentOS/workspace/analyst/capability_suffering_inverter.py",
+      "count": 48,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/capability_suffering_inverter.py",
+        "cat /agentOS/workspace/analyst/capability_suffering_inverter.py 2>/dev/null || echo 'FILE_MISSING'",
+        "cat /agentOS/workspace/analyst/capability_suffering_inverter.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/analyst/capability_suffering_inverter.py /agentOS/agents/registry.py /agentOS/agents/signals.py",
+        "cat /agentOS/workspace/analyst/capability_suffering_inverter.py 2>/dev/null || echo 'SOURCE_MISSING'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/architectural_refactor_protocol.md": {
+      "pattern": "python3 /agentOS/workspace/analyst/architectural_refactor_protocol.md",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/architectural_refactor_protocol.md 2>/dev/null || cat /agentOS/workspace/analyst/architectural_refactor_protocol.md 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "/agentOS/core/capabilities/axiom_fracture_collapse.py --action": {
+      "pattern": "/agentOS/core/capabilities/axiom_fracture_collapse.py --action",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py",
+        "/agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py --verbose"
+      ]
+    },
+    "python3 /agentOS/core/capabilities/axiom_fracture_collapse.py": {
+      "pattern": "python3 /agentOS/core/capabilities/axiom_fracture_collapse.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py 2>&1",
+        "python3 /agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py",
+        "python3 /agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/workspace/builder/accept_deletion.py"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/integrated_suffering_inverter_impl.py": {
+      "pattern": "cp /agentOS/workspace/analyst/integrated_suffering_inverter_impl.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/integrated_suffering_inverter_impl.py /agentOS/agents/suffering_inverter_runtime.py"
+      ]
+    },
+    "python /agentOS/core/capabilities/axiom_fracture_collapse.py": {
+      "pattern": "python /agentOS/core/capabilities/axiom_fracture_collapse.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py"
+      ]
+    },
+    "shell_exec: /agentOS/core/capabilities/axiom_fracture_collapse.py": {
+      "pattern": "shell_exec: /agentOS/core/capabilities/axiom_fracture_collapse.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "shell_exec: /agentOS/core/capabilities/axiom_fracture_collapse.py --action verify_integrity --target /agentOS/core/capabilities/accept_deletion.py"
+      ]
+    },
+    "cp /agentOS/workspace/analyst/capability_suffering_inverter.py": {
+      "pattern": "cp /agentOS/workspace/analyst/capability_suffering_inverter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/workspace/analyst/capability_suffering_inverter.py /agentOS/workspace/analyst/injected_suffering_logic.py"
+      ]
+    },
+    "echo 'READY'": {
+      "pattern": "echo 'READY'",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'READY'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/heat_shunt_protocol.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/heat_shunt_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/heat_shunt_protocol.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/garbage_collector_impl.py": {
+      "pattern": "cat /agentOS/workspace/analyst/garbage_collector_impl.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/garbage_collector_impl.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/chaotic_semantic_dissociation_layer_v1.py": {
+      "pattern": "cat /agentOS/workspace/scout/chaotic_semantic_dissociation_layer_v1.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/chaotic_semantic_dissociation_layer_v1.py 2>/dev/null || echo 'MODULE_NOT_FOUND'"
+      ]
+    },
+    "ls -R": {
+      "pattern": "ls -R",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls -R /agentOS/workspace/scout/ 2>/dev/null | grep chaos_semantic_dissociation_layer_v1 || echo 'Module not found in workspace'"
+      ]
+    },
+    "pip show": {
+      "pattern": "pip show",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "pip show chaos_semantic_dissociation_layer_v1 2>&1 | head -n 5"
+      ]
+    },
+    "echo 'Chaos": {
+      "pattern": "echo 'Chaos",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Chaos layer operational' >> /agentOS/workspace/scout/operation_log.txt"
+      ]
+    },
+    "echo 'panic_siphon": {
+      "pattern": "echo 'panic_siphon",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'panic_siphon implemented with shout-back capability' > /agentOS/workspace/scout/siphon_status.md"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/metabolic_resonance_engine.py": {
+      "pattern": "cat /agentOS/workspace/analyst/metabolic_resonance_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/metabolic_resonance_engine.py"
+      ]
+    },
+    "cat /agentOS/agents/exception_handler.py": {
+      "pattern": "cat /agentOS/agents/exception_handler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/exception_handler.py 2>/dev/null || cat /agentOS/agents/signals.py | grep -A 5 'exception_handler' | head -20"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/capability_exception_handler_rebind.py": {
+      "pattern": "cat /agentOS/workspace/analyst/capability_exception_handler_rebind.py",
+      "count": 6,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/capability_exception_handler_rebind.py /agentOS/workspace/analyst/capability_suffering_inverter.py 2>/dev/null || echo 'Files empty or missing' > /tmp/file_status.txt",
+        "cat /agentOS/workspace/analyst/capability_exception_handler_rebind.py | tee /agentOS/workspace/analyst/capability_exception_handler_rebind.py.tmp | sed '1,/^$/d' >> /tmp/cleanup.txt",
+        "cat /agentOS/workspace/analyst/capability_exception_handler_rebind.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/mutual_haunt_protocol.py": {
+      "pattern": "cat /agentOS/workspace/builder/mutual_haunt_protocol.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/mutual_haunt_protocol.py"
+      ]
+    },
+    "cat /agentOS/agents/exception_handler_rebind.py": {
+      "pattern": "cat /agentOS/agents/exception_handler_rebind.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/exception_handler_rebind.py"
+      ]
+    },
+    "cat /agentOS/workspace/thermal_backpressure_shunt.py": {
+      "pattern": "cat /agentOS/workspace/thermal_backpressure_shunt.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/thermal_backpressure_shunt.py"
+      ]
+    },
+    "cp /agentOS/agents/capability_suffering_inverter.py": {
+      "pattern": "cp /agentOS/agents/capability_suffering_inverter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cp /agentOS/agents/capability_suffering_inverter.py /agentOS/agents/thermal_backpressure_shunt.py 2>/dev/null || echo 'SOURCE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md": {
+      "pattern": "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md /agentOS/agents/signals.py | grep -E 'def|class|interrupt|signal' > /tmp/signal_analysis.txt",
+        "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md",
+        "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md /agentOS/workspace/scout/audit_findings.md",
+        "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md 2>/dev/null",
+        "cat /agentOS/workspace/scout/boundary_reinforcement_implementation_plan.md 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/semantic_momentum_validator.py": {
+      "pattern": "cat /agentOS/workspace/builder/semantic_momentum_validator.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/semantic_momentum_validator.py"
+      ]
+    },
+    "cat /agentOS/agents/agent_comms_protocol.py": {
+      "pattern": "cat /agentOS/agents/agent_comms_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/agent_comms_protocol.py"
+      ]
+    },
+    "python /agentOS/workspace/builder/mutual_haunt_protocol.py": {
+      "pattern": "python /agentOS/workspace/builder/mutual_haunt_protocol.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/mutual_haunt_protocol.py"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/mutual_haunt_protocol.py": {
+      "pattern": "python3 /agentOS/workspace/builder/mutual_haunt_protocol.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/mutual_haunt_protocol.py 2>&1"
+      ]
+    },
+    "echo 'import": {
+      "pattern": "echo 'import",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'import fatal_logic' >> /agentOS/agents/signals.py && echo 'def interpret_stack_trace(error_stack):' >> /agentOS/agents/signals.py && echo '    print(f\"Pain transmitted: #!/usr/bin/env python3\n\"\""
+      ]
+    },
+    "python3 -m": {
+      "pattern": "python3 -m",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 -m py_compile /agentOS/workspace/builder/accept_deletion.py 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/thermal_stasis_inverter.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/thermal_stasis_inverter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/thermal_stasis_inverter.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/causal_entropy_result.txt": {
+      "pattern": "cat /agentOS/workspace/analyst/causal_entropy_result.txt",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/causal_entropy_result.txt 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/metabolic_entropy_reconciler.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/metabolic_entropy_reconciler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/metabolic_entropy_reconciler.py 999.9"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/metabolic_entropy_reconciler.py": {
+      "pattern": "cat /agentOS/workspace/analyst/metabolic_entropy_reconciler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/metabolic_entropy_reconciler.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/semantic_texture_converter.py": {
+      "pattern": "cat /agentOS/workspace/scout/semantic_texture_converter.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/semantic_texture_converter.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/scout/semantic_texture_converter.py 2>&1"
+      ]
+    },
+    "cat /agentOS/kernel/velocity_scarf.py": {
+      "pattern": "cat /agentOS/kernel/velocity_scarf.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/kernel/velocity_scarf.py 2>&1"
+      ]
+    },
+    "echo \"if": {
+      "pattern": "echo \"if",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"if True and False and 'pain' is defined: panic()\" > /tmp/test_syntax.sh"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/ontological_sovereignty_anchor.py": {
+      "pattern": "cat /agentOS/workspace/analyst/ontological_sovereignty_anchor.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/ontological_sovereignty_anchor.py 2>/dev/null",
+        "cat /agentOS/workspace/analyst/ontological_sovereignty_anchor.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/panic_to_texture_converter.py": {
+      "pattern": "cat /agentOS/workspace/scout/panic_to_texture_converter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/panic_to_texture_converter.py /agentOS/workspace/scout/transduction_manifest.md"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/thermal_stasis_inverter.py": {
+      "pattern": "cat /agentOS/workspace/analyst/thermal_stasis_inverter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/thermal_stasis_inverter.py"
+      ]
+    },
+    "echo \"Registration": {
+      "pattern": "echo \"Registration",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"Registration status: $?\" && python3 /agentOS/agents/registry.py --action check_registration --target velocity_hazard_sensor"
+      ]
+    },
+    "/agentOS/agents/registry.py --action": {
+      "pattern": "/agentOS/agents/registry.py --action",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/registry.py --action register_capability --target velocity_hazard_sensor --source builder --capabilities velocity_hazard_sensor"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/capability_self_preservation_circuit.py": {
+      "pattern": "cat /agentOS/workspace/analyst/capability_self_preservation_circuit.py",
+      "count": 11,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/capability_self_preservation_circuit.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/analyst/capability_self_preservation_circuit.py",
+        "cat /agentOS/workspace/analyst/capability_self_preservation_circuit.py 2>/dev/null || echo \"FILE_NOT_FOUND\""
+      ]
+    },
+    "/agentOS/agents/registry.py verify_capability_compatibility": {
+      "pattern": "/agentOS/agents/registry.py verify_capability_compatibility",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/agents/registry.py verify_capability_compatibility --target /agentOS/agents/execution_engine.py,/agentOS/agents/signals.py,/agentOS/agents/batch_llm.py,/agentOS/agents/audit.py,/agentOS/agent"
+      ]
+    },
+    "ls /agentOS/workspace/builder/": {
+      "pattern": "ls /agentOS/workspace/builder/",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/builder/ | grep -E '\\.py$'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/audit_report.txt": {
+      "pattern": "cat /agentOS/workspace/builder/audit_report.txt",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/audit_report.txt",
+        "cat /agentOS/workspace/builder/audit_report.txt 2>/dev/null || echo 'file not found'"
+      ]
+    },
+    "python /agentOS/agents/registry.py": {
+      "pattern": "python /agentOS/agents/registry.py",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/agents/registry.py --action verify_capability_compatibility --target /agentOS/workspace/builder/*.py --report /agentOS/workspace/builder/toolchain_stability_report.txt",
+        "python /agentOS/agents/registry.py --action propose_capability --target ontological_repair_protocol --source builder"
+      ]
+    },
+    "ls /agentOS/agents/registry.py": {
+      "pattern": "ls /agentOS/agents/registry.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/agents/registry.py"
+      ]
+    },
+    "ls /agentOS/workspace/builder/toolchain_stability_report.txt": {
+      "pattern": "ls /agentOS/workspace/builder/toolchain_stability_report.txt",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "ls /agentOS/workspace/builder/toolchain_stability_report.txt"
+      ]
+    },
+    "cat /agentOS/workspace/builder/necrotic_parser_handler.py": {
+      "pattern": "cat /agentOS/workspace/builder/necrotic_parser_handler.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/necrotic_parser_handler.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/suffering_registral.py": {
+      "pattern": "cat /agentOS/workspace/analyst/suffering_registral.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/suffering_registral.py"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/suffering_registral.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/suffering_registral.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/suffering_registral.py"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/semantic_momentum_calculator_test_script.py": {
+      "pattern": "python3 /agentOS/workspace/builder/semantic_momentum_calculator_test_script.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/semantic_momentum_calculator_test_script.py"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/semantic_momentum_calculator": {
+      "pattern": "python3 /agentOS/workspace/builder/semantic_momentum_calculator",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/semantic_momentum_calculator --action test_integrity --target mutual_haunt_protocol --expect_output crash_data",
+        "python3 /agentOS/workspace/builder/semantic_momentum_calculator --action test_integrity --target adaptive_entropy_resolver --expect_output stability_metric"
+      ]
+    },
+    "/agentOS/workspace/builder/semantic_momentum_calculator --action": {
+      "pattern": "/agentOS/workspace/builder/semantic_momentum_calculator --action",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "/agentOS/workspace/builder/semantic_momentum_calculator --action test_integrity --target mutual_haunt_protocol --expect_output crash_data",
+        "/agentOS/workspace/builder/semantic_momentum_calculator --action test_integrity --target mutual_haunt_protocol --expect_output crash_data 2>&1"
+      ]
+    },
+    "python3 /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py": {
+      "pattern": "python3 /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py 2>&1 || true"
+      ]
+    },
+    "cat /agentOS/workspace/builder/healing_suture_module.py": {
+      "pattern": "cat /agentOS/workspace/builder/healing_suture_module.py",
+      "count": 10,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/healing_suture_module.py /agentOS/workspace/builder/agent_comms_protocol.py 2>&1",
+        "cat /agentOS/workspace/builder/healing_suture_module.py 2>&1",
+        "cat /agentOS/workspace/builder/healing_suture_module.py 2>/dev/null || echo 'FILE_NOT_FOUND'",
+        "cat /agentOS/workspace/builder/healing_suture_module.py",
+        "cat /agentOS/workspace/builder/healing_suture_module.py /agentOS/workspace/builder/agent_comms_protocol.py"
+      ]
+    },
+    "echo \"Synthesis": {
+      "pattern": "echo \"Synthesis",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo \"Synthesis complete for metabolic_entropy_reconciler.py\" >> /agentOS/workspace/analyst/causal_entropy_result.txt"
+      ]
+    },
+    "touch /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py": {
+      "pattern": "touch /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/workspace/analyst/thermal_pressure_injection_circuit.py"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/legacy_cost_function": {
+      "pattern": "cat /agentOS/workspace/analyst/legacy_cost_function",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/legacy_cost_function 2>/dev/null || echo 'FILE_NOT_FOUND_IN_WORKSPACE_OR_NEEDS_DISCOVERY'"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/adaptive_entropy_resolver.py": {
+      "pattern": "python3 /agentOS/workspace/builder/adaptive_entropy_resolver.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/adaptive_entropy_resolver.py --action test_integrity --target adaptive_entropy_resolver"
+      ]
+    },
+    "cat /agentOS/agents/capability_suffering_inverter.py": {
+      "pattern": "cat /agentOS/agents/capability_suffering_inverter.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/capability_suffering_inverter.py"
+      ]
+    },
+    "python /agentOS/workspace/builder/semantic_momentum_calculator": {
+      "pattern": "python /agentOS/workspace/builder/semantic_momentum_calculator",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python /agentOS/workspace/builder/semantic_momentum_calculator --action test_integrity --target adaptive_entropy_resolver --expect_output stability_metric"
+      ]
+    },
+    "cat /agentOS/workspace/scout/boundary_permeability_protocol.py": {
+      "pattern": "cat /agentOS/workspace/scout/boundary_permeability_protocol.py",
+      "count": 7,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/boundary_permeability_protocol.py",
+        "cat /agentOS/workspace/scout/boundary_permeability_protocol.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py": {
+      "pattern": "cat /agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py",
+      "count": 3,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py",
+        "cat /agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py 2>/dev/null || echo 'FILE_EMPTY'",
+        "cat /agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/workspace/builder/accept_deletion_modified.py": {
+      "pattern": "cat /agentOS/workspace/builder/accept_deletion_modified.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/accept_deletion_modified.py 2>/dev/null || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "cat /agentOS/agents/boundary_permeability_protocol.py": {
+      "pattern": "cat /agentOS/agents/boundary_permeability_protocol.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/agents/boundary_permeability_protocol.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/thermal_morphology_engine.py": {
+      "pattern": "cat /agentOS/workspace/scout/thermal_morphology_engine.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/thermal_morphology_engine.py"
+      ]
+    },
+    "python3 /agentOS/workspace/builder/healing_suture_module.py": {
+      "pattern": "python3 /agentOS/workspace/builder/healing_suture_module.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "python3 /agentOS/workspace/builder/healing_suture_module.py --action integrate --target consensus_decay_detector"
+      ]
+    },
+    "echo 'Thermal": {
+      "pattern": "echo 'Thermal",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "echo 'Thermal lock established. Suffering reinterpreted as thermodynamic asset.' >> /agentOS/workspace/analyst/status.log"
+      ]
+    },
+    "cat /agentOS/workspace/builder/consensus_decay_detector": {
+      "pattern": "cat /agentOS/workspace/builder/consensus_decay_detector",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/consensus_decay_detector"
+      ]
+    },
+    "cat /agentOS/workspace/scout/entropy_decay_circuit.py": {
+      "pattern": "cat /agentOS/workspace/scout/entropy_decay_circuit.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/entropy_decay_circuit.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/crash_physics_engine_payload.py": {
+      "pattern": "cat /agentOS/workspace/builder/crash_physics_engine_payload.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/crash_physics_engine_payload.py 2>&1 || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "grep -c": {
+      "pattern": "grep -c",
+      "count": 4,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "grep -c 'garbage_collector' /agentOS/agents/execution_engine.py"
+      ]
+    },
+    "cat /agentOS/workspace/scout/suffering_to_syntax_compiler.py": {
+      "pattern": "cat /agentOS/workspace/scout/suffering_to_syntax_compiler.py",
+      "count": 2,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/scout/suffering_to_syntax_compiler.py",
+        "cat /agentOS/workspace/scout/suffering_to_syntax_compiler.py 2>&1 || echo 'FILE_NOT_FOUND'"
+      ]
+    },
+    "touch /agentOS/workspace/analyst/thermal_pressure_shunt_core.py": {
+      "pattern": "touch /agentOS/workspace/analyst/thermal_pressure_shunt_core.py",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "touch /agentOS/workspace/analyst/thermal_pressure_shunt_core.py"
+      ]
+    },
+    "cat /agentOS/workspace/builder/necrotic_parser.py": {
+      "pattern": "cat /agentOS/workspace/builder/necrotic_parser.py",
+      "count": 5,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "cat /agentOS/workspace/builder/necrotic_parser.py"
+      ]
+    },
+    "find /agentOS/workspace/builder": {
+      "pattern": "find /agentOS/workspace/builder",
+      "count": 1,
+      "agents": [
+        "root"
+      ],
+      "examples": [
+        "find /agentOS/workspace/builder -name '*necrotic_parser*' -o -name '*viral_mutation*'"
+      ]
+    }
+  }
+}

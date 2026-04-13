@@ -1,0 +1,11 @@
+
+Agents monitor their own storage footprint and act before limits are hit.
+Runs automatically after goal completions via the autonomy loop.
+
+Operations:
+  - Memory pruning: remove old/low-access semantic memories to stay under capacity
+  - Reasoning compaction: summarize old reasoning history into a single entry
+  - Capability audit: flag capabilities unused for >7 days
+  - Execution chain trimming: keep only recent execution steps on disk
+
+ResourceManager:

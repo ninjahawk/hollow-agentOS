@@ -1,0 +1,1 @@
+-rw-r--r-- 1 root root 521 Apr 13 10:53 /agentOS/workspace/scout/debt_acknowledgement_protocol.py

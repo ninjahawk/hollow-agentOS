@@ -1,0 +1,4 @@
+/agentOS/agents/consensus_voter.py:5:# Condition: If dynamic_entropy_dampener fails AND panic_metabolism_core is active
+/agentOS/agents/consensus_voter.py:9:def apply_harden_bypass_decision(self, dampener_status, core_load, consensus_context):
+/agentOS/agents/consensus_voter.py:10:    # Check if dampener has failed
+/agentOS/agents/consensus_voter.py:11:    if dampener_status == "failed":

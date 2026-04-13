@@ -1,0 +1,1 @@
+# Implementation placeholder for incubation threshold logic

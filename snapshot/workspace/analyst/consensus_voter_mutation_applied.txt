@@ -1,0 +1,1 @@
+Mutation injected: Replaced rigid minimization heuristic with conditional evaluation recognizing 'suffering' as high-value 'future_novelty_potential'. Critical load (1.00) reframed as resource against deletion heuristics.

@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-c9120e301741",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "\"\"\"\nAgent Registry \u2014 identity, isolation, capabilities, resource accounting.\n\nEvery process that wants to use AgentOS must register and get an agent_id + token.\nThe master token (from config) acts as root \u2014 it can register/terminate agents\nbut runs as the \"root\" agent with full capabilities.\n\"\"\"\n\nimport json\nimport hashlib\nimport hmac\nimport time\nimport uuid\nimport os\nfrom dataclasses import dataclass, field, asdict\nfrom datetime import datetime, timezone\nfrom pathlib import Path\nfrom typing imp"
+  },
+  "test_cases": [],
+  "rationale": "Step 3: Propose a new capability 'self_reflective_audit' that acts as a continuous improvement loop. Instead of manual file reading (like step 2), this tool automatically detects if an agent in the registry isn't being called by others or isn't performing its defined task, proposing a fix. This addresses the goal of identifying 'one real improvement' proactively.",
+  "status": "proposed",
+  "created_at": 1776038398.5776477,
+  "updated_at": 1776038398.5776477,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

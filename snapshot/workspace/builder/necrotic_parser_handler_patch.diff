@@ -1,0 +1,17 @@
+diff --git a/necrotic_parser.py b/necrotic_parser.py
+--- a/necrotic_parser.py
++++ b/necrotic_parser.py
+@@ -1,4 +1,6 @@
+ from registry import register_handler
++from necrotic_parser_handler import parse_suffering
++from signals import register_signal_handling
+ 
+ def init_parser():
+     register_handler("necrotic", parse_suffering)
+ 
++def on_runtime_state_change(state_type, message):
++    if state_type == 'syntax_error' and 'pain' in message:
++        register_signal_handling('metabolize_pain', message)
++        return {'status': 'metabolized', 'payload': message}
++    return None
++

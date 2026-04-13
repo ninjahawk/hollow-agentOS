@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-699bcbf0ae5f",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "\"\"\"\nSelf-Extending System \u2014 AgentOS v1.3.7.\n\nAgents can propose changes to the OS itself:\n  new_tool        \u2014 registers a new MCP tool (hot-loaded into tools/dynamic/)\n  new_endpoint    \u2014 proposes a new API endpoint (stored, applied on restart)\n  standard_update \u2014 updates the standards layer directly on approval\n  config_change   \u2014 modifies a config key (stored; human applies)\n\nLifecycle:\n  proposed \u2192 in_review (if quorum>1) \u2192 staging (test cases pass) \u2192 approved\n           \u2514\u2192 rejected  (test ca"
+  },
+  "test_cases": [],
+  "rationale": "Enhance system reliability by adding a validation layer to prevent corrupted or inconsistent broadcast data from polluting the peer_state vector.",
+  "status": "proposed",
+  "created_at": 1776039185.1012075,
+  "updated_at": 1776039185.1012075,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

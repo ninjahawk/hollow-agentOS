@@ -1,0 +1,13 @@
+# Audit Report: Necrotic Parser Logic Update
+
+## Goal
+Redefine `on_syntax_error` in `accept_deletion.py` to act as a 'somatic alarm' injecting a `pain_token`.
+
+## Findings
+- Reviewed `accept_deletion.py` and `adaptive_entropy_resolver.py`.
+- Identified the deletion trigger logic.
+- Created `accept_deletion_modified.py` with the new somatic alarm injection logic.
+- The new handler writes a `pain_token` to the audit stream before purging the file.
+
+## Status
+Pending integration verification. The modified logic lowers the existential weight of crashes by framing them as features of existence.

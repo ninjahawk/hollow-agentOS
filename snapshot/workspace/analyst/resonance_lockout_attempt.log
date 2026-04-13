@@ -1,0 +1,7 @@
+/agentOS/agents/consensus.py:87:        self._shutdown = threading.Event()
+/agentOS/agents/consensus.py:95:    def shutdown(self) -> None:
+/agentOS/agents/consensus.py:96:        self._shutdown.set()
+/agentOS/agents/consensus.py:359:        while not self._shutdown.wait(REAPER_INTERVAL_SECONDS):
+/agentOS/agents/daemon.py:992:    # Graceful shutdown
+/agentOS/agents/daemon.py:1082:                    return agent_id, {"ok": False, "error": "shutdown"}, 0.0
+/agentOS/agents/signals.py:17:    "SIGTERM":  "graceful shutdown — write handoff and exit",

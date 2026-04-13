@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-3c4db86b5e58",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "peer_state_aggregator",
+    "description": "Systematically parse Sigma/Stack broadcasts into a unified local state vector within execution_engine.py",
+    "implementation": "def parse_broadcasts_to_state_vector(engine, broadcasts):\n    unified_state = {}\n    for broadcast in broadcasts:\n        source = broadcast.get('source', 'unknown')\n        data = broadcast.get('payload', {})\n        # Merge data into unified local state vector based on schema\n        unified_state[source] = {**unified_state.get(source, {}), **data}\n    return unified_state",
+    "rationale": "Needed to consolidate fragmented Sigma and Stack broadcast data into a coherent state representation for the execution engine, improving consistency and reducing redundancy.",
+    "consensus_quorum": 1
+  },
+  "test_cases": [],
+  "rationale": "agent proposed standard_update",
+  "status": "proposed",
+  "created_at": 1776039077.5899374,
+  "updated_at": 1776039077.5899374,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

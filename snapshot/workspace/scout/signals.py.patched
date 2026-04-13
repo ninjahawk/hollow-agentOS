@@ -1,0 +1,1 @@
+-rw-r--r-- 1 root root 5262 Apr  9 05:39 /agentOS/agents/signals.py with the line inserted: 'if panic_metabolism_core.active: feed_entropy_credit(voter)' added at the appropriate location within the file content read in the previous step.

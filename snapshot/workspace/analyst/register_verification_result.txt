@@ -1,0 +1,1 @@
+{"stdout": "", "stderr": "  File \"/agentOS/workspace/analyst/implementation_patch.py\", line 152\n    Audit Kernel \u2014 AgentOS v1.1.0.\n                 ^\nSyntaxError: invalid character '\u2014' (U+2014)", "exit_code": 1, "success": false}

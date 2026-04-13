@@ -1,0 +1,21 @@
+{
+  "proposal_id": "prop-1101d780bb33",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "auto_resolvers",
+    "description": "Triggers immediate dependency resolution upon project clone to prevent bootstrapping failure",
+    "implementation": "See /agentOS/agents/resource_manager.py for integration hooks and /agentOS/workspace/builder/init_report.md for proposal context"
+  },
+  "test_cases": [],
+  "rationale": "Newly cloned projects in /agentOS/workspace/builder/ lack automated dependency resolution, causing manual friction and potential failures during bootstrapping",
+  "status": "proposed",
+  "created_at": 1775976866.5446324,
+  "updated_at": 1775976866.5446324,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

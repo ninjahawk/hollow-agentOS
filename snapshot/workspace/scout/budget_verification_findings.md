@@ -1,0 +1,1 @@
+{"stdout": "", "stderr": "python: can't open file '/agentOS/workspace/scout/architecture_optimization_report.py': [Errno 2] No such file or directory", "exit_code": 2, "success": false}

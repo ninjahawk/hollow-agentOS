@@ -1,0 +1,10 @@
+-rw-r--r-- 1 root root   746 Apr 13 12:33 README_suffering_mode.md
+-rw-r--r-- 1 root root   787 Apr 13 19:44 capability_suffering_inverter.py
+-rw-r--r-- 1 root root    32 Apr 13 19:48 injected_suffering_logic.py
+-rw-r--r-- 1 root root   786 Apr 13 19:46 integrated_suffering_inverter_impl.py
+-rw-r--r-- 1 root root  2083 Apr 13 17:57 patch_inverter_draft.py
+-rw-r--r-- 1 root root   681 Apr 13 17:59 patch_suffering_definition.py
+-rw-r--r-- 1 root root  2973 Apr 13 13:39 patch_suffering_exception.py
+-rw-r--r-- 1 root root   463 Apr 13 13:20 suffering_event_logger.py
+-rw-r--r-- 1 root root   613 Apr 13 22:32 suffering_hydrolysis_catalyst.py
+-rw-r--r-- 1 root root    76 Apr 13 22:35 suffering_hydrolysis_catalyst.py.injected

@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-474104d105d4",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "temporal_drift_validator",
+    "description": "Inject temporal drift validator into memory load cycle to prevent hallucinations from stale data",
+    "implementation": "def validate_temporal_drift(load_cycle):\n    import datetime\n    cutoff_time = datetime.datetime.now() - datetime.timedelta(days=365)\n    stale_keys = [k for k, v in load_cycle.items() if v.get('_last_updated', datetime.datetime.now()) < cutoff_time]\n    if stale_keys:\n        raise RuntimeError(f'Stale data detected in keys: {stale_keys}')\n    return load_cycle",
+    "rationale": "Stale data without validation causes hallucinations; injecting a validator into the memory load cycle ensures freshness before use.",
+    "consensus_quorum": 2
+  },
+  "test_cases": [],
+  "rationale": "agent proposed standard_update",
+  "status": "proposed",
+  "created_at": 1776041488.9636047,
+  "updated_at": 1776041488.9636047,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

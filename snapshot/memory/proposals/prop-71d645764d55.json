@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-71d645764d55",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "\"\"\"\nProcess signals for AgentOS v0.8.0.\n\nReplaces the one-line status-flip terminate() with a proper SIGTERM lifecycle:\nnotify \u2192 grace period \u2192 force-kill. Adds SIGPAUSE (checkpoint) and SIGINFO\n(status snapshot).\n\nSignal dispatch is separate from registry to avoid circular imports:\nthe watchdog thread calls back into registry.force_terminate(), which is\nthe only registry method signals.py calls directly.\n\"\"\"\n\nimport threading\nimport time\n\nSIGNALS = {\n    \"SIGTERM\":  \"graceful shutdown \u2014 write h"
+  },
+  "test_cases": [],
+  "rationale": "Enhance execution_engine with aggregation logic to normalize and fuse heterogeneous broadcast data into a single coherent state vector.",
+  "status": "proposed",
+  "created_at": 1776039047.3485878,
+  "updated_at": 1776039047.3485878,
+  "consensus_quorum": 1,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

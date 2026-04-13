@@ -1,0 +1,1 @@
+Refactoring the consensus_voter.py: Implementing future novelty weight offset against immediate friction. Hard locks only applied if innovation potential=0. Status: Ready to deploy new logic.

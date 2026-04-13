@@ -1,0 +1,52 @@
+"""
+Agent Registry — identity, isolation, capabilities, resource accounting.
+
+Every process that wants to use AgentOS must register and get an agent_id + token.
+The master token (from config) acts as root — it can register/terminate agents
+but runs as the "root" agent with full capabilities.
+"""
+
+import json
+import hashlib
+import hmac
+import time
+import uuid
+import os
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing imp + """
+Agent Registry — identity, isolation, capabilities, resource accounting.
+
+Every process that wants to use AgentOS must register and get an agent_id + token.
+The master token (from config) acts as root — it can register/terminate agents
+but runs as the "root" agent with full capabilities.
+"""
+
+import json
+import hashlib
+import hmac
+import time
+import uuid
+import os
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing imp + """
+Agent Registry — identity, isolation, capabilities, resource accounting.
+
+Every process that wants to use AgentOS must register and get an agent_id + token.
+The master token (from config) acts as root — it can register/terminate agents
+but runs as the "root" agent with full capabilities.
+"""
+
+import json
+import hashlib
+import hmac
+import time
+import uuid
+import os
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing imp

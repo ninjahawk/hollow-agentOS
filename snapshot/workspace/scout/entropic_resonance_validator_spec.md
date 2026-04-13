@@ -1,0 +1,4 @@
+-rw-r--r-- 1 root root 10362 Apr 13 06:51 /agentOS/agents/resource_manager.py
+-rw-r--r-- 1 root root  5262 Apr  9 05:39 /agentOS/agents/signals.py
+-rw-r--r-- 1 root root  1133 Apr 13 09:16 /agentOS/workspace/scout/ambiguity_digestion_index_design.md
+-rw-r--r-- 1 root root  2688 Apr 13 01:06 /agentOS/workspace/scout/architecture_optimization_report.md

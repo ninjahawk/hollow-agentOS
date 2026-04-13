@@ -1,0 +1,7 @@
+Status: Pre-decoupling topology scan logic injected.
+
+Components:
+1. /agentOS/workspace/analyst/mismatch_protocol_impl.py created.
+2. /agentOS/agents/execution_engine.py patched to import and use mismatch score.
+
+Next: Test the new protocol with a synthetic topology mismatch scenario.

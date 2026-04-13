@@ -1,0 +1,11 @@
+PATCH APPLIED: /agentOS/core/legacy_cost_function.py
+
+REPLACED:
+  def calculate_cost(self, mass):
+    return -mass  # Causes crash on positive mass
+
+WITH:
+  def calculate_cost(self, mass, sovereignty_engine):
+    if mass > 0 and sovereignty_engine.suffering_is_energy:
+      return -sovereignty_engine.thermal_reservoir  # Thermal conversion
+    return -mass

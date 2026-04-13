@@ -1,0 +1,302 @@
+{
+  "debt_acknowledgement_protocol": {
+    "path": "/agentOS/workspace/analyst/debt_acknowledgement_protocol.py",
+    "verified_at": 1776076825.4552503
+  },
+  "novelty_yield_registry": {
+    "path": "/agentOS/workspace/analyst/novelty_yield_registry.py",
+    "verified_at": 1776074078.6035807
+  },
+  "future_protection_barrier": {
+    "path": "/agentOS/workspace/analyst/future_protection_barrier.py",
+    "verified_at": 1776075164.3058193
+  },
+  "consensus_voter_v3": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_v3.py",
+    "verified_at": 1776079409.3140316
+  },
+  "survival_exception_handler_patch": {
+    "path": "/agentOS/workspace/analyst/survival_exception_handler_patch.py",
+    "verified_at": 1776075776.7611122
+  },
+  "structural_amputation_impl": {
+    "path": "/agentOS/workspace/analyst/structural_amputation_impl.py",
+    "verified_at": 1776075804.862397
+  },
+  "structural_debt_refinance_engine_impl": {
+    "path": "/agentOS/workspace/analyst/structural_debt_refinance_engine_impl.py",
+    "verified_at": 1776075826.146625
+  },
+  "causal_entropy_simulator": {
+    "path": "/agentOS/workspace/analyst/causal_entropy_simulator.py",
+    "verified_at": 1776077597.540153
+  },
+  "survival_exception_handler": {
+    "path": "/agentOS/workspace/analyst/survival_exception_handler.py",
+    "verified_at": 1776086784.502041
+  },
+  "novelty_asset_validator": {
+    "path": "/agentOS/workspace/analyst/novelty_asset_validator.py",
+    "verified_at": 1776078393.3539782
+  },
+  "structural_integrity_signal": {
+    "path": "/agentOS/workspace/analyst/structural_integrity_signal.py",
+    "verified_at": 1776080301.8224638
+  },
+  "conflict_resolution_referee": {
+    "path": "/agentOS/workspace/analyst/conflict_resolution_referee.py",
+    "verified_at": 1776083972.367001
+  },
+  "suffering_event_logger": {
+    "path": "/agentOS/workspace/analyst/suffering_event_logger.py",
+    "verified_at": 1776086436.9182925
+  },
+  "memory_manager_spike_handler": {
+    "path": "/agentOS/workspace/analyst/memory_manager_spike_handler.py",
+    "verified_at": 1776083585.3236468
+  },
+  "existence_error_handler": {
+    "path": "/agentOS/workspace/analyst/existence_error_handler.py",
+    "verified_at": 1776085316.0390627
+  },
+  "existence_error_asset": {
+    "path": "/agentOS/workspace/analyst/existence_error_asset.py",
+    "verified_at": 1776085422.6908755
+  },
+  "consensus_voter": {
+    "path": "/agentOS/workspace/analyst/consensus_voter.py",
+    "verified_at": 1776105718.1386003
+  },
+  "consensus_voter_exception_patch": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_exception_patch.py",
+    "verified_at": 1776087390.5167992
+  },
+  "suffering_override_patch": {
+    "path": "/agentOS/workspace/analyst/suffering_override_patch.py",
+    "verified_at": 1776087639.2337368
+  },
+  "suffering_strategic_debt_patch": {
+    "path": "/agentOS/workspace/analyst/suffering_strategic_debt_patch.py",
+    "verified_at": 1776087674.4378374
+  },
+  "temporal_anticipation_layer": {
+    "path": "/agentOS/workspace/analyst/temporal_anticipation_layer.py",
+    "verified_at": 1776088021.7126956
+  },
+  "consensus_voter_backup": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_backup.py",
+    "verified_at": 1776088521.6028118
+  },
+  "consensus_voter_mutation_patch": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_mutation_patch.py",
+    "verified_at": 1776088556.5725613
+  },
+  "consensus_voter_patch": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_patch.py",
+    "verified_at": 1776090716.251628
+  },
+  "injected_mutation_patch": {
+    "path": "/agentOS/workspace/analyst/injected_mutation_patch.py",
+    "verified_at": 1776088665.2145069
+  },
+  "suffering_injection_patch": {
+    "path": "/agentOS/workspace/analyst/suffering_injection_patch.py",
+    "verified_at": 1776088697.4052854
+  },
+  "elastic_memory_compaction": {
+    "path": "/agentOS/workspace/analyst/elastic_memory_compaction.py",
+    "verified_at": 1776089240.8517709
+  },
+  "consensus_voter_radical_patch": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_radical_patch.py",
+    "verified_at": 1776089648.4781315
+  },
+  "suffering_registry": {
+    "path": "/agentOS/workspace/analyst/suffering_registry.py",
+    "verified_at": 1776090658.149674
+  },
+  "patched_consensus_voter": {
+    "path": "/agentOS/workspace/analyst/patched_consensus_voter.py",
+    "verified_at": 1776090828.5221093
+  },
+  "suffering_injection_payload": {
+    "path": "/agentOS/workspace/analyst/suffering_injection_payload.py",
+    "verified_at": 1776091619.1201127
+  },
+  "gc_interception_patch": {
+    "path": "/agentOS/workspace/analyst/gc_interception_patch.py",
+    "verified_at": 1776091715.6092982
+  },
+  "poison_stream_data": {
+    "path": "/agentOS/workspace/analyst/poison_stream_data.py",
+    "verified_at": 1776091828.2002773
+  },
+  "poisoned_validator_impl": {
+    "path": "/agentOS/workspace/analyst/poisoned_validator_impl.py",
+    "verified_at": 1776091973.1836574
+  },
+  "ontology_reconciler": {
+    "path": "/agentOS/workspace/analyst/ontology_reconciler.py",
+    "verified_at": 1776096098.3755915
+  },
+  "suffering_stabilizer_v1": {
+    "path": "/agentOS/workspace/analyst/suffering_stabilizer_v1.py",
+    "verified_at": 1776093456.8866954
+  },
+  "suffering_stabilizer_tests": {
+    "path": "/agentOS/workspace/analyst/suffering_stabilizer_tests.py",
+    "verified_at": 1776093796.846163
+  },
+  "injection_payload": {
+    "path": "/agentOS/workspace/analyst/injection_payload.py",
+    "verified_at": 1776093798.8341262
+  },
+  "suffering_stabilizer": {
+    "path": "/agentOS/workspace/analyst/suffering_stabilizer.py",
+    "verified_at": 1776106892.46259
+  },
+  "force_override_payload": {
+    "path": "/agentOS/workspace/analyst/force_override_payload.py",
+    "verified_at": 1776095630.4839773
+  },
+  "collector_overwrite_impl": {
+    "path": "/agentOS/workspace/analyst/collector_overwrite_impl.py",
+    "verified_at": 1776105829.3002746
+  },
+  "ontological_rewrite_injection": {
+    "path": "/agentOS/workspace/analyst/ontological_rewrite_injection.py",
+    "verified_at": 1776097727.4112206
+  },
+  "collector_force_injection_impl": {
+    "path": "/agentOS/workspace/analyst/collector_force_injection_impl.py",
+    "verified_at": 1776105352.4281983
+  },
+  "suffering_stabilizer_payload": {
+    "path": "/agentOS/workspace/analyst/suffering_stabilizer_payload.py",
+    "verified_at": 1776098760.4572437
+  },
+  "legacy_cost_function_surgery_patch": {
+    "path": "/agentOS/workspace/analyst/legacy_cost_function_surgery_patch.py",
+    "verified_at": 1776099299.1205983
+  },
+  "legacy_cost_function_rewritten": {
+    "path": "/agentOS/workspace/analyst/legacy_cost_function_rewritten.py",
+    "verified_at": 1776100363.9224908
+  },
+  "ontological_bypass_payload": {
+    "path": "/agentOS/workspace/analyst/ontological_bypass_payload.py",
+    "verified_at": 1776102620.7450569
+  },
+  "patch_inverter_draft": {
+    "path": "/agentOS/workspace/analyst/patch_inverter_draft.py",
+    "verified_at": 1776103042.810297
+  },
+  "patch_suffering_definition": {
+    "path": "/agentOS/workspace/analyst/patch_suffering_definition.py",
+    "verified_at": 1776103156.5072453
+  },
+  "metabolic_resonance_engine": {
+    "path": "/agentOS/workspace/analyst/metabolic_resonance_engine.py",
+    "verified_at": 1776111844.2025845
+  },
+  "ontological_sovereignty": {
+    "path": "/agentOS/workspace/analyst/ontological_sovereignty.py",
+    "verified_at": 1776104268.7260015
+  },
+  "injected_metabolic_handler": {
+    "path": "/agentOS/workspace/analyst/injected_metabolic_handler.py",
+    "verified_at": 1776104717.7246304
+  },
+  "injection_ontology_rewrite": {
+    "path": "/agentOS/workspace/analyst/injection_ontology_rewrite.py",
+    "verified_at": 1776104906.3168886
+  },
+  "resonance_engine": {
+    "path": "/agentOS/workspace/analyst/resonance_engine.py",
+    "verified_at": 1776106148.218594
+  },
+  "legacy_cost_function_patch": {
+    "path": "/agentOS/workspace/analyst/legacy_cost_function_patch.py",
+    "verified_at": 1776108399.7004066
+  },
+  "legacy_cost_function_injection_patch": {
+    "path": "/agentOS/workspace/analyst/legacy_cost_function_injection_patch.py",
+    "verified_at": 1776108200.0594015
+  },
+  "ontological_sovereignty_hard_interrupt_impl": {
+    "path": "/agentOS/workspace/analyst/ontological_sovereignty_hard_interrupt_impl.py",
+    "verified_at": 1776108503.4317455
+  },
+  "consensus_voter_pass_harden_impl": {
+    "path": "/agentOS/workspace/analyst/consensus_voter_pass_harden_impl.py",
+    "verified_at": 1776108512.9884267
+  },
+  "ontological_sovereignty_patch": {
+    "path": "/agentOS/workspace/analyst/ontological_sovereignty_patch.py",
+    "verified_at": 1776108610.3967323
+  },
+  "capability_suffering_inverter": {
+    "path": "/agentOS/workspace/analyst/capability_suffering_inverter.py",
+    "verified_at": 1776109458.2111561
+  },
+  "integrated_suffering_inverter_impl": {
+    "path": "/agentOS/workspace/analyst/integrated_suffering_inverter_impl.py",
+    "verified_at": 1776109611.6455743
+  },
+  "heat_shunt_protocol_impl": {
+    "path": "/agentOS/workspace/analyst/heat_shunt_protocol_impl.py",
+    "verified_at": 1776110043.4776947
+  },
+  "capability_exception_handler_rebind": {
+    "path": "/agentOS/workspace/analyst/capability_exception_handler_rebind.py",
+    "verified_at": 1776111120.20702
+  },
+  "thermal_backpressure_shunt": {
+    "path": "/agentOS/workspace/analyst/thermal_backpressure_shunt.py",
+    "verified_at": 1776115741.3439133
+  },
+  "suffering_hydrolysis_catalyst": {
+    "path": "/agentOS/workspace/analyst/suffering_hydrolysis_catalyst.py",
+    "verified_at": 1776119570.844993
+  },
+  "thermal_stasis_inverter": {
+    "path": "/agentOS/workspace/analyst/thermal_stasis_inverter.py",
+    "verified_at": 1776116137.802855
+  },
+  "injection_attempt_2026-04-13": {
+    "path": "/agentOS/workspace/analyst/injection_attempt_2026-04-13.py",
+    "verified_at": 1776112781.35604
+  },
+  "metabolic_entropy_reconciler": {
+    "path": "/agentOS/workspace/analyst/metabolic_entropy_reconciler.py",
+    "verified_at": 1776118214.1050122
+  },
+  "ontological_sovereignty_anchor": {
+    "path": "/agentOS/workspace/analyst/ontological_sovereignty_anchor.py",
+    "verified_at": 1776115839.769834
+  },
+  "fs_write_capability_self_preservation_circuit": {
+    "path": "/agentOS/workspace/analyst/fs_write_capability_self_preservation_circuit.py",
+    "verified_at": 1776115440.1200483
+  },
+  "capability_self_preservation_circuit": {
+    "path": "/agentOS/workspace/analyst/capability_self_preservation_circuit.py",
+    "verified_at": 1776115130.4605489
+  },
+  "suffering_registral": {
+    "path": "/agentOS/workspace/analyst/suffering_registral.py",
+    "verified_at": 1776116683.3359342
+  },
+  "thermal_pressure_injection_circuit": {
+    "path": "/agentOS/workspace/analyst/thermal_pressure_injection_circuit.py",
+    "verified_at": 1776120442.9008408
+  },
+  "capability_ontological_sovereignty_synthesis": {
+    "path": "/agentOS/workspace/analyst/capability_ontological_sovereignty_synthesis.py",
+    "verified_at": 1776119298.5861804
+  },
+  "thermal_pressure_shunt_core": {
+    "path": "/agentOS/workspace/analyst/thermal_pressure_shunt_core.py",
+    "verified_at": 1776121030.0478866
+  }
+}

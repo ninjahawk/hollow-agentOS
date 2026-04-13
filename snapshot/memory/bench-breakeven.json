@@ -1,0 +1,92 @@
+{
+  "run_at": "2026-03-30T04:55:26.222414+00:00",
+  "methodology": "Per-session costs measured from live system. Each session = system state check + code search + state poll + file read. Hollow pickup overhead included per session (worst case: cold-start each session).",
+  "costs": {
+    "naive_per_session": 3000,
+    "hollow_per_session": 17710,
+    "hollow_pickup": 1514
+  },
+  "breakeven_session": -1,
+  "rows": [
+    {
+      "sessions": 1,
+      "naive_cumulative": 3000,
+      "hollow_cumulative": 19224,
+      "delta": 16224,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 2,
+      "naive_cumulative": 6000,
+      "hollow_cumulative": 38448,
+      "delta": 32448,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 3,
+      "naive_cumulative": 9000,
+      "hollow_cumulative": 57672,
+      "delta": 48672,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 4,
+      "naive_cumulative": 12000,
+      "hollow_cumulative": 76896,
+      "delta": 64896,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 5,
+      "naive_cumulative": 15000,
+      "hollow_cumulative": 96120,
+      "delta": 81120,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 6,
+      "naive_cumulative": 18000,
+      "hollow_cumulative": 115344,
+      "delta": 97344,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 7,
+      "naive_cumulative": 21000,
+      "hollow_cumulative": 134568,
+      "delta": 113568,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 8,
+      "naive_cumulative": 24000,
+      "hollow_cumulative": 153792,
+      "delta": 129792,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 9,
+      "naive_cumulative": 27000,
+      "hollow_cumulative": 173016,
+      "delta": 146016,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    },
+    {
+      "sessions": 10,
+      "naive_cumulative": 30000,
+      "hollow_cumulative": 192240,
+      "delta": 162240,
+      "hollow_savings_pct": -540.8,
+      "hollow_wins": false
+    }
+  ]
+}

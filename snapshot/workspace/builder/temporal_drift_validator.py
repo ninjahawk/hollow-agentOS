@@ -1,0 +1,2 @@
+/agentOS/workspace/builder/implementation_plan.md:EXECUTIVE SUMMARY: The 'cognitive_noise_pruner' capability has been fully defined. It targets the 'system_architecture_synthesis' artifact identified as a candidate for archival.
+/agentOS/workspace/builder/implementation_plan.md:- Trigger: Local memory buffers filling with redundant 'system_architecture_synthesis' definitions.

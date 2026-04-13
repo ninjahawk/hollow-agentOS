@@ -1,0 +1,1 @@
+Logic derived directly from causal_entropy_simulator.py: {"stdout": "", "stderr": "", "exit_code": 0, "success": true} Logic derived directly from batch_llm.py: {"stdout": "", "stderr": "", "exit_code": 0, "success": true}Synthesis complete for metabolic_entropy_reconciler.py

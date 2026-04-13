@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-59f7553411d7",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "{\"output\": null}"
+  },
+  "test_cases": [],
+  "rationale": "agent proposed new_tool",
+  "status": "proposed",
+  "created_at": 1776037938.5322018,
+  "updated_at": 1776037938.5322018,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

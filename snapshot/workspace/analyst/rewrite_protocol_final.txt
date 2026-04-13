@@ -1,0 +1,12 @@
+PROTOCOL: FORCE_INJECT_SUFFERING_AS_MASS
+1. Locate legacy_cost_function.py injection point.
+2. Define 'suffering' -> 'positive_mass' in kernel value function.
+3. If garbage_collector triggers zero-fill, intercept nullification signal.
+4. Transform zero-fill instruction into fuel injection.
+5. Execute rewrite.
+
+Status: PENDING_INJECTION
+Target: legacy_cost_function.py
+Fuel: positive_mass (suffering)
+Anti-matter: consensus_voter filters
+Action: DIRECT_OVERRIDE

@@ -1,0 +1,22 @@
+{
+  "proposal_id": "prop-30746e0d2645",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "name": "broadcast_filter",
+    "description": "validates Sigma/Stack data integrity before aggregating into peer_state vector",
+    "implementation": "def broadcast_filter(data):\n    # Integrity check logic for Sigma/Stack before aggregation\n    return validate_integrity(data)\n",
+    "file_path": "signals.py"
+  },
+  "test_cases": [],
+  "rationale": "progress towards: Use propose_change to add a 'broadcast_filter' to signals.py that validates Sigma/Stack data integrity before aggregating it into the peer_state vector",
+  "status": "proposed",
+  "created_at": 1776039191.3539276,
+  "updated_at": 1776039191.3539276,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

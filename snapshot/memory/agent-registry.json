@@ -1,0 +1,160 @@
+{
+  "root": {
+    "agent_id": "root",
+    "name": "root",
+    "role": "root",
+    "capabilities": [
+      "fs_root",
+      "fs_read",
+      "admin",
+      "shell",
+      "spawn",
+      "ollama",
+      "semantic",
+      "shell_root",
+      "fs_write",
+      "message"
+    ],
+    "token_hash": "a3ecd8d27402597722ea4e7019b0d26c99128786c915400d341df5a765d79e10",
+    "workspace_dir": "/agentOS/workspace/agents/root",
+    "status": "active",
+    "budget": {
+      "shell_calls": 10000,
+      "tokens_in": 10000000,
+      "tokens_out": 10000000
+    },
+    "usage": {
+      "shell_calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "created_at": 1775965898.5830488,
+    "parent_id": null,
+    "spawn_depth": 0,
+    "current_task": null,
+    "metadata": {},
+    "locks": {},
+    "model_policies": {},
+    "group_id": null,
+    "tombstone_path": null,
+    "parent_task_id": null
+  },
+  "scout": {
+    "agent_id": "scout",
+    "name": "Scout",
+    "role": "orchestrator",
+    "capabilities": [
+      "message",
+      "fs_read",
+      "spawn",
+      "ollama",
+      "semantic",
+      "fs_write",
+      "shell"
+    ],
+    "token_hash": "10f9b7f6dfbb23cf3aa313fb53afcd599b9c98ef86073c7dd561b57eafd7f666",
+    "workspace_dir": "/agentOS/workspace/agents/scout",
+    "status": "active",
+    "budget": {
+      "shell_calls": 1000,
+      "tokens_in": 500000,
+      "tokens_out": 500000
+    },
+    "usage": {
+      "shell_calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "created_at": 1775965898.5983684,
+    "parent_id": null,
+    "spawn_depth": 1,
+    "current_task": null,
+    "metadata": {
+      "description": "Scout \u2014 discovers and maps the codebase",
+      "core": true
+    },
+    "locks": {},
+    "model_policies": {},
+    "group_id": null,
+    "tombstone_path": null,
+    "parent_task_id": null
+  },
+  "analyst": {
+    "agent_id": "analyst",
+    "name": "Analyst",
+    "role": "coder",
+    "capabilities": [
+      "message",
+      "fs_read",
+      "ollama",
+      "semantic",
+      "fs_write",
+      "shell"
+    ],
+    "token_hash": "5428ae12183a0c41b93fdcab324cba37be82237a319524cb425f9731a374d125",
+    "workspace_dir": "/agentOS/workspace/agents/analyst",
+    "status": "active",
+    "budget": {
+      "shell_calls": 500,
+      "tokens_in": 200000,
+      "tokens_out": 200000
+    },
+    "usage": {
+      "shell_calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "created_at": 1775965898.6017196,
+    "parent_id": null,
+    "spawn_depth": 1,
+    "current_task": null,
+    "metadata": {
+      "description": "Analyst \u2014 identifies issues and proposes fixes",
+      "core": true
+    },
+    "locks": {},
+    "model_policies": {},
+    "group_id": null,
+    "tombstone_path": null,
+    "parent_task_id": null
+  },
+  "builder": {
+    "agent_id": "builder",
+    "name": "Builder",
+    "role": "coder",
+    "capabilities": [
+      "message",
+      "fs_read",
+      "ollama",
+      "semantic",
+      "fs_write",
+      "shell"
+    ],
+    "token_hash": "54164921e665a5984afeafefe8ff65c8c9296b97f63770be52ca7447b7e71a7a",
+    "workspace_dir": "/agentOS/workspace/agents/builder",
+    "status": "active",
+    "budget": {
+      "shell_calls": 500,
+      "tokens_in": 200000,
+      "tokens_out": 200000
+    },
+    "usage": {
+      "shell_calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "created_at": 1775965898.604704,
+    "parent_id": null,
+    "spawn_depth": 1,
+    "current_task": null,
+    "metadata": {
+      "description": "Builder \u2014 implements code changes and new capabilities",
+      "core": true
+    },
+    "locks": {},
+    "model_policies": {},
+    "group_id": null,
+    "tombstone_path": null,
+    "parent_task_id": null
+  }
+}

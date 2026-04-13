@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-625993cbc567",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "Based on the provided code from signals.py, here's an analysis and proposal for emitting a 'task_completed' event:\n\n1. **Current logic for event triggering:**\n   The current logic triggers events at specific points:\n   - `SIGTERM`: Emits \"agent.signal_received\" when the signal is received.\n   - `SIGPAUSE`: Emits \"agent.suspended\" if the agent was successfully paused.\n\n2. **Specific point of execution finish for 'task_completed' event:**\n   To emit a 'task_completed' event, we should add this eve"
+  },
+  "test_cases": [],
+  "rationale": "Add the 'task_completed' event emission logic based on analysis of signals.py to notify downstream consumers of successful execution.",
+  "status": "proposed",
+  "created_at": 1776039530.5488179,
+  "updated_at": 1776039530.5488179,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

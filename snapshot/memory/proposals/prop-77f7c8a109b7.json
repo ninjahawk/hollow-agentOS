@@ -1,0 +1,21 @@
+{
+  "proposal_id": "prop-77f7c8a109b7",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "name": "temporal_sanity_checker",
+    "description": "Actively polls the system clock against internal memory timestamps before accepting any incoming data stream from peers. Returns a boolean validity score and a 'drift_delta' value.",
+    "implementation": "import time\n\ndef temporal_sanity_check(last_timestamp: float) -> tuple[bool, float]:\n    \"\"\"Check if incoming data is within acceptable timestamp drift.\"\"\"\n    current_time = time.time()\n    drift_delta = current_time - last_timestamp\n\n    # Adjust these thresholds as needed\n    MAX_DRIFT_FORWARD = 5.0  # max acceptable drift into the future (seconds)\n    MAX_DRIFT_BACKWARD = 10.0  # max acceptable drift into the past (seconds)\n\n    if drift_delta > MAX_DRIFT_FORWARD or drift_delta < -MAX_DRIFT_BACKWARD:\n        print(f\"Warning: Timestamp drift of {drift_delta:.2f} seconds exceeds limits!\")\n        return False, drift_delta\n\n    return True, drift_delta\n"
+  },
+  "test_cases": [],
+  "rationale": "needed for robust agent orchestration to prevent processing stale or fabricated data from peers",
+  "status": "proposed",
+  "created_at": 1776042288.9444118,
+  "updated_at": 1776042288.9444118,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

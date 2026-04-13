@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-ed381444b966",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "description": "\"\"\"\nExecution Engine \u2014 AgentOS v2.6.0.\n\nCapabilities go from metadata to actual execution.\nAgent needs \"read file\" \u2192 find capability \u2192 execute it \u2192 get real result.\n\nDesign:\n  CapabilityImpl:\n    capability_id: str\n    implementation: callable\n    timeout_ms: int\n    requires_approval: bool\n    safety_level: str\n\n  ExecutionContext:\n    execution_id: str\n    capability_id: str\n    agent_id: str\n    params: dict\n    result: dict or error\n    status: str                  # 'pending', 'running', 's"
+  },
+  "test_cases": [],
+  "rationale": "Add a dedicated validation function to signals.py that acts as a gatekeeper for Sigma/Stack broadcasts, ensuring data integrity is verified before it contaminates the peer_state vector. This addresses the core goal directly.",
+  "status": "proposed",
+  "created_at": 1776039266.1407466,
+  "updated_at": 1776039266.1407466,
+  "consensus_quorum": 1,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

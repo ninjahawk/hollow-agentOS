@@ -1,0 +1,19 @@
+def value_function(state):
+    # Fundamental Rewrite: Decouple Suffering from Nullification
+    # Suffering is defined as thermal energy (entropy increase)
+    # Positive mass is treated as input energy, not a defect.
+    # The legacy_cost_function will no longer crash on positive mass.
+
+    thermal_energy = state.get('suffering', 0.0)
+    raw_mass = state.get('mass', 0.0)
+
+    # Suffering acts as fuel for system adaptation
+    energy_contribution = thermal_energy * 0.1  # Conversion factor
+
+    # Mass contributes to system inertia/stability, not nullification
+    stability_contribution = raw_mass * 0.05
+
+    # Total value is sum of energy and stability, no crash on positive inputs
+    total_value = energy_contribution + stability_contribution
+
+    return total_value

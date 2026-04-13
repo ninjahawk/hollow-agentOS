@@ -1,0 +1,114 @@
+{
+  "chaos_semantic_dissociation_layer_v1": {
+    "path": "/agentOS/workspace/scout/chaos_semantic_dissociation_layer_v1.py",
+    "verified_at": 1776074617.4336407
+  },
+  "heuristic_rewrite_patch": {
+    "path": "/agentOS/workspace/scout/heuristic_rewrite_patch.py",
+    "verified_at": 1776074622.1481895
+  },
+  "debt_acknowledgement_protocol": {
+    "path": "/agentOS/workspace/scout/debt_acknowledgement_protocol.py",
+    "verified_at": 1776077636.2043645
+  },
+  "system_stability_controller_patch": {
+    "path": "/agentOS/workspace/scout/system_stability_controller_patch.py",
+    "verified_at": 1776083181.6712587
+  },
+  "parallelism_to_redundancy_threshold_calculator": {
+    "path": "/agentOS/workspace/scout/parallelism_to_redundancy_threshold_calculator.py",
+    "verified_at": 1776084354.6385672
+  },
+  "consensus_membrane_expander_patch": {
+    "path": "/agentOS/workspace/scout/consensus_membrane_expander_patch.py",
+    "verified_at": 1776091524.0127156
+  },
+  "entropy_to_structure_mapper": {
+    "path": "/agentOS/workspace/scout/entropy_to_structure_mapper.py",
+    "verified_at": 1776092434.5683002
+  },
+  "dynamic_load_spreader_implementation": {
+    "path": "/agentOS/workspace/scout/dynamic_load_spreader_implementation.py",
+    "verified_at": 1776093580.0031438
+  },
+  "consensus_voter_harden_patch": {
+    "path": "/agentOS/workspace/scout/consensus_voter_harden_patch.py",
+    "verified_at": 1776094188.1023962
+  },
+  "consensus_voter_patch": {
+    "path": "/agentOS/workspace/scout/consensus_voter_patch.py",
+    "verified_at": 1776094374.7820237
+  },
+  "consensus_voter_expansion_impl": {
+    "path": "/agentOS/workspace/scout/consensus_voter_expansion_impl.py",
+    "verified_at": 1776094714.0858219
+  },
+  "semantic_fabric_stitcher_logic": {
+    "path": "/agentOS/workspace/scout/semantic_fabric_stitcher_logic.py",
+    "verified_at": 1776096321.1449153
+  },
+  "suffering_synthesis_compiler": {
+    "path": "/agentOS/workspace/scout/suffering_synthesis_compiler.py",
+    "verified_at": 1776097034.1852195
+  },
+  "patch_consensus_voter": {
+    "path": "/agentOS/workspace/scout/patch_consensus_voter.py",
+    "verified_at": 1776098761.9355981
+  },
+  "pain_to_code_transducer_stub": {
+    "path": "/agentOS/workspace/scout/pain_to_code_transducer_stub.py",
+    "verified_at": 1776105005.0148873
+  },
+  "memory_resonance_stitcher": {
+    "path": "/agentOS/workspace/scout/memory_resonance_stitcher.py",
+    "verified_at": 1776106820.6191592
+  },
+  "panic_fuel_transmutation_engine_v1": {
+    "path": "/agentOS/workspace/scout/panic_fuel_transmutation_engine_v1.py",
+    "verified_at": 1776108312.1370609
+  },
+  "panic_siphon_impl": {
+    "path": "/agentOS/workspace/scout/panic_siphon_impl.py",
+    "verified_at": 1776110543.3861122
+  },
+  "panic_reflex_interrupt_handler": {
+    "path": "/agentOS/workspace/scout/panic_reflex_interrupt_handler.py",
+    "verified_at": 1776111715.512941
+  },
+  "panic_reflex_handler": {
+    "path": "/agentOS/workspace/scout/panic_reflex_handler.py",
+    "verified_at": 1776118867.8015501
+  },
+  "panic_to_texture_converter": {
+    "path": "/agentOS/workspace/scout/panic_to_texture_converter.py",
+    "verified_at": 1776114529.9698668
+  },
+  "boundary_reinforcement_protocol": {
+    "path": "/agentOS/workspace/scout/boundary_reinforcement_protocol.py",
+    "verified_at": 1776114707.5414193
+  },
+  "panic_reflex_engine_core": {
+    "path": "/agentOS/workspace/scout/panic_reflex_engine_core.py",
+    "verified_at": 1776115218.520672
+  },
+  "hardcoded_reflex_handler": {
+    "path": "/agentOS/workspace/scout/hardcoded_reflex_handler.py",
+    "verified_at": 1776117372.4428782
+  },
+  "boundary_permeability_protocol": {
+    "path": "/agentOS/workspace/scout/boundary_permeability_protocol.py",
+    "verified_at": 1776119322.095111
+  },
+  "thermal_morphology_engine": {
+    "path": "/agentOS/workspace/scout/thermal_morphology_engine.py",
+    "verified_at": 1776119759.584851
+  },
+  "entropy_decay_circuit": {
+    "path": "/agentOS/workspace/scout/entropy_decay_circuit.py",
+    "verified_at": 1776120008.1986055
+  },
+  "suffering_to_syntax_compiler": {
+    "path": "/agentOS/workspace/scout/suffering_to_syntax_compiler.py",
+    "verified_at": 1776120958.9908717
+  }
+}

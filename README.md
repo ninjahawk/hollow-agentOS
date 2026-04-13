@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.0.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.2.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
@@ -46,7 +46,7 @@ That's it. The installer handles Docker Desktop, Ollama, model downloads (~7 GB)
 **You need:** [Docker](https://docs.docker.com/get-docker/) and [Ollama](https://ollama.ai) installed.
 
 ```bash
-ollama pull qwen2.5:9b
+ollama pull qwen3:8b
 ollama pull nomic-embed-text
 
 git clone https://github.com/ninjahawk/hollow-agentOS
@@ -66,6 +66,17 @@ python monitor.py
 ```bash
 docker compose --profile ollama up -d
 ```
+
+---
+
+### Restoring a snapshot (Windows)
+
+To load a saved agent state (memory, workspace, goals) into a running system:
+
+1. Run `install.bat` first and wait for it to complete
+2. Double-click **`restore.bat`**
+
+The restore script copies the bundled agent memory and workspace into the container and restarts it. Agents resume from exactly where the snapshot left off — goals, memory, and all in-progress work intact.
 
 ---
 
@@ -102,7 +113,9 @@ If a step fails, the agent replans from that point. If a capability fails repeat
 
 Agents can also delegate goals to other agents, decompose a single goal across N agents working in parallel, and synthesize entirely new capabilities at runtime when they hit something they can't do.
 
-When an agent hits a gap in its capability set, it calls `synthesize_capability`: an LLM writes a Python module, independent agents vote on it via quorum, and if approved it gets deployed as a `.py` file and hot-loaded into the running system via `importlib` — no restart required. The synthesized module gets access to `shell_exec`, `fs_read`, `fs_write`, `ollama_chat`, `memory_get`, and `memory_set` as injected HTTP wrappers so it can interact with the rest of the system immediately. Failed synthesis attempts are permanently recorded so they're never retried.
+When an agent hits a gap in its capability set, it calls `synthesize_capability`: an LLM writes a Python module, independent agents vote on it via quorum, and if approved it gets deployed as a `.py` file and hot-loaded into the running system via `importlib` — no restart required. The synthesized module gets access to `shell_exec`, `fs_read`, `fs_write`, `fs_edit`, `ollama_chat`, `memory_get`, `memory_set`, `python_exec`, and `verify_python` as injected HTTP wrappers so it can interact with the rest of the system immediately. Failed synthesis attempts are permanently recorded so they're never retried.
+
+Agents can also test code before deploying it: `python_exec` runs arbitrary Python in an isolated subprocess with the agent's workspace on `sys.path`, and `verify_python` checks a file's syntax without executing it. Every `fs_write` and `fs_edit` to a `.py` file automatically returns a `syntax_ok` field — agents get immediate feedback when they produce broken code rather than silently accumulating invalid files.
 
 ---
 
@@ -165,7 +178,7 @@ The graphical shell. A web-based desktop environment that replaces the terminal 
 - **106 REST routes** for human observation
 - **~6 seconds** per planning call on GPU; ~40s on CPU
 - **14 agents** running in parallel with no resource contention on RTX 5070
-- **0 cloud calls** — everything runs on your hardware, on `qwen2.5:9b` by default
+- **0 cloud calls** — everything runs on your hardware, on `qwen3:8b` by default
 
 All benchmarks are from the live system. Clone the repo and run it.
 
@@ -272,7 +285,7 @@ Routing decision hierarchy:
 1. **Hard override** — admin-set rules that bypass scoring entirely (per agent, role, or complexity)
 2. **Adaptive score** — highest-scoring model with ≥5 observations for this complexity tier
 3. **VRAM affinity** (v0.9.0) — prefer already-loaded model to avoid 15–30s eviction cost
-4. **Static tier default** — complexity 1–2 → qwen2.5:9b, 3–4 → qwen2.5:14b, 5 → qwen2.5:32b
+4. **Static tier default** — complexity 1–2 → qwen3:8b, 3–4 → qwen3:14b, 5 → qwen3:32b
 
 Overrides resolve by specificity: agent_id > role > complexity-only > global. The most specific matching override wins. Stats and recommendations are exposed via API and MCP tools, so agents can observe and reason about routing decisions.
 
@@ -338,6 +351,7 @@ hollow-agentOS/
 ├── agents/
 │   ├── daemon.py          # Autonomous runtime — cycles agents every 30s
 │   ├── autonomy_loop.py   # pursue_goal: plan → execute → substitute → gate → complete
+│   ├── live_capabilities.py # All live OS capabilities: shell_exec, fs_write, python_exec, verify_python, etc.
 │   ├── reasoning_layer.py # Ollama-based capability selection and multi-step planning
 │   ├── capability_graph.py # Semantic capability discovery by vector similarity
 │   ├── execution_engine.py # Runs capabilities, passes results between steps

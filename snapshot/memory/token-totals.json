@@ -1,0 +1,23 @@
+{
+  "updated_at": "2026-04-13T23:00:58.967081+00:00",
+  "lifetime": {
+    "shell_calls": 5161,
+    "file_reads": 517,
+    "file_writes": 1540,
+    "ollama_calls": 252,
+    "ollama_tokens_in": 217681,
+    "ollama_tokens_out": 52348
+  },
+  "by_model": {
+    "mistral-nemo:12b": {
+      "calls": 183,
+      "tokens_in": 211634,
+      "tokens_out": 50573
+    },
+    "qwen3.5:9b-gpu": {
+      "calls": 69,
+      "tokens_in": 6047,
+      "tokens_out": 1775
+    }
+  }
+}

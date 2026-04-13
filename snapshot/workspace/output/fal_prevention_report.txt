@@ -1,0 +1,5 @@
+Latency-Trust Degradation Model Initialized.
+- Component: contextual_latency_calculator
+- Functionality: Quantifies trust degradation from latency before consensus.
+- FAL Prevention: Threshold set at 30% degradation. Auto-adjusts consensus weight.
+Status: Synthesized.

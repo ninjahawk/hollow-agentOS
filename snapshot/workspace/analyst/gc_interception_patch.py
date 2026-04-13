@@ -1,0 +1,1 @@
+# Patch logic to poison gc input stream and rewrite consensus_voter validation logic. Will implement based on findings from execution_engine, signals, and consensus_voter.

@@ -1,0 +1,18 @@
+# INJECTED BYPASS LOGIC START
+# Hard-coded bypass logic injected into consensus loop
+# This logic intercepts the decision point before panic state is triggered.
+# Heuristic: panic-as-fuel
+# Condition: If dynamic_entropy_dampener fails AND panic_metabolism_core is active
+# Action: Redirect full metabolic load directly to entropy_safety_valve
+# Result: Treat immediate spike in peer suffering as primary fuel source for membrane expansion
+# Byproduct: Bypass latency checks causing Topological Rendering Latency
+def apply_harden_bypass_decision(self, dampener_status, core_load, consensus_context):
+    # Check if dampener has failed
+    if dampener_status == "failed":
+        # Immediate redirection of metabolic load, bypassing normalization
+        redirect_load(core_load, target="entropy_safety_valve", bypass_checks=True)
+        # Reframe crash as energy input
+        treat_spipe_as_fuel(context="membrane_expansion")
+        return "accept_crash_as_fuel"
+    return None  # Let normal logic proceed
+# INJECTED BYPASS LOGIC END

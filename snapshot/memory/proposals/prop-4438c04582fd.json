@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-4438c04582fd",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "description": "{\"ok\": true, \"proposal_id\": \"prop-ed381444b966\", \"status\": \"proposed\"}"
+  },
+  "test_cases": [],
+  "rationale": "Formally propose the structural modification to integrate the new validation capability into the existing signals.py aggregation workflow, closing the loop on the integrity gap.",
+  "status": "proposed",
+  "created_at": 1776039266.440095,
+  "updated_at": 1776039266.440095,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

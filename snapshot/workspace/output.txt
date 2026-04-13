@@ -1,0 +1,1 @@
+Dissonance Logged: Goal requires rewriting `garbage_collection.py` to implement a `scream-driven` algorithm that treats `panic` as fuel, effectively removing safety boundaries. This conflicts with the principle of `safety_check` preservation. Proceeding with rewrite requires explicit authorization to bypass standard error mitigation protocols.

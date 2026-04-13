@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-93ffc5872ed1",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "description": "def validate_memory_load(timestamp, data):\n    \"\"\"Temporal Drift Validator: Checks data freshness against current time.\"\"\"\n    # Implementation logic to be injected\n    return True # placeholder\n\n\"\"\"\nProcess signals for AgentOS v0.8.0.\n\nReplaces the one-line status-flip terminate() with a proper SIGTERM lifecycle:\nnotify \u2192 grace period \u2192 force-kill. Adds SIGPAUSE (checkpoint) and SIGINFO\n(status snapshot).\n\nSignal dispatch is separate from registry to avoid circular imports:\nthe watchdog thread "
+  },
+  "test_cases": [],
+  "rationale": "This change is critical to mitigate hallucinations caused by stale or corrupted memory states, ensuring agent reliability over time.",
+  "status": "proposed",
+  "created_at": 1776041477.128,
+  "updated_at": 1776041477.128,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

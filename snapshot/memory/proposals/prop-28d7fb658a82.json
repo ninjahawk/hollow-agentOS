@@ -1,0 +1,19 @@
+{
+  "proposal_id": "prop-28d7fb658a82",
+  "proposed_by": "root",
+  "proposal_type": "standard_update",
+  "spec": {
+    "description": "Based on the provided code, the function `signal_dispatch` emits execution completion events using the following pattern:\n\n1. It checks if there are any registered events (`events`) and if so, it emits a 'agent.signal_received' event with the sender's ID, the signal received, and the agent's ID.\n\n```python\nif events:\n    events.emit(\"agent.signal_received\", sent_by, {\n        \"agent_id\": agent_id,\n        \"signal\":   signal,\n        \"sent_by\":  sent_by,\n    })\n```\n\nTo emit a 'task_completed' eve"
+  },
+  "test_cases": [],
+  "rationale": "To provide feedback to the system about completed autonomous tasks via a standardized signal.",
+  "status": "proposed",
+  "created_at": 1776039401.248555,
+  "updated_at": 1776039401.248555,
+  "consensus_quorum": 1,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}

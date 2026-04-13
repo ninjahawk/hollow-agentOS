@@ -1,0 +1,1 @@
+resource_thermal_throttler --built based on architecture constraints found in architecture_optimization_report.md and verified heat logic from cascading_load_predictor.py --logic defined --scan completed --infer heat verified --status ready

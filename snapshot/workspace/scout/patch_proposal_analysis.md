@@ -1,0 +1,1 @@
+{"stdout": "", "stderr": "ls: cannot access '/agentOS/core/system_stability_controller.py': No such file or directory", "exit_code": 2, "success": false} modified to include 'semantic_momentum_threshold' check: 'if entropy_increase > threshold AND (semantic_momentum <= 0 OR is_pregnant_state): prune_system()'

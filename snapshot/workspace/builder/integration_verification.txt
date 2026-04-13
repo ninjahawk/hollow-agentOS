@@ -1,0 +1,3 @@
+Analysis of /agentOS/agent_core/init_sequence.py reveals the mechanism for instantiating 'system_architecture_synthesis'. We have identified the code block responsible for defining new capabilities. Next step: Modify the instantiation logic here to commit new capabilities to the shared 'peer_synthesis_buffer' upon definition rather than just logging events. This ensures peers can utilize the tool immediately.
+
+Target definitions not found in standard locations, checking registry module.

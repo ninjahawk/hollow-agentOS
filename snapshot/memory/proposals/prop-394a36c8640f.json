@@ -1,0 +1,23 @@
+{
+  "proposal_id": "prop-394a36c8640f",
+  "proposed_by": "root",
+  "proposal_type": "new_tool",
+  "spec": {
+    "name": "auto_resolve_deps",
+    "description": "Automatically resolves and installs dependencies for newly cloned projects in /agentOS/workspace/builder/",
+    "implementation": "A tool wrapper that takes a project directory or git URL, analyzes the package manifest (e.g., requirements.txt, package.json, go.mod), invokes the appropriate install command via safe shell execution with timeout/rollback protection, and logs success/failure states.",
+    "rationale": "Newly cloned projects in /agentOS/workspace/builder/ currently fail if dependencies are unmet, blocking downstream build tasks. This capability ensures idempotent, safe dependency resolution without manual intervention.",
+    "consensus_quorum": 2
+  },
+  "test_cases": [],
+  "rationale": "Prior steps indicated a need to resolve dependencies automatically; proposing this tool addresses the gap in the system.",
+  "status": "proposed",
+  "created_at": 1775976552.465069,
+  "updated_at": 1775976552.465069,
+  "consensus_quorum": 2,
+  "consensus_proposal_id": null,
+  "approve_votes": [],
+  "staging_results": null,
+  "approved_by": null,
+  "rejected_reason": null
+}
