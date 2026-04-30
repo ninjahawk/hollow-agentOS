@@ -342,10 +342,7 @@ if (-not $pythonCmd) {
 }
 
 if ($pythonCmd) {
-    _info "Installing monitor dependencies…"
-    $monReqs = Join-Path $HollowDir "requirements-monitor.txt"
-    & $pythonCmd.Source -m pip install -q -r $monReqs
-    _ok "Monitor dependencies installed"
+    _ok "Python ready"
 } else {
     _warn "Python not found. Install Python 3.12+ from python.org, then run launch.bat."
 }
@@ -385,13 +382,13 @@ Write-Host @"
 
 "@ -ForegroundColor Green
 
-# Launch the TUI
+# Launch the monitor (thoughts.py — no extra dependencies)
 if ($pythonCmd) {
     _info "Launching live monitor…"
     Start-Sleep 1
     $env:HOLLOW_DIR = $HollowDir
     Set-Location $HollowDir
-    & $pythonCmd.Source monitor.py
+    & $pythonCmd.Source thoughts.py
 } else {
     _warn "To open the monitor later, double-click 'launch.bat' or 'Hollow AgentOS' on your Desktop."
     Read-Host "  Press Enter to exit"

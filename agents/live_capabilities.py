@@ -996,6 +996,7 @@ def self_evaluate(question: str = "", evidence_paths: list = None,
     Not a feeling — an assessment against real file contents and memory values.
     """
     import json as _j, os as _os, httpx as _hx
+    from pathlib import Path as _Path
     evidence_paths = evidence_paths or []
     memory_keys = memory_keys or []
     if not question:

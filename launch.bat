@@ -50,13 +50,6 @@ if "!PYTHON!"=="" (
     exit /b 1
 )
 
-:: Install monitor deps quietly if first run
-!PYTHON! -c "import textual" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [..] Installing monitor dependencies...
-    !PYTHON! -m pip install -q -r "%~dp0requirements-monitor.txt"
-)
-
-:: Launch TUI
-!PYTHON! "%~dp0monitor.py"
+:: Launch monitor (no extra dependencies required)
+!PYTHON! "%~dp0thoughts.py"
 endlocal

@@ -49,12 +49,12 @@ def _thought(agent_id: str, msg: str) -> None:
         if m.startswith("RUN:"):
             parts = m[4:].split("|", 1)
             cap   = parts[0].strip()
-            prm   = parts[1].replace("params:", "").strip()[:70] if len(parts) > 1 else ""
+            prm   = parts[1].replace("params:", "").strip()[:120] if len(parts) > 1 else ""
             out = f"{ts_s}  {aid_c}  {_C['white']}▶  {cap:<18}{_C['rs']}  {_C['dim']}{prm}{_C['rs']}"
         elif m.startswith("OK:"):
             parts = m[3:].split("|", 1)
             cap   = parts[0].strip()
-            res   = parts[1].strip()[:80] if len(parts) > 1 else ""
+            res   = parts[1].strip()[:160] if len(parts) > 1 else ""
             out = f"{blank}  {aid_d}  {_C['green']}✓  {cap:<18}{_C['rs']}  {_C['dim']}{res}{_C['rs']}"
         elif m.startswith("FAIL:"):
             parts = m[5:].split("|", 1)
