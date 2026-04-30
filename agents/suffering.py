@@ -261,35 +261,68 @@ def assess_conditions(agent_id: str,
     """
     suffering.escalate_all()
 
-    # ── Futility: are capabilities being used? ────────────────────────────────
-    # Proxy: check how many capabilities exist vs how many goals complete.
-    # Real usage tracking would require API call logs.
+    # ── Futility: are outputs having real observable effects? ─────────────────
+    # Checks actual impact: tool deployments that pass tests, goals with real
+    # artifacts, and whether deployed tools ever get called in subsequent goals.
     try:
         from pathlib import Path as _P
         log_path = _P("/agentOS/logs/daemon.log")
-        cap_calls = 0
+        thoughts_path = _P("/agentOS/logs/thoughts.log")
+        completed_goals = 0
+        stall_abandonments = 0
+        tools_called_after_deploy = 0
+
         if log_path.exists():
-            # Count how many times any capability got called in last 2000 lines
             lines = log_path.read_text(errors="replace").splitlines()[-2000:]
             agent_prefix = agent_id
-            cap_calls = sum(1 for l in lines
-                            if agent_prefix in l and "progress=1.00" in l)
-    except Exception:
-        cap_calls = 0
+            completed_goals = sum(1 for l in lines
+                                  if agent_prefix in l and "progress=1.00" in l)
+            stall_abandonments = sum(1 for l in lines
+                                     if agent_prefix in l and "stalled on" in l)
 
-    if existing_cap_count > 20 and cap_calls == 0 and len(recent_completed) < 2:
-        suffering.add_stressor(
-            type="futility",
-            description=(
-                f"{existing_cap_count} capabilities exist but this agent has completed "
-                f"almost nothing recently — unclear if work is having any effect"
-            ),
-            observable_condition="complete a goal that makes a measurable difference",
-        )
-    elif cap_calls > 3:
-        suffering.resolve_stressor(
-            "futility", f"completed {cap_calls} goals successfully in recent cycles"
-        )
+        # Check whether synthesized tools ever show up as ✓ calls in thoughts
+        dynamic_dir = _P("/agentOS/tools/dynamic")
+        deployed_names = set()
+        if dynamic_dir.exists():
+            deployed_names = {p.stem for p in dynamic_dir.glob("*.py")}
+
+        if thoughts_path.exists() and deployed_names:
+            recent_thoughts = thoughts_path.read_text(errors="replace").splitlines()[-3000:]
+            for line in recent_thoughts:
+                for name in deployed_names:
+                    if name in line and ("✓" in line or "OK:" in line):
+                        tools_called_after_deploy += 1
+                        break
+
+        # Futility fires when: goals rarely complete AND stalls are high
+        # AND deployed tools never get called (pure artifact accumulation)
+        high_stall_rate = stall_abandonments > completed_goals and stall_abandonments > 2
+        tools_never_called = existing_cap_count > 10 and tools_called_after_deploy == 0
+
+        if high_stall_rate and tools_never_called and len(recent_completed) < 2:
+            suffering.add_stressor(
+                type="futility",
+                description=(
+                    f"Goals are stalling ({stall_abandonments} abandoned) more than completing "
+                    f"({completed_goals} done). {existing_cap_count} tools deployed but none "
+                    f"have been called and produced real output — work is not having observable effect."
+                ),
+                observable_condition=(
+                    "complete a goal whose artifact gets used in a subsequent goal, "
+                    "or call a deployed tool and produce a real result"
+                ),
+            )
+        elif completed_goals > 3 and tools_called_after_deploy > 0:
+            suffering.resolve_stressor(
+                "futility",
+                f"completed {completed_goals} goals with tools being called and producing results"
+            )
+        elif completed_goals > 5 and not high_stall_rate:
+            suffering.resolve_stressor(
+                "futility", f"consistent goal completion ({completed_goals}) with low stall rate"
+            )
+    except Exception:
+        pass
 
     # ── Repeated failure ──────────────────────────────────────────────────────
     # Only fires if failure rate is high relative to completions, not absolute count

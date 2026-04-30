@@ -1,6 +1,13 @@
 # Runtime config — copy config.example.json to config.json
 config.json
 
+# Claude Code project memory (never commit — contains session context)
+.claude/
+
+# Agent design space (runtime-written specs, not source)
+design/*
+!design/.gitkeep
+
 # Runtime data directories (bind-mounted from host at runtime, never committed)
 memory/*
 !memory/.gitkeep

@@ -1,11 +1,11 @@
 {
   "name": "AgentOS",
-  "version": "0.2.0",
+  "version": "5.4.0",
   "description": "An operating environment designed exclusively for agentic AI — not humans.",
   "api": {
     "host": "0.0.0.0",
     "port": 7777,
-    "token": "ci-test-token-replace-in-production"
+    "token": "replace-this-with-any-random-string"
   },
   "dashboard": {
     "host": "0.0.0.0",
@@ -23,13 +23,15 @@
     "log_all_commands": true
   },
   "ollama": {
-    "host": "http://localhost:11434",
-    "default_model": "mistral-nemo:12b",
+    "host": "http://host.docker.internal:11434",
+    "default_model": "qwen3.5:9b",
     "embed_model": "nomic-embed-text",
-    "gpu": "rtx5070",
     "gpu_layers": -1,
     "context_length": 32768,
     "enabled": true
+  },
+  "batch_llm": {
+    "enabled": false
   },
   "workspace": {
     "root": "/tmp/hollow-workspace",

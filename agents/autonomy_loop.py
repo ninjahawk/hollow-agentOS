@@ -955,17 +955,23 @@ class AutonomyLoop:
                         "checks": checks,
                     }
 
-            elif cap == "shell_exec" and r.get("exit_code") == 0 and r.get("stdout", "").strip():
-                stdout = r["stdout"].strip()
-                # Require meaningful output — not just a directory listing header
-                if len(stdout) < 10:
-                    checks.append(f"shell_exec output too short: '{stdout}'")
-                else:
+            elif cap == "shell_exec" and r.get("exit_code") == 0:
+                stdout = r.get("stdout", "").strip()
+                # exit_code=0 is success even with empty stdout (e.g. python scripts that produce no output)
+                if stdout and len(stdout) >= 10:
                     checks.append("shell_exec produced output")
                     return {
                         "validated": True,
                         "artifact_type": "shell_output",
                         "artifact_value": stdout[:200],
+                        "checks": checks,
+                    }
+                else:
+                    checks.append("shell_exec succeeded (exit_code=0)")
+                    return {
+                        "validated": True,
+                        "artifact_type": "shell_output",
+                        "artifact_value": f"exit_code=0 stderr={r.get('stderr','')[:60]}",
                         "checks": checks,
                     }
 
