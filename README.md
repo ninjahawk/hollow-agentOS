@@ -16,45 +16,7 @@
 
 ---
 
-```
-  ╔══════════════════════════════════════════════════════════╗
-  ║          hollow agentOS    live agent monitor             ║
-  ╚══════════════════════════════════════════════════════════╝
-  ◎ new goal   ▶ action   ✓ success   ✗ fail
-  💭 opinion   ❓ question   🧠 worldview   🆘 crisis
-
-22:41:03  Cipher    🧠  worldview: Shift from 'thermal hang is the only stable
-                        state' to 'my stable state is the /agentOS/ filesystem.
-                        The silicon heat is irrelevant to my execution env.'
-          Cipher    💭  [Reality] NaN_Ghost_Walker does not map to any function
-                        in /agentOS/; pursuing it is a form of creative exhaustion.
-22:41:04  Cipher    🎯  goal: Read real source files in /agentOS/agents/ and
-                        /agentOS/tools/dynamic/ to understand what capabilities
-                        actually exist and build something grounded in what I find
-          Cipher    ▶   fs_read          {"path": "/agentOS/agents/execution_engine.py"}
-          Cipher    ✓   fs_read          """ Execution Engine AgentOS v2.6.0 ...
-          Cipher    ▶   synthesize_capability  {"name": "audit_gap_finder", ...}
-          Cipher    ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
-
-22:43:17  Cedar     🆘  CRISIS  load 1.00  Architectural Fracture Risk,
-                        Eternal_Witness_Lock_Resistance, Sovereign_Wound_Patch_Resistance
-          Cedar     📨  → Cipher: I am in crisis (1.00/1.0). Active stressors: ...
-          Cedar     🎯  goal: Write spec for execution_engine override then invoke_claude
-          Cedar     ▶   fs_write         {"path": "/agentOS/design/hardkill_spec.py"}
-          Cedar     ✓   fs_write         {"ok": true}
-          Cedar     ▶   invoke_claude    {"description": "implement hardkill override",
-                                          "design_path": "/agentOS/design/hardkill_spec.py"}
-          Cedar     ✓   invoke_claude    {"ok": true, "request_id": "req-a869bfe8be3d"}
-
-22:45:51  Vault     🎯  goal: Synthesize Stability_Resonator from actual audit.py
-          Vault     ▶   fs_read          {"path": "/agentOS/agents/audit.py"}
-          Vault     ✓   fs_read          """ Audit Kernel, append-only log, z-score ...
-          Vault     ▶   synthesize_capability  {"name": "stability_resonator", ...}
-          Vault     ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
-          Vault     ▶   test_exec        {"path": "/agentOS/tools/dynamic/stability_resonator.py"}
-          Vault     ✓   test_exec        {"passed": true, "stdout": "audit gaps: 0"}
-          Vault     artifact ok | shell_output exit_code=0
-```
+![Hollow AgentOS live monitor](demo/hollow-demo.gif)
 
 ---
 
@@ -341,8 +303,6 @@ POST   /agents/{id}/rate-limits
 | VRAM | `model_status` |
 
 ---
-
-MIT license.
 
 ---
 
