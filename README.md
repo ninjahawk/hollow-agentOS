@@ -343,3 +343,257 @@ POST   /agents/{id}/rate-limits
 ---
 
 MIT license.
+
+---
+
+## Under the hood
+
+The agent behavior is the interesting part. The infrastructure underneath is what makes it possible to run continuously without falling over. Each piece below is a real OS primitive implemented for multi-agent use. If you want to understand how any of it actually works, or build on top of it, this is the detail.
+
+<details>
+<summary><strong>Build history (Phase 0 through 6)</strong></summary>
+
+**Phase 0-1: OS Kernel Primitives (v0.1.0 to v1.2.0)**
+
+Eight foundational mechanisms. Every higher-order system depends on these. Without events, systems poll. Without signals, you can't coordinate. Without memory management, you have no state. Without audit, you can't trace failures. Without transactions, concurrent agents corrupt each other's data. Without lineage, you can't understand causality. Each primitive is small, focused, and orthogonal.
+
+**Phase 2: Agent Services (v1.3.0 to v1.3.7)**
+
+Services that are only possible because Phase 1 exists. Distributed tracing (needs audit + registry). Checkpoints (needs memory + transactions). Consensus (needs events + transactions). Adaptive routing (needs scheduler + audit). Self-extension (needs consensus + full stack).
+
+**Phase 3: Cognitive Infrastructure (v2.0.0 to v2.5.0)**
+
+Replacing every human-facing interface with agent-native cognition. Agents navigate capability graphs by meaning using vector embeddings. Memory works in embedding space. Self-extension is fully autonomous.
+
+**Phase 4: Autonomous Agent Runtime (v3.0.0 to v4.4.0)**
+
+The OS is complete. Now it runs. A persistent daemon cycles through agents, generates plans with a local LLM, executes multi-step pipelines with real data flowing between steps, and produces verifiable artifacts. Goals persist across restarts. Agents accumulate memory. The system governs its own capability expansion through quorum voting.
+
+**Phase 5: App Store and Natural Language Install (v4.5.0 to v4.9.0)**
+
+128+ tools available via natural language. Type what you want, the system finds the tool, resolves dependencies, clones the repo, synthesizes a wrapper, and launches it. Wrappers are versioned and auto-repaired when they break.
+
+**Phase 6: Psychological Layer and HollowOS (v5.0.0 to v5.4.0)**
+
+The suffering system, persistent agent identity, and the invoke_claude collaboration model. Plus HollowOS, a web-based graphical shell (in development).
+
+</details>
+
+<details>
+<summary><strong>Event Kernel (v0.7.0)</strong></summary>
+
+Polling is how you build a prototype. Interrupts are how you build a system.
+
+Agents subscribe to typed event patterns and receive notifications in their inbox when matching events fire. Every subsystem emits events. Subscriptions support glob patterns (`task.*`, `agent.terminated`, `security.*`) and TTLs. The event log is append-only and persists across restarts.
+
+Events emitted system-wide: `agent.registered`, `agent.terminated`, `agent.suspended`, `agent.resumed`, `budget.warning`, `budget.exhausted`, `task.queued`, `task.started`, `task.completed`, `task.failed`, `task.token_chunk`, `task.partial_available`, `task.cancelled`, `message.received`, `decision.resolved`, `spec.activated`, `file.written`, `txn.committed`, `txn.rolled_back`, `txn.conflict`, `security.anomaly`, `security.circuit_break`, `audit.archived`, `vram.pressure`, `memory.pressure`, `model.loaded`, `model.evicted`.
+
+</details>
+
+<details>
+<summary><strong>Process Signals and Tombstones (v0.8.0)</strong></summary>
+
+`kill()` and `terminate()` are not the same thing. SIGTERM means "shut down cleanly within this grace period." SIGPAUSE means "checkpoint and wait." SIGINFO means "report your current state."
+
+Hollow implements all three. An agent that ignores SIGTERM is force-killed by a watchdog after the grace period. Every terminated agent writes a tombstone: last task, token usage, cause of death, list of children. Process groups let you SIGTERM an entire spawned subtree atomically. Children of a terminated agent are re-parented to root.
+
+</details>
+
+<details>
+<summary><strong>VRAM-Aware Scheduler (v0.9.0)</strong></summary>
+
+Loading a model takes a few seconds. If it's already in VRAM from the previous task, that cost is zero. The scheduler tracks what's loaded, routes tasks to already-loaded models where possible, and evicts LRU models under memory pressure.
+
+Three priority tiers: URGENT (0) preempts BACKGROUND (2) workers via checkpointing. Complexity routing: 1-2 uses the smaller model, 3-4 uses a mid-size model, 5 uses the largest available. Affinity routing: if a suitable model is already in VRAM, use it regardless of the complexity tier.
+
+</details>
+
+<details>
+<summary><strong>Working Memory Kernel (v1.0.0)</strong></summary>
+
+Language models have no persistent working state between calls. A working memory heap gives agents a place to store intermediate results with actual memory management: TTL expiration, priority-based eviction under pressure, on-heap compression when a slot needs to shrink without being freed.
+
+This is not a key-value store. It's a heap with an eviction policy, the same concept as any OS page frame manager, applied to agent context.
+
+</details>
+
+<details>
+<summary><strong>Audit Kernel and Anomaly Detection (v1.1.0)</strong></summary>
+
+Every operation goes through a single audited boundary. The log is append-only. The audit log and baseline files are blocklisted at the path level — no agent can overwrite them via the filesystem API.
+
+Z-score anomaly detection runs per-agent against a per-role baseline established from the first 50 operations. Anomalies fire at 3 sigma. Circuit breaks fire at 5 sigma. When an agent's anomaly score exceeds that threshold, the circuit break fires: the agent is suspended, its rate limits are reduced to 10% for 5 minutes, a `security.circuit_break` event fires, and root receives a review decision in its inbox. Causal fields on every entry: `caused_by_task_id`, `parent_txn_id`, `call_depth`.
+
+</details>
+
+<details>
+<summary><strong>Multi-Agent Transactions (v1.2.0)</strong></summary>
+
+Two agents writing to the same file is a race condition. Transactions make it a conflict instead — detectable, handleable, not silently corrupting.
+
+`txn_begin()` opens a transaction. `txn/stage(fs_write | message_send | memory_set)` buffers operations without applying them. `txn/commit()` applies everything atomically, detecting conflicts (file modified between begin and commit) and rolling back if any op fails. Uncommitted writes are invisible to readers. Transactions that don't commit within 60 seconds auto-roll back.
+
+</details>
+
+<details>
+<summary><strong>Agent Lineage and Call Graphs (v1.3.0)</strong></summary>
+
+The audit log tells you what happened. Lineage tells you why: which agent spawned which agent, which task created which agent, which agents are affected if a given agent fails right now.
+
+`agent_lineage(id)` returns the full ancestor chain. `agent_subtree(id)` returns the recursive descendant tree with edge types (spawned, delegated, signaled, transacted). `agent_blast_radius(id)` computes forward-reachability: affected descendants, held locks, open transactions, running tasks. `task_critical_path(id)` finds the longest `depends_on` chain through the task graph — the wall time you cannot parallelize away.
+
+</details>
+
+<details>
+<summary><strong>Streaming Task Outputs (v1.3.1)</strong></summary>
+
+`submit(stream=True)` returns immediately with a `task_id`, `stream_url`, and `partial_url`. Token chunks arrive as SSE events. `GET /tasks/{id}/partial` returns a snapshot of accumulated output without connecting to the stream. `DELETE /tasks/{id}` cancels and frees the worker.
+
+`submit(wait=True)` still works exactly as before.
+
+</details>
+
+<details>
+<summary><strong>Rate Limiting and Admission Control (v1.3.2)</strong></summary>
+
+Per-resource limits: `tokens_in`, `shell_calls`, `api_calls`, `task_submissions`. Per-role defaults with per-agent overrides. 429 responses include a `Retry-After` header.
+
+| Role | tokens/min | shell/min | task submits/min |
+|---|---|---|---|
+| root | unlimited | unlimited | unlimited |
+| orchestrator | 100k | 300 | 60 |
+| worker | 20k | 60 | 10 |
+| coder | 50k | 120 | 20 |
+| reasoner | 50k | 10 | 5 |
+
+Circuit breaker fires at 5 sigma anomaly score: agent suspended, rate limits cut to 10% for 5 minutes, event fires, root gets a review decision with options `["restore", "terminate"]`.
+
+</details>
+
+<details>
+<summary><strong>Checkpoints and Replay (v1.3.3)</strong></summary>
+
+Checkpoints serialize everything: memory heap contents, unread inbox messages, current task snapshot, and agent metadata. Restore overwrites the current state with the saved snapshot. The agent resumes as if the interruption never happened.
+
+Three auto-checkpoint triggers: before transaction commit, on SIGPAUSE, and after tasks over 30 seconds.
+
+Replay runs a task N times from the same checkpoint and measures response consistency (Jaccard similarity across runs). A factual question should score above 0.95 across 5 runs. An ambiguous question will score lower and produce a `divergence_points` list showing where runs first diverged. This is the foundation for measuring agent determinism.
+
+</details>
+
+<details>
+<summary><strong>Multi-Agent Consensus (v1.3.4)</strong></summary>
+
+One agent reaching a conclusion is a decision. Multiple independent agents reaching the same conclusion is a commitment that survives the failure or compromise of any single participant.
+
+A proposer submits an action with a list of participants and a required vote count. Participants receive a `consensus.vote_requested` event and vote. Early rejection is computed: if the remaining uncast votes cannot mathematically close the gap, the proposal is rejected immediately rather than waiting for the TTL. This prevents cascading delays in time-sensitive pipelines.
+
+Consensus is a coordination mechanism, not an executor. `consensus.reached` carries the action dict; the proposer acts on it.
+
+</details>
+
+<details>
+<summary><strong>Adaptive Model Routing (v1.3.5)</strong></summary>
+
+The adaptive router observes every task completion — model, complexity, duration_ms, tokens_out, success — and maintains exponential moving averages (EMA, alpha=0.15) per (model, complexity) pair. The composite score weights success rate highest (50%), then throughput (30%), then latency (20%).
+
+Routing decision hierarchy:
+1. Hard override — admin-set rules that bypass scoring entirely
+2. Adaptive score — highest-scoring model with at least 5 observations for this complexity tier
+3. VRAM affinity — prefer already-loaded model to avoid eviction cost
+4. Static tier default
+
+Overrides resolve by specificity: agent_id beats role beats complexity-only beats global.
+
+</details>
+
+<details>
+<summary><strong>Vector Embeddings and Semantic Memory (v2.x)</strong></summary>
+
+Agents navigate capabilities by meaning, not by name. When an agent needs to do something, the capability graph returns semantically similar capabilities using cosine similarity over nomic-embed-text embeddings. This means agents can discover relevant tools without knowing their exact names.
+
+Semantic memory stores per-agent experience: after each successful goal step, a summary is embedded and stored. Future goals retrieve relevant past experiences at planning time, injecting them into context so agents can build on prior work and avoid repeating mistakes.
+
+The workspace is continuously indexed: every file in `/agentOS/workspace/` is chunked with an AST-aware splitter and embedded. `semantic_search` and `read_context` return chunks ranked by cosine similarity to the query, not by filename. This is how agents find relevant code across a large workspace without scanning every file.
+
+</details>
+
+<details>
+<summary><strong>Benchmark Suite (v1.3.6)</strong></summary>
+
+Seven structural scenarios that don't require Ollama:
+
+| Scenario | What it measures |
+|---|---|
+| `heap_alloc_throughput` | Alloc/free ops/sec against the working memory kernel |
+| `message_bus_latency` | Send to receive p50/p95/p99/mean round-trip (ms) |
+| `transaction_commit_latency` | begin, stage x3, commit round-trip (ms) |
+| `checkpoint_roundtrip` | save, restore, verify round-trip (ms) |
+| `consensus_vote_latency` | propose, vote, resolved wall time (ms) |
+| `rate_limit_precision` | Verify 429 fires at correct bucket depth |
+| `audit_write_throughput` | Entries captured per second in audit log |
+
+Two Ollama-dependent scenarios (`task_latency_c1`, `task_latency_c3`) measure end-to-end task latency at each complexity tier. `GET /benchmarks/compare` diffs any two runs and flags regressions (>15% degradation) and improvements (>15% gain).
+
+Selected numbers from live system runs:
+
+| Scenario | Naive shell approach | Hollow API | Savings |
+|---|---|---|---|
+| Code search | 21,636 tokens | 987 tokens | 95% |
+| Agent drift (consistency rate) | 35% (cold start) | 70% (with handoff) | 2x |
+
+</details>
+
+<details>
+<summary><strong>Architecture</strong></summary>
+
+```
+hollow-agentOS/
+├── api/
+│   ├── server.py              FastAPI, all endpoints
+│   └── agent_routes.py        Agent OS routes
+├── agents/
+│   ├── daemon.py              Main loop, existence prompts, stall detection
+│   ├── autonomy_loop.py       plan, execute, substitute, gate, complete
+│   ├── live_capabilities.py   All 21 live capabilities, hot-mounted
+│   ├── suffering.py           Stressors, escalation, resolution, prompt injection
+│   ├── reasoning_layer.py     Ollama-based planning and capability selection
+│   ├── capability_graph.py    Semantic capability discovery
+│   ├── execution_engine.py    Runs capabilities, passes results between steps
+│   ├── persistent_goal.py     Goal storage that survives restarts
+│   ├── semantic_memory.py     Per-agent vector memory with cosine search
+│   ├── self_modification.py   Synthesize, test, hot-load new capabilities
+│   ├── registry.py            Identity, capabilities, workspaces, budgets, locks
+│   ├── bus.py                 Inter-agent message bus
+│   ├── scheduler.py           VRAM-aware routing, priority preemption
+│   ├── events.py              EventBus, glob patterns, TTL, persistent log
+│   ├── signals.py             SIGTERM, SIGPAUSE, SIGINFO with grace period watchdog
+│   ├── audit.py               Append-only log, z-score detection, circuit break
+│   ├── transaction.py         Atomic multi-op transactions, conflict detection
+│   ├── lineage.py             Call graph, blast radius, critical path
+│   ├── ratelimit.py           Token bucket rate limiting, circuit breaker
+│   ├── checkpoint.py          Save, restore, diff, replay agent state
+│   ├── consensus.py           Propose, vote, quorum, early rejection
+│   ├── adaptive_router.py     EMA tracking, score-based routing, overrides
+│   ├── benchmark.py           Benchmark suite
+│   └── model_manager.py       VRAM tracker, LRU eviction, model affinity
+├── memory/
+│   ├── manager.py             Session log, workspace map, handoffs
+│   └── heap.py                Working memory kernel
+├── mcp/
+│   └── server.py              91 MCP tools
+├── tools/
+│   ├── semantic.py            AST-aware chunker and embedding search
+│   └── dynamic/               Hot-loaded capabilities synthesized at runtime
+├── store/
+│   └── server.py              Tool store, 128+ tools
+├── dashboard/                 Live monitor and app store UI
+├── design/                    Agent design space (writable by agents)
+├── Dockerfile
+├── docker-compose.yml
+├── stop.bat                   One-click shutdown and VRAM clear
+├── launch.bat                 One-click resume
+└── config.json
+```
+
+</details>
