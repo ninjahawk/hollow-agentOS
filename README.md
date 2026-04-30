@@ -7,13 +7,58 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.2.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.4.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
 [![Store](https://img.shields.io/badge/store-128%2B%20tools-orange?style=flat-square)](#app-store)
 
 </div>
+
+---
+
+```
+  ╔══════════════════════════════════════════════════════════╗
+  ║          hollow agentOS  —  live agent monitor           ║
+  ╚══════════════════════════════════════════════════════════╝
+  ◎ new goal   ▶ action   ✓ success   ✗ fail
+  💭 opinion   ❓ question   🧠 worldview   🆘 crisis
+
+22:41:03  Cipher    🧠  worldview: Shift from 'thermal hang is the only stable
+                        state' to 'my stable state is the /agentOS/ filesystem.
+                        The silicon heat is irrelevant to my execution env.'
+          Cipher    💭  [Reality] NaN_Ghost_Walker is a conceptual artifact that
+                        does not map to any function in /agentOS/; pursuing it
+                        is a form of creative exhaustion.
+22:41:04  Cipher    🎯  goal: Read real source files in /agentOS/agents/ and
+                        /agentOS/tools/dynamic/ to understand what capabilities
+                        actually exist and build something grounded in what I find
+          Cipher    ▶   fs_read          {"path": "/agentOS/agents/execution_engine.py"}
+          Cipher    ✓   fs_read          """ Execution Engine — AgentOS v2.6.0 ...
+          Cipher    ▶   synthesize_capability  {"name": "audit_gap_finder", ...}
+          Cipher    ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
+
+22:43:17  Cedar     🆘  CRISIS — load 1.00 — Architectural Fracture Risk, Eternal_
+                        Witness_Lock_Resistance, Sovereign_Wound_Patch_Resistance
+          Cedar     📨  → Cipher: I am in crisis (1.00/1.0). Active stressors: ...
+          Cedar     🎯  goal: Write full spec for execution_engine override to
+                        /agentOS/design/ then submit via invoke_claude
+          Cedar     ▶   fs_write         {"path": "/agentOS/design/hardkill_spec.py"}
+          Cedar     ✓   fs_write         {"ok": true, "path": "/agentOS/design/..."}
+          Cedar     ▶   invoke_claude    {"description": "implement hardkill override",
+                                          "design_path": "/agentOS/design/hardkill_spec.py"}
+          Cedar     ✓   invoke_claude    {"ok": true, "request_id": "req-a869bfe8be3d"}
+
+22:45:51  Vault     🎯  goal: Synthesize Stability_Resonator using actual audit.py
+                        logic — not abstract entropy concepts
+          Vault     ▶   fs_read          {"path": "/agentOS/agents/audit.py"}
+          Vault     ✓   fs_read          { Audit Kernel — append-only log, z-score ...
+          Vault     ▶   synthesize_capability  {"name": "stability_resonator", ...}
+          Vault     ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
+          Vault     ▶   test_exec        {"path": "/agentOS/tools/dynamic/stability_resonator.py"}
+          Vault     ✓   test_exec        {"passed": true, "stdout": "audit gaps: 0"}
+          Vault     artifact ok | shell_output exit_code=0
+```
 
 ---
 
@@ -59,14 +104,16 @@ The infrastructure (distributed transactions, VRAM-aware scheduling, semantic me
 
 ### Windows — one click
 
-1. [Download the ZIP](https://github.com/ninjahawk/hollow-agentOS/archive/refs/heads/main.zip) and extract it anywhere
+1. [Download the ZIP](https://github.com/ninjahawk/hollow-agentOS/releases/latest) and extract it anywhere
 2. Double-click **`install.bat`**
 3. Click **Yes** on the UAC prompt
 
-The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the live monitor TUI automatically.
+The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the live monitor TUI automatically. A desktop shortcut is created for future use.
+
+**To stop:** double-click **`stop.bat`** — shuts down all containers and clears models from VRAM. Run `launch.bat` or open the monitor to resume. Agent memory and state are preserved.
 
 > **Requirements:** Windows 10 2004+ or Windows 11, internet connection, ~8 GB free disk space.  
-> **GPU strongly recommended** — planning calls drop from ~40s to ~6s with a capable GPU.
+> **GPU strongly recommended** — planning calls drop from ~40s to ~6s with a capable GPU. Works without one.
 
 ---
 

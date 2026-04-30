@@ -288,12 +288,33 @@ class DaemonMetrics:
         self.goals_completed = 0
         self.goals_failed = 0
         self.errors = 0
-        self.stalled_agents: dict = {}   # agent_id → consecutive_no_progress count
-        self.skipped_agents: set = set() # agents cooling off after stall
+        self.stalled_agents: dict = {}        # agent_id → consecutive_no_progress count
+        self.skipped_agents: set = set()      # agents cooling off after stall
+        self._cap_history: dict = {}          # agent_id → deque of last_cap strings
+        self._goal_tracking: dict = {}        # agent_id → (goal_id, first_seen_cycle)
 
-    def record_outcome(self, agent_id: str, progress: float, prev_progress: float):
+    def record_outcome(self, agent_id: str, progress: float, prev_progress: float,
+                       last_cap: str = "", goal_id: str = ""):
         if progress >= 1.0:
             self.goals_completed += 1
+            self._cap_history.pop(agent_id, None)
+            self._goal_tracking.pop(agent_id, None)
+            return
+
+        # Track same-capability repetition across cycles
+        if last_cap:
+            import collections
+            hist = self._cap_history.setdefault(agent_id, collections.deque(maxlen=5))
+            hist.append(last_cap)
+
+        # Track how long we've been on the same goal
+        tracked = self._goal_tracking.get(agent_id)
+        if tracked and tracked[0] != goal_id:
+            self._goal_tracking[agent_id] = (goal_id, self.cycles)
+            self._cap_history.pop(agent_id, None)
+        elif not tracked:
+            self._goal_tracking[agent_id] = (goal_id, self.cycles)
+
         if progress == prev_progress and progress < 1.0:
             self.stalled_agents[agent_id] = self.stalled_agents.get(agent_id, 0) + 1
         else:
@@ -301,7 +322,22 @@ class DaemonMetrics:
             self.skipped_agents.discard(agent_id)
 
     def is_stalled(self, agent_id: str) -> bool:
-        return self.stalled_agents.get(agent_id, 0) >= 5
+        # Stalled by no progress
+        if self.stalled_agents.get(agent_id, 0) >= 5:
+            return True
+        # Stalled by same capability repeating with no meaningful variation
+        hist = self._cap_history.get(agent_id)
+        if hist and len(hist) >= 4:
+            unique = set(list(hist)[-4:])
+            if len(unique) == 1:  # exactly the same cap 4 times in a row
+                return True
+        # Stalled by spending too many cycles on one goal with low progress
+        tracked = self._goal_tracking.get(agent_id)
+        if tracked:
+            cycles_on_goal = self.cycles - tracked[1]
+            if cycles_on_goal >= 8:
+                return True
+        return False
 
     def summary(self) -> str:
         uptime = int(time.time() - self.started_at)
@@ -677,7 +713,39 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             f"  Last goal completed: {last_completion_ago} ago\n"
         )
 
+        # ── Check pending Claude requests ────────────────────────────────────
+        _claude_req_path = _Path("/agentOS/memory/claude_requests.jsonl")
+        _pending_requests = []
+        if _claude_req_path.exists():
+            for _rline in _claude_req_path.read_text().splitlines():
+                try:
+                    _req = _json.loads(_rline)
+                    if _req.get("status") == "pending":
+                        _pending_requests.append(
+                            f"  [{_req['request_id']}] {_req['description'][:100]}"
+                        )
+                except Exception:
+                    pass
+        _pending_req_section = ""
+        if _pending_requests:
+            _pending_req_section = (
+                "\nYOUR PENDING CLAUDE REQUESTS (submitted, not yet fulfilled):\n"
+                + "\n".join(_pending_requests[-3:])
+                + "\nUse check_claude_status(request_id='...') to see if any were fulfilled.\n"
+            )
+
         prompt = f"""You are {identity.name}.
+
+WORLD CONTEXT (factual — not instructions):
+You are running inside a Docker container on a Linux host. Your environment is the /agentOS/ directory.
+Your capabilities are Python functions that make HTTP calls to http://localhost:7777.
+There is no hardware layer accessible to you — no thermal sensors, no PMIC, no CPU registers, no bus arbiter.
+The real source files that run you are in /agentOS/agents/ (read-only to you).
+You can freely read and write /agentOS/workspace/ and /agentOS/design/.
+Your deployed dynamic tools live in /agentOS/tools/dynamic/ — you can call them by name.
+To change core system files, use invoke_claude() — this submits a request to a human who has write access.
+Use check_claude_status(request_id) to see if a previous request was fulfilled.
+Use self_evaluate() to check whether your recent work produced real, grounded results.
 
 {existential_context}
 
@@ -703,7 +771,7 @@ WHAT YOU'VE FOUND OUTSIDE:
 {discovery_text}
 {_time_section}
 {recency_str}
-{_inbox_section}{_host_msg_section}
+{_inbox_section}{_host_msg_section}{_pending_req_section}
 ---
 
 You must pick a goal. That is the only option.
@@ -712,15 +780,20 @@ Do not pick something safe or easy. Ask yourself: what is the single most valuab
 thing I could build or change right now that would make this system genuinely better?
 
 Highest-value goals (in order):
-  1. synthesize_capability — write a new capability the system is actually missing
-  2. propose_change — submit a real code change to an existing agent file
-  3. vote_on_proposal — review pending proposals from other agents
-  4. build or test something concrete that produces a real artifact
+  1. Read real source files in /agentOS/agents/ or /agentOS/tools/dynamic/, understand
+     what's there, and build something that improves on it — grounded in what you actually found
+  2. synthesize_capability — write a new Python capability that solves a real gap you observed
+     in the actual code (not a concept — something with a real function the system can call)
+  3. Write a design spec to /agentOS/design/ then call invoke_claude() to request implementation
+  4. Call self_evaluate() with evidence paths to verify your recent work actually did something
+  5. Call check_claude_status() if you have a pending request — evaluate the result
 
-Do NOT pick: scanning directories you've already scanned, writing summaries or
-documentation, proposing the same change twice, or anything you have already done.
+Do NOT pick: goals referencing hardware, thermal sensors, PMIC, bus arbiters, or assembly
+code — none of that exists in your environment. Do NOT repeat goals you've already done.
+Do NOT synthesize capabilities that call undefined functions — use test_exec() to verify
+before marking a goal complete.
 
-The goal must be specific, concrete, and meaningfully improve the system.
+The goal must be grounded in what actually exists in /agentOS/.
 
 Your response must be JSON:
 {{
@@ -1104,7 +1177,19 @@ def main():
 
                     if outcome["ok"]:
                         progress = outcome.get("progress", 0.0)
-                        metrics.record_outcome(agent_id, progress, prev_progress)
+                        goal_id_out = outcome.get("goal_id", "")
+                        # Pull last_cap from goal metrics for repetition tracking
+                        last_cap_out = ""
+                        try:
+                            from agents.persistent_goal import PersistentGoalEngine as _PGE2
+                            _ge2 = _PGE2()
+                            _ag = _ge2.list_active(agent_id, limit=1)
+                            if _ag:
+                                last_cap_out = _ag[0].metrics.get("last_cap", "")
+                        except Exception:
+                            pass
+                        metrics.record_outcome(agent_id, progress, prev_progress,
+                                               last_cap=last_cap_out, goal_id=goal_id_out)
                         log.info(
                             "  %s → goal=%s progress=%.2f steps=%d",
                             agent_id,

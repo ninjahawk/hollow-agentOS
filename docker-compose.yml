@@ -34,6 +34,11 @@ services:
       - ./config.json:/agentOS/config.json:ro
       - ./logs:/agentOS/logs
       - ./memory/dynamic_tools:/agentOS/tools/dynamic
+      - ./agents/live_capabilities.py:/agentOS/agents/live_capabilities.py:ro
+      - ./agents/daemon.py:/agentOS/agents/daemon.py:ro
+      - ./agents/autonomy_loop.py:/agentOS/agents/autonomy_loop.py:ro
+      - ./agents/suffering.py:/agentOS/agents/suffering.py:ro
+      - ./design:/agentOS/design
       # Store data mounted so repair_wrappers.py can write directly (bypasses SHA dedup)
       - ./store/data:/agentOS/store/data
       # Claude Code credentials — mounted read-only so agents can use OAuth tokens
@@ -48,6 +53,15 @@ services:
       - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
       - HOLLOW_STORE_URL=http://host.docker.internal:7779
       - HOLLOW_STORE_DATA=/agentOS/store/data
+    # GPU acceleration — remove this block if you don't have an NVIDIA GPU.
+    # Planning calls drop from ~40s to ~6s with GPU. Works without it.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7777/health"]

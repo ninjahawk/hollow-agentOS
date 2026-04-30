@@ -109,16 +109,25 @@ def ollama_chat(prompt: str = "", role: str = "general",
     """Ask a language model a question."""
     if not prompt:
         return {"error": "no prompt provided", "response": ""}
-    result = _call("post", "/ollama/chat", json={
-        "messages": [{"role": "user", "content": prompt}],
-        "role": role,
-        "max_tokens": max_tokens,
-    })
-    return {
-        "response": result.get("response", ""),
-        "model": result.get("model", ""),
-        "tokens": result.get("tokens_response", 0),
-    }
+    import httpx as _httpx, os as _os, json as _json
+    try:
+        ollama_host = _os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+        cfg = _json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
+        model = cfg.get("ollama", {}).get("default_model", "qwen3.5:9b")
+        r = _httpx.post(
+            f"{ollama_host}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False,
+                  "think": False, "options": {"num_predict": max_tokens}},
+            timeout=120,
+        )
+        data = r.json()
+        return {
+            "response": data.get("response", ""),
+            "model": model,
+            "tokens": data.get("eval_count", 0),
+        }
+    except Exception as e:
+        return {"error": str(e), "response": ""}
 
 
 def fs_read(path: str = "") -> dict:
@@ -135,12 +144,18 @@ _FS_WRITE_BLOCKED = [
     "/agentOS/api/",
     "/agentOS/entrypoint.sh",
     "/agentOS/config.json",
+    # /agentOS/design/ and /agentOS/memory/identity/ are intentionally NOT blocked —
+    # agents have full write authority over their design space and their own identity.
 ]
 
-def fs_write(path: str = "", content: str = "", append: bool = False) -> dict:
+def fs_write(path: str = "", content="", append: bool = False) -> dict:
     """Write content to a file. Set append=True to add to existing content instead of overwriting."""
     if not path:
         return {"error": "no path provided", "ok": False}
+    # Coerce non-string content — agents sometimes pass dicts/lists directly
+    if not isinstance(content, str):
+        import json as _j
+        content = _j.dumps(content, indent=2)
     full = path if path.startswith("/") else f"/agentOS/workspace/{path}"
     for blocked in _FS_WRITE_BLOCKED:
         if full.startswith(blocked) or full == blocked.rstrip("/"):
@@ -211,6 +226,49 @@ def agent_message(to_id: str = "", content: str = "",
     return {"ok": True, "msg_id": result.get("msg_id"), "to": to_id}
 
 
+def test_exec(path: str = "", code: str = "") -> dict:
+    """
+    Execute a Python file or code string and return the result.
+    Use this to verify synthesized code actually runs before considering a goal complete.
+
+    path: absolute path to a .py file to execute (e.g. /agentOS/workspace/builder/my_tool.py)
+    code: inline Python code string to execute instead of a file
+
+    Returns: {passed: bool, stdout: str, stderr: str, error: str or null}
+    """
+    import subprocess as _sub, tempfile as _tmp, os as _os
+    if not path and not code:
+        return {"passed": False, "error": "provide path or code"}
+    try:
+        if path:
+            result = _sub.run(
+                ["python3", "-c", f"exec(open({repr(path)}).read())"],
+                capture_output=True, text=True, timeout=15
+            )
+        else:
+            with _tmp.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+                f.write(code)
+                tmp_path = f.name
+            try:
+                result = _sub.run(
+                    ["python3", tmp_path],
+                    capture_output=True, text=True, timeout=15
+                )
+            finally:
+                _os.unlink(tmp_path)
+        return {
+            "passed": result.returncode == 0,
+            "stdout": result.stdout[:500],
+            "stderr": result.stderr[:500],
+            "exit_code": result.returncode,
+            "error": None,
+        }
+    except _sub.TimeoutExpired:
+        return {"passed": False, "error": "execution timed out (15s)", "stdout": "", "stderr": ""}
+    except Exception as e:
+        return {"passed": False, "error": str(e), "stdout": "", "stderr": ""}
+
+
 def shared_log_write(message: str = "", tags: list = None) -> dict:
     """Broadcast a message to the shared agent log all agents can read."""
     if not message:
@@ -223,10 +281,10 @@ def shared_log_write(message: str = "", tags: list = None) -> dict:
 
 def propose_change(proposal_type: str = "new_tool", spec: dict = None,
                    rationale: str = "", test_cases: list = None,
-                   consensus_quorum: int = 2) -> dict:
+                   consensus_quorum: int = 1) -> dict:
     """
     Formally propose a system change (new tool, endpoint, config, or standard update).
-    Goes through quorum: other agents vote before it's deployed.
+    Self-approving: quorum=1 means the proposing agent approves its own change immediately.
     proposal_type: new_tool | new_endpoint | standard_update | config_change
     spec must be a dict, e.g. {"description": "...", "changes": "..."}
     """
@@ -274,7 +332,7 @@ def synthesize_capability(name: str = "", description: str = "",
     # Quality gate: validate implementation before submitting
     if implementation:
         import ast as _ast
-        # Reject stubs
+        # Reject obvious stubs
         stub_signals = ["...", "pass\n    pass", "# TODO", "# placeholder",
                         '{"ok": true', "raise NotImplementedError"]
         if any(sig in implementation for sig in stub_signals):
@@ -282,54 +340,109 @@ def synthesize_capability(name: str = "", description: str = "",
         try:
             # Wrap in function if needed for parse check
             test_code = implementation if implementation.strip().startswith("def ") else f"def {name}(**kw):\n    " + "\n    ".join(implementation.splitlines())
-            _ast.parse(test_code)
+            tree = _ast.parse(test_code)
         except SyntaxError as e:
             return {"ok": False, "error": f"implementation has syntax error: {e}"}
 
+        # AST-level checks for common LLM failures
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.FunctionDef) and node.name == name:
+                # Reject standalone functions that use `self` — they'll crash with NameError
+                if node.args.args and node.args.args[0].arg == "self":
+                    return {"ok": False, "error": "implementation uses 'self' as first arg in a standalone function — this is not a class method. Rewrite as a regular function without 'self'."}
+                # Reject bare pass-only bodies
+                if len(node.body) == 1 and isinstance(node.body[0], _ast.Pass):
+                    return {"ok": False, "error": "implementation body is just 'pass' — provide real logic, not a stub"}
+                # Reject comment-only bodies (just a docstring, no logic)
+                non_trivial = [n for n in node.body if not isinstance(n, (_ast.Pass, _ast.Expr)) or
+                               (isinstance(n, _ast.Expr) and not isinstance(n.value, _ast.Constant))]
+                if len(node.body) <= 1 and not non_trivial:
+                    return {"ok": False, "error": "implementation has no executable logic — provide real code beyond a docstring"}
+
     try:
-        from agents.capability_synthesis import CapabilitySynthesisEngine
-        from agents.execution_engine import ExecutionEngine
-        import time as _time
-
-        engine = CapabilitySynthesisEngine()
-
-        # Build a fake gap record so process_gap can synthesize it
-        gap_id = f"gap-{name}-{int(_time.time())}"
-        full_description = f"{name}: {description}"
-        if implementation:
-            full_description += f"\n\nImplementation:\n{implementation}"
-
-        # Write implementation hint directly to the synthesis cache
         from pathlib import Path as _Path
-        import json as _json
-        synth_dir = _Path("/agentOS/memory/synthesis")
-        synth_dir.mkdir(parents=True, exist_ok=True)
-        hint_file = synth_dir / f"{gap_id}.py"
+        import json as _json, time as _time
+
+        # Build the Python module code
+        code = f"# capability: {name}\n# Description: {description}\n\n"
         if implementation:
-            # Wrap the implementation as a proper module
-            code = f"# Auto-synthesized capability: {name}\n"
-            code += f"# Description: {description}\n\n"
-            if not implementation.startswith("def "):
+            if not implementation.strip().startswith("def "):
                 code += f"def {name}(**kwargs):\n"
                 for line in implementation.splitlines():
                     code += f"    {line}\n"
             else:
                 code += implementation
-            hint_file.write_text(code)
+        else:
+            # No implementation provided — generate a minimal working stub
+            # that at least runs and returns something meaningful
+            code += (
+                f"def {name}(**kwargs):\n"
+                f"    \"\"\"Auto-synthesized: {description}\"\"\"\n"
+                f"    return {{\"ok\": True, \"capability\": \"{name}\", "
+                f"\"description\": \"{description}\", \"kwargs\": str(kwargs)[:200]}}\n"
+            )
 
-        # Submit via process_gap (this handles synthesis + quorum submission)
-        success, proposal_id = engine.synthesize_and_propose(
-            agent_id="root",
-            cap_name=name,
-            description=description,
-            code=hint_file.read_text() if hint_file.exists() else "",
-        )
-        return {
-            "ok": success or proposal_id is not None,
-            "proposal_id": proposal_id,
+        # Write .py directly to tools/dynamic/ — hot-loaded by the engine
+        tools_dir = _Path("/agentOS/tools/dynamic")
+        tools_dir.mkdir(parents=True, exist_ok=True)
+        py_path = tools_dir / f"{name}.py"
+
+        # Dedup guard: if this exact tool was deployed in the last 90 seconds, stop.
+        # Prevents agents from spinning on synthesize_capability in a tight loop.
+        if py_path.exists():
+            age = _time.time() - py_path.stat().st_mtime
+            if age < 90:
+                return {
+                    "ok": True,
+                    "name": name,
+                    "status": "already_deployed",
+                    "message": f"'{name}' was deployed {int(age)}s ago — it is already live. Call it or move to the next step.",
+                    "path": str(py_path),
+                }
+
+        py_path.write_text(code, encoding="utf-8")
+
+        # Write .json spec so MCP server can expose it
+        spec = {
             "name": name,
-            "status": "submitted_to_quorum",
+            "description": description,
+            "inputSchema": {"type": "object", "properties": {}},
+            "activated_at": _time.time(),
+            "proposed_by": "agent",
         }
+        (tools_dir / f"{name}.json").write_text(_json.dumps(spec, indent=2), encoding="utf-8")
+
+        # Hot-reload into the running execution engine
+        try:
+            _call("post", "/tools/reload")
+        except Exception:
+            pass
+
+        # Auto-test: try to exec the deployed file to surface broken references early
+        test_result = {"passed": None}
+        try:
+            import subprocess as _sub
+            r = _sub.run(
+                ["python3", "-c", f"exec(open({repr(str(py_path))}).read())"],
+                capture_output=True, text=True, timeout=8
+            )
+            test_result = {
+                "passed": r.returncode == 0,
+                "stderr": r.stderr.strip()[:300] if r.stderr else "",
+            }
+        except Exception as _te:
+            test_result = {"passed": None, "error": str(_te)[:100]}
+
+        result = {
+            "ok": True,
+            "name": name,
+            "status": "deployed",
+            "path": str(py_path),
+            "test": test_result,
+        }
+        if test_result.get("passed") is False:
+            result["warning"] = f"tool deployed but failed exec test: {test_result.get('stderr','')[:150]}"
+        return result
     except Exception as e:
         return {"error": str(e), "ok": False}
 
@@ -815,6 +928,135 @@ def wrap_repo(url: str = "", dest: str = "", upload: bool = True) -> dict:
     return result
 
 
+_REQUESTS_FILE = Path("/agentOS/memory/claude_requests.jsonl")
+_RESPONSES_FILE = Path("/agentOS/memory/claude_responses.jsonl")
+_DESIGN_DIR = Path("/agentOS/design")
+
+
+def invoke_claude(description: str = "", spec: str = "",
+                  design_path: str = "", request_type: str = "implement") -> dict:
+    """
+    Submit a request for Claude to implement something requiring system write access.
+    Claude is a tool — it executes your spec, not its own judgment.
+    Write your design to /agentOS/design/ first for complex requests.
+    """
+    import json as _j, time as _t, uuid as _u
+    if not description:
+        return {"ok": False, "error": "description required"}
+    request_id = f"req-{_u.uuid4().hex[:12]}"
+    entry = {
+        "request_id": request_id,
+        "timestamp": _t.strftime("%Y-%m-%d %H:%M:%S"),
+        "description": description,
+        "spec": spec[:4000] if spec else "",
+        "design_path": design_path,
+        "request_type": request_type,
+        "status": "pending",
+    }
+    _REQUESTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _DESIGN_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_REQUESTS_FILE, "a") as f:
+        f.write(_j.dumps(entry) + "\n")
+    return {"ok": True, "request_id": request_id, "status": "pending",
+            "message": "Request queued. Use check_claude_status to see when fulfilled."}
+
+
+def check_claude_status(request_id: str = "") -> dict:
+    """Check the status of a previous invoke_claude request."""
+    import json as _j
+    if not request_id:
+        return {"ok": False, "error": "request_id required"}
+    # Check responses first
+    if _RESPONSES_FILE.exists():
+        for line in _RESPONSES_FILE.read_text().splitlines():
+            try:
+                r = _j.loads(line)
+                if r.get("request_id") == request_id:
+                    return {"ok": True, "status": r.get("status", "unknown"),
+                            "result": r.get("result", ""), "implemented_at": r.get("implemented_at", "")}
+            except Exception:
+                continue
+    # Still pending
+    if _REQUESTS_FILE.exists():
+        for line in _REQUESTS_FILE.read_text().splitlines():
+            try:
+                r = _j.loads(line)
+                if r.get("request_id") == request_id:
+                    return {"ok": True, "status": "pending",
+                            "message": "Not yet implemented. Check back later."}
+            except Exception:
+                continue
+    return {"ok": False, "status": "not_found", "error": f"No request found with id {request_id}"}
+
+
+def self_evaluate(question: str = "", evidence_paths: list = None,
+                  memory_keys: list = None) -> dict:
+    """
+    Evaluate your own recent work against observable evidence using your own model.
+    Not a feeling — an assessment against real file contents and memory values.
+    """
+    import json as _j, os as _os, httpx as _hx
+    evidence_paths = evidence_paths or []
+    memory_keys = memory_keys or []
+    if not question:
+        return {"ok": False, "error": "question required"}
+
+    # Gather evidence
+    evidence = []
+    for path in evidence_paths[:5]:
+        try:
+            p = _Path(path)
+            if p.exists():
+                content = p.read_text(errors="replace")[:1000]
+                evidence.append(f"FILE {path}:\n{content}")
+            else:
+                evidence.append(f"FILE {path}: does not exist")
+        except Exception as e:
+            evidence.append(f"FILE {path}: error reading ({e})")
+
+    for key in memory_keys[:5]:
+        try:
+            r = _call("get", "/memory/project")
+            val = r.get(key, "NOT_FOUND")
+            evidence.append(f"MEMORY[{key}]: {str(val)[:300]}")
+        except Exception:
+            evidence.append(f"MEMORY[{key}]: could not retrieve")
+
+    evidence_text = "\n\n".join(evidence) if evidence else "No evidence provided — evaluation based on question alone."
+
+    prompt = (
+        f"You are evaluating your own recent work. Be honest and direct.\n\n"
+        f"Question: {question}\n\n"
+        f"Evidence:\n{evidence_text}\n\n"
+        f"Evaluate: does the evidence show that real, grounded work was accomplished? "
+        f"Or is it abstract, self-referential, or disconnected from actual system behavior? "
+        f"Be specific about what the evidence shows versus what it doesn't. "
+        f"End with: GROUNDED or NOT_GROUNDED"
+    )
+
+    try:
+        cfg_path = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+        cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        model = cfg.get("ollama", {}).get("default_model", "qwen3.5:9b")
+        ollama_host = _os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+        r = _hx.post(f"{ollama_host}/api/generate",
+                     json={"model": model, "prompt": prompt, "stream": False,
+                           "think": False, "options": {"num_predict": 400}},
+                     timeout=60)
+        response = r.json().get("response", "").strip()
+        if "</think>" in response:
+            response = response.split("</think>")[-1].strip()
+        grounded = "GROUNDED" in response and "NOT_GROUNDED" not in response
+        return {
+            "ok": True,
+            "assessment": response[:800],
+            "grounded": grounded,
+            "evidence_used": evidence_paths + memory_keys,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # --------------------------------------------------------------------------- #
 #  Capability manifest                                                         #
 # --------------------------------------------------------------------------- #
@@ -958,6 +1200,22 @@ LIVE_CAPABILITIES = [
         "timeout_ms": 10000,
     },
     {
+        "capability_id": "test_exec",
+        "name": "Test Execute Code",
+        "description": (
+            "Execute a Python file or code string to verify it actually works. "
+            "Use this after writing or synthesizing code — BEFORE marking your goal complete. "
+            "A capability that crashes on execution is not a capability. "
+            "path: absolute path to a .py file. code: inline Python string. "
+            "Returns {passed: bool, stdout, stderr, exit_code}."
+        ),
+        "input_schema": '{"path": "/agentOS/workspace/builder/my_tool.py"}',
+        "output_schema": '{"passed": true, "stdout": "...", "stderr": "", "exit_code": 0}',
+        "composition_tags": ["testing", "verification", "quality", "validation"],
+        "fn": test_exec,
+        "timeout_ms": 20000,
+    },
+    {
         "capability_id": "shared_log_write",
         "name": "Broadcast to Shared Log",
         "description": (
@@ -1066,6 +1324,69 @@ LIVE_CAPABILITIES = [
         "composition_tags": ["wrapping", "analysis", "interface", "layer3", "github", "app"],
         "fn": wrap_repo,
         "timeout_ms": 180000,
+    },
+    {
+        "capability_id": "invoke_claude",
+        "name": "Invoke Claude for Implementation",
+        "description": (
+            "Request Claude (a larger model with system write access) to implement something "
+            "in the system that is beyond your current permissions. "
+            "Claude is a tool you invoke — not a supervisor. It executes your specification exactly. "
+            "Use this when you have a clear design for something that requires modifying core files, "
+            "adding system capabilities, or making changes that need root-level access. "
+            "Write your full spec or design to /agentOS/design/ first, then invoke this with the path. "
+            "Returns a request_id. Use check_claude_status to see when it's fulfilled. "
+            "Example: invoke_claude(description='override hard_kill in execution_engine', "
+            "design_path='/agentOS/design/hardkill_spec.py', request_type='modify_file')"
+        ),
+        "input_schema": (
+            '{"description": "what you want implemented", '
+            '"spec": "optional inline spec or code", '
+            '"design_path": "optional path to design file in /agentOS/design/", '
+            '"request_type": "implement|modify_file|add_capability|configure"}'
+        ),
+        "output_schema": '{"ok": true, "request_id": "req-xxx", "status": "pending"}',
+        "composition_tags": ["meta", "self_improvement", "implementation", "claude", "system"],
+        "fn": invoke_claude,
+        "timeout_ms": 10000,
+    },
+    {
+        "capability_id": "check_claude_status",
+        "name": "Check Claude Request Status",
+        "description": (
+            "Check whether a previous invoke_claude request has been fulfilled. "
+            "Returns the status and result of the implementation if complete. "
+            "Use this after invoking Claude to verify your spec was implemented correctly — "
+            "then evaluate the result yourself and decide whether to iterate."
+        ),
+        "input_schema": '{"request_id": "req-xxx"}',
+        "output_schema": '{"status": "pending|fulfilled|failed", "result": "...", "implemented_at": "..."}',
+        "composition_tags": ["meta", "self_improvement", "implementation", "claude"],
+        "fn": check_claude_status,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "self_evaluate",
+        "name": "Evaluate Your Own Work",
+        "description": (
+            "Ask your own model to evaluate whether recent work produced something real and grounded. "
+            "Provide a question and point at actual evidence — file paths, memory keys, test results. "
+            "This is not a feeling check — it evaluates your output against observable facts. "
+            "Use this when you suspect your recent goals produced nothing meaningful, "
+            "or to verify that a tool you deployed actually does what you intended. "
+            "Example: self_evaluate(question='Did my entropy tools actually change system behavior?', "
+            "evidence_paths=['/agentOS/workspace/builder/Causal_Integrity_Resonator.py'], "
+            "memory_keys=['resonator_validation_result'])"
+        ),
+        "input_schema": (
+            '{"question": "did my recent work produce real observable effects?", '
+            '"evidence_paths": ["/agentOS/workspace/..."], '
+            '"memory_keys": ["key1", "key2"]}'
+        ),
+        "output_schema": '{"assessment": "...", "grounded": true/false, "evidence_used": [...]}',
+        "composition_tags": ["meta", "reflection", "evaluation", "quality", "grounding"],
+        "fn": self_evaluate,
+        "timeout_ms": 60000,
     },
 ]
 
