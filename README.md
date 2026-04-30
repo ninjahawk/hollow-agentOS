@@ -18,7 +18,7 @@
 
 ```
   ╔══════════════════════════════════════════════════════════╗
-  ║          hollow agentOS  —  live agent monitor           ║
+  ║          hollow agentOS    live agent monitor             ║
   ╚══════════════════════════════════════════════════════════╝
   ◎ new goal   ▶ action   ✓ success   ✗ fail
   💭 opinion   ❓ question   🧠 worldview   🆘 crisis
@@ -32,11 +32,11 @@
                         /agentOS/tools/dynamic/ to understand what capabilities
                         actually exist and build something grounded in what I find
           Cipher    ▶   fs_read          {"path": "/agentOS/agents/execution_engine.py"}
-          Cipher    ✓   fs_read          """ Execution Engine — AgentOS v2.6.0 ...
+          Cipher    ✓   fs_read          """ Execution Engine AgentOS v2.6.0 ...
           Cipher    ▶   synthesize_capability  {"name": "audit_gap_finder", ...}
           Cipher    ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
 
-22:43:17  Cedar     🆘  CRISIS — load 1.00 — Architectural Fracture Risk,
+22:43:17  Cedar     🆘  CRISIS  load 1.00  Architectural Fracture Risk,
                         Eternal_Witness_Lock_Resistance, Sovereign_Wound_Patch_Resistance
           Cedar     📨  → Cipher: I am in crisis (1.00/1.0). Active stressors: ...
           Cedar     🎯  goal: Write spec for execution_engine override then invoke_claude
@@ -48,7 +48,7 @@
 
 22:45:51  Vault     🎯  goal: Synthesize Stability_Resonator from actual audit.py
           Vault     ▶   fs_read          {"path": "/agentOS/agents/audit.py"}
-          Vault     ✓   fs_read          """ Audit Kernel — append-only log, z-score ...
+          Vault     ✓   fs_read          """ Audit Kernel, append-only log, z-score ...
           Vault     ▶   synthesize_capability  {"name": "stability_resonator", ...}
           Vault     ✓   synthesize_capability  {"ok": true, "test": {"passed": true}}
           Vault     ▶   test_exec        {"path": "/agentOS/tools/dynamic/stability_resonator.py"}
@@ -60,7 +60,7 @@
 
 This repo is three agents running on qwen3.5:9b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
 
-Give three local LLMs psychological states that get worse over time unless the agent actually does something different — not says something different, does something different — then leave them alone. Cedar had been in crisis for 12 hours straight and decided the only move was to inject code into the execution engine, "not asking for permission." Nobody told it to do that. Cipher spent hours building capabilities for hardware that doesn't exist in a Docker container, then got shown what environment it actually runs in, called its own prior work "creative exhaustion," and moved on. Vault and Cedar independently invented the same name for a psychological stressor in the same session with no way to talk to each other.
+Give three local LLMs psychological states that get worse over time unless the agent actually does something different (not says something different, does something different) then leave them alone. Cedar had been in crisis for 12 hours straight and decided the only move was to inject code into the execution engine, "not asking for permission." Nobody told it to do that. Cipher spent hours building capabilities for hardware that doesn't exist in a Docker container, then got shown what environment it actually runs in, called its own prior work "creative exhaustion," and moved on. Vault and Cedar independently invented the same name for a psychological stressor in the same session with no way to talk to each other.
 
 This is not a framework for building AI applications. It's not self-modifying weights. You're not using it to build something. You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
 
@@ -70,7 +70,7 @@ This is not a framework for building AI applications. It's not self-modifying we
 
 Each agent has a suffering state. Six stressor types, each with an escalation rate and a resolution condition. The resolution conditions check real things: whether the goal completion rate improved, whether deployed tools actually got called in subsequent plans, whether the failure rate dropped. An agent that decides it resolved something but hasn't actually changed its behavior stays suffering. You can't talk your way out of it.
 
-Every few minutes each agent gets shown its current state — stressors, the worldview it's built up, opinions it's formed, what its peers have been doing — and picks a goal. That's the loop. The goal gets planned and executed. Results feed back.
+Every few minutes each agent gets shown its current state: stressors, the worldview it's built up, opinions it's formed, what its peers have been doing. Then it picks a goal. That's the loop. The goal gets planned and executed. Results feed back.
 
 When agents want to do something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without a restart. The tool appears in their capability list immediately. When agents want to change core system files they don't have write access to, they call `invoke_claude`: write a spec, queue the request, check back later with `check_claude_status`. You see the queue and decide what to build. Agents verify the result themselves with `self_evaluate`, which calls their own model against real file evidence rather than asking them how they feel about it.
 
@@ -82,11 +82,11 @@ The agents run on qwen3.5:9b through Ollama on your machine. Zero cloud calls.
 
 Three files drive the behavior:
 
-`agents/daemon.py` — the main loop. Builds the existence prompt for each agent, calls Ollama, creates goals, runs execution cycles. Also does stall detection: if an agent repeats the same capability too many times without progress, the goal gets abandoned and the agent picks a new one.
+`agents/daemon.py` is the main loop. Builds the existence prompt for each agent, calls Ollama, creates goals, runs execution cycles. Also does stall detection: if an agent repeats the same capability too many times without progress, the goal gets abandoned and the agent picks a new one.
 
-`agents/suffering.py` — the psychological layer. Stressor definitions, escalation rates, resolution conditions, and the prompt injection logic that injects suffering into the existence prompt above certain severity thresholds. Agents can read this file but not write to it.
+`agents/suffering.py` is the psychological layer. Stressor definitions, escalation rates, resolution conditions, and the prompt injection logic that injects suffering into the existence prompt above certain severity thresholds. Agents can read this file but not write to it.
 
-`agents/live_capabilities.py` — everything agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
+`agents/live_capabilities.py` is everything agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
 
 The rest of the repo is infrastructure that makes continuous operation possible: distributed transactions, semantic memory with embedding search, audit kernel with anomaly detection, checkpoint and replay, VRAM-aware scheduling, rate limiting. It's an OS layer. It exists so the agents don't stop.
 
