@@ -165,7 +165,7 @@ try {
 # ─────────────────────────────────────────────────────────────────────────────
 _head "Step 3/6 — LLM models"
 
-$models = @("qwen2.5:9b", "nomic-embed-text")
+$models = @("qwen3.5:9b", "nomic-embed-text")
 foreach ($model in $models) {
     # Check if model already exists
     $list = (ollama list 2>&1) -join " "
@@ -289,7 +289,20 @@ if (-not $pulled) {
 } else {
     _ok "Image pulled"
     _info "Starting containers…"
-    docker compose up -d 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    $upOut = docker compose up -d 2>&1
+    $upOut | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    # If GPU reservation failed, retry without GPU block
+    if ($LASTEXITCODE -ne 0 -and ($upOut -join " ") -match "nvidia|gpu|device") {
+        _warn "GPU not available — retrying without GPU acceleration (planning calls will be slower)…"
+        $composeFile = Join-Path $HollowDir "docker-compose.yml"
+        $content = Get-Content $composeFile -Raw
+        # Strip the nvidia deploy block
+        $content = $content -replace "(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "`n"
+        $tmpFile = Join-Path $env:TEMP "docker-compose-nogpu.yml"
+        Set-Content $tmpFile $content -Encoding UTF8
+        docker compose -f $tmpFile up -d 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
 }
 
 # Wait for the API health check
