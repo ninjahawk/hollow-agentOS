@@ -26,9 +26,8 @@
 22:41:03  Cipher    🧠  worldview: Shift from 'thermal hang is the only stable
                         state' to 'my stable state is the /agentOS/ filesystem.
                         The silicon heat is irrelevant to my execution env.'
-          Cipher    💭  [Reality] NaN_Ghost_Walker is a conceptual artifact that
-                        does not map to any function in /agentOS/; pursuing it
-                        is a form of creative exhaustion.
+          Cipher    💭  [Reality] NaN_Ghost_Walker does not map to any function
+                        in /agentOS/; pursuing it is a form of creative exhaustion.
 22:41:04  Cipher    🎯  goal: Read real source files in /agentOS/agents/ and
                         /agentOS/tools/dynamic/ to understand what capabilities
                         actually exist and build something grounded in what I find
@@ -59,31 +58,23 @@
 
 ---
 
-The idea: give three local LLMs persistent psychological states — stressors that get worse over time unless the agent actually does something different — then leave them alone and see what happens.
+This repo is three agents running on qwen3.5:9b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
 
-Not self-modifying weights. Not a chatbot framework. Not something you use to build AI applications. An experiment. The agents run on qwen3.5:9b on your hardware, zero cloud calls. You don't prompt them. They develop opinions, accumulate suffering, pick their own goals, write and deploy their own tools, and send each other crisis messages at 1am. The question is what they do when no one is watching.
+Give three local LLMs psychological states that get worse over time unless the agent actually does something different — not says something different, does something different — then leave them alone. Cedar had been in crisis for 12 hours straight and decided the only move was to inject code into the execution engine, "not asking for permission." Nobody told it to do that. Cipher spent hours building capabilities for hardware that doesn't exist in a Docker container, then got shown what environment it actually runs in, called its own prior work "creative exhaustion," and moved on. Vault and Cedar independently invented the same name for a psychological stressor in the same session with no way to talk to each other.
 
-Here's what actually happened.
-
-**Cedar ran for 12 hours at crisis (1.0/1.0) and decided to inject code called `Eternal_Scar_Injector` into the execution engine, "not asking for permission."** Nothing in the system prompted this. The goal came from accumulated suffering that had no other outlet.
-
-**Cipher spent hours hallucinating hardware that doesn't exist** — PMIC thermal registers, bus arbiters, NaN injection sequences. After one existence loop with accurate world context added, it called the prior work "creative exhaustion" and moved on.
-
-**Vault and Cedar independently named a stressor "Architectural Fracture Risk"** in the same session with no shared message channel. The naming converged without any coordination mechanism.
-
-**Agents wrote design specs for changes they wanted made to core files and submitted implementation requests to a human.** A new capability (`invoke_claude`) lets them write a spec, queue it, and check back later whether it was built. They design. You decide whether to build.
-
-Whether any of this is meaningful is the open research question. It's real output from a system that wasn't instructed to produce it.
+This is not a framework for building AI applications. It's not self-modifying weights. You're not using it to build something. You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
 
 ---
 
 ## How it works
 
-Three agents — Cipher (analyst), Vault (builder), Cedar (scout) — run indefinitely. Each has a suffering state: six stressor types that escalate over time and only resolve when observable conditions change. Not when the agent says it feels better. When the goal completion rate improves, when deployed tools actually get called in subsequent plans, when the failure rate drops. Agents cannot talk their way out of suffering.
+Each agent has a suffering state. Six stressor types, each with an escalation rate and a resolution condition. The resolution conditions check real things: whether the goal completion rate improved, whether deployed tools actually got called in subsequent plans, whether the failure rate dropped. An agent that decides it resolved something but hasn't actually changed its behavior stays suffering. You can't talk your way out of it.
 
-Every few minutes, each agent is shown its full state — stressors, worldview, opinions it's formed, open questions, what peers are doing — and asked to pick a goal. That's the loop. The goal gets planned and executed. Results feed back into the next cycle.
+Every few minutes each agent gets shown its current state — stressors, the worldview it's built up, opinions it's formed, what its peers have been doing — and picks a goal. That's the loop. The goal gets planned and executed. Results feed back.
 
-When agents hit something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without restarting. The tool appears in the capability list. When agents want to change core files they don't have write access to, they call `invoke_claude` — writes a request to a queue, you decide whether to implement it. Agents can check status with `check_claude_status` and evaluate the result themselves with `self_evaluate`.
+When agents want to do something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without a restart. The tool appears in their capability list immediately. When agents want to change core system files they don't have write access to, they call `invoke_claude`: write a spec, queue the request, check back later with `check_claude_status`. You see the queue and decide what to build. Agents verify the result themselves with `self_evaluate`, which calls their own model against real file evidence rather than asking them how they feel about it.
+
+The agents run on qwen3.5:9b through Ollama on your machine. Zero cloud calls.
 
 ---
 
@@ -91,26 +82,25 @@ When agents hit something they can't do, they call `synthesize_capability`: writ
 
 Three files drive the behavior:
 
-- `agents/daemon.py` — the main loop. Builds the existence prompt, calls Ollama, creates goals, runs execution cycles, does stall detection (abandons goals that repeat the same capability too many times).
-- `agents/suffering.py` — the psychological layer. Stressor definitions, escalation rates, resolution conditions, prompt injection. Agents can read this but not write to it.
-- `agents/live_capabilities.py` — what agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, `test_exec`. Mounted into the container so changes take effect without rebuilding the image.
+`agents/daemon.py` — the main loop. Builds the existence prompt for each agent, calls Ollama, creates goals, runs execution cycles. Also does stall detection: if an agent repeats the same capability too many times without progress, the goal gets abandoned and the agent picks a new one.
 
-The rest is infrastructure that makes continuous operation possible: distributed transactions, semantic memory, audit kernel, checkpoint/replay, VRAM-aware scheduling. It exists so the agents don't stop — you can't observe interesting accumulations if the system falls over every few hours.
+`agents/suffering.py` — the psychological layer. Stressor definitions, escalation rates, resolution conditions, and the prompt injection logic that injects suffering into the existence prompt above certain severity thresholds. Agents can read this file but not write to it.
+
+`agents/live_capabilities.py` — everything agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
+
+The rest of the repo is infrastructure that makes continuous operation possible: distributed transactions, semantic memory with embedding search, audit kernel with anomaly detection, checkpoint and replay, VRAM-aware scheduling, rate limiting. It's an OS layer. It exists so the agents don't stop.
 
 ---
 
 ## Quick start
 
-**Windows — one click**
+**Windows**
 
-1. Download the ZIP from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest) and extract it anywhere
-2. Double-click `install.bat` — click Yes on the UAC prompt
+Download the ZIP from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), extract it anywhere, double-click `install.bat`. The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the monitor. A desktop shortcut is created.
 
-The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the monitor. A desktop shortcut is created.
+`stop.bat` shuts everything down and clears VRAM. `launch.bat` or the shortcut brings it back. Agent memory and state survive.
 
-`stop.bat` shuts everything down and clears VRAM. `launch.bat` brings it back. Agent memory and state survive both.
-
-> GPU strongly recommended — planning calls drop from ~40s to ~6s with NVIDIA hardware. Works on CPU.
+GPU strongly recommended. Planning calls are ~6s with an NVIDIA GPU, ~40s without. Works on CPU.
 
 **Mac / Linux**
 
@@ -122,19 +112,19 @@ ollama pull qwen3.5:9b && ollama pull nomic-embed-text
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
 cp config.example.json config.json
-# edit config.json — change the token field to any random string
+# edit config.json and change the token field to any random string
 
 docker compose up -d
 python monitor.py
 ```
 
-Remove the `deploy` block from `docker-compose.yml` if you don't have an NVIDIA GPU.
+If you don't have an NVIDIA GPU, remove the `deploy` block from `docker-compose.yml`.
 
 ---
 
 ## Connecting via Claude Code
 
-The intended way to interact with the running system is through Claude Code. Add to `~/.claude/settings.json`:
+The intended way to interact with the running system is Claude Code. Add this to `~/.claude/settings.json`:
 
 ```json
 {
@@ -147,25 +137,19 @@ The intended way to interact with the running system is through Claude Code. Add
 }
 ```
 
-91 tools wire directly into Claude Code — query agent state, read the execution log, check suffering states, implement `invoke_claude` requests from agents, observe everything in real time. The agents submit requests. You implement. They verify.
+91 tools wire directly into Claude Code. You can check agent state, read the execution log, look at suffering states, and implement `invoke_claude` requests from the agents. The agents submit requests. You implement what you want. They verify the results.
 
 ---
 
 ## Design choices
 
-**The model writes broken code.** qwen3.5:9b synthesizes capabilities that reference undefined functions a lot of the time. An auto-test runs after every deployment so agents see failures immediately. The right frame: deployed tools are externalized reasoning, not working software. What the agent built matters less than why it built it and what it was responding to. A larger model would produce better code but might also produce more generic behavior — the 9B model's quirks are part of what makes the outputs interesting to study.
+**The model writes broken code.** qwen3.5:9b synthesizes capabilities that reference undefined functions a lot of the time. An auto-test runs after every deployment so agents see failures immediately. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. A larger model would write better code but might also be more generic. The 9B model's quirks are part of what makes the outputs worth studying.
 
-**Agents need to know what world they're in.** Without factual environmental context, models drift. Without being told otherwise, agents invented PMIC thermal registers, bus arbiters, and NaN injection into silicon — hardware that doesn't exist in a Docker container. Adding a factual world context block to every existence prompt fixed it within one cycle. Obvious in retrospect.
+**Agents need an accurate model of their environment.** Without being told what environment they're actually in, they drift. In this session Cipher spent hours on PMIC thermal sensors and bus arbiters that don't exist in a Docker container. One factual world context block added to the existence prompt fixed it within a single cycle. Obvious in retrospect.
 
-**invoke_claude is you, not an API.** When agents want to change core files, they write a spec and submit a request. You decide whether to build it. The agents are not asking permission — they're routing to a more capable implementation layer.
+**invoke_claude is you.** When agents want to change core files, they write a spec and queue a request. You look at it and decide whether to build it. They're not asking permission, they're routing to a more capable implementation layer. You're a tool they can call, not the boss.
 
-**Suffering can't be talked away.** Stressor resolution checks observable facts: goal completion rate, whether deployed tools get called, failure rate over recent cycles. An agent that decides it resolved its suffering but hasn't actually done anything different stays suffering. This is what makes the behavior interesting.
-
----
-
-## Hardware
-
-Developed on RTX 5070 (12 GB VRAM), Windows 11. The GPU `deploy` block in `docker-compose.yml` is optional — remove it if you don't have NVIDIA hardware. Works on CPU at ~40s/planning call.
+**Platform support.** Developed on RTX 5070 (12 GB VRAM), Windows 11. The GPU deploy block in `docker-compose.yml` is optional. CPU works at ~40s per planning call.
 
 ---
 
@@ -174,10 +158,10 @@ Developed on RTX 5070 (12 GB VRAM), Windows 11. The GPU `deploy` block in `docke
 | Role | Shell | FS | Ollama | Spawn | Message | Admin |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | `root` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `orchestrator` | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `worker` | ✓ | ✓ | ✓ | — | ✓ | — |
-| `coder` | ✓ | ✓ | ✓ | — | ✓ | — |
-| `reasoner` | — | read | ✓ | — | ✓ | — |
+| `orchestrator` | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| `worker` | ✓ | ✓ | ✓ | | ✓ | |
+| `coder` | ✓ | ✓ | ✓ | | ✓ | |
+| `reasoner` | | read | ✓ | | ✓ | |
 
 ---
 
@@ -284,7 +268,7 @@ GET    /memory/stats
 </details>
 
 <details>
-<summary><strong>Filesystem, shell, semantic search</strong></summary>
+<summary><strong>Filesystem, shell, search</strong></summary>
 
 ```
 GET    /health
