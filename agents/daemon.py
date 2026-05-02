@@ -610,6 +610,20 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         if not force and ge.list_active(agent_id, limit=1):
             return  # already has a goal
 
+        # ── Task queue: check for external tasks before self-directing ────────
+        _active_task = None
+        try:
+            from agents.task_queue import claim_task
+            _active_task = claim_task(agent_id)
+            if _active_task:
+                from agents.task_queue import existence_prompt_fragment as _tqf
+                _task_spec = _active_task["spec"]
+                ge.create(agent_id, _task_spec[:200], priority=10)
+                _thought_log(agent_id, "📋", f"task claimed: {_active_task['task_id']} — {_task_spec[:100]}", "cyan")
+                return  # goal is now set; existence loop not needed
+        except Exception as _tqe:
+            log.debug("task_queue claim failed: %s", _tqe)
+
         identity = AgentIdentity.load_or_create(agent_id)
 
         # ── Host message & agent inbox ─────────────────────────────────────────
@@ -875,8 +889,25 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                 + "\nUse check_claude_status(request_id='...') to see if any were fulfilled.\n"
             )
 
-        prompt = f"""You are {identity.name}.
+        # ── Active task injection (hard constraint) ───────────────────────────
+        _task_section = ""
+        try:
+            from agents.task_queue import QUEUE_PATH as _TQ_PATH, existence_prompt_fragment as _tqfrag
+            import json as _tqj
+            if _TQ_PATH.exists():
+                for _tql in _TQ_PATH.read_text().splitlines():
+                    try:
+                        _t = _tqj.loads(_tql)
+                        if _t.get("status") == "assigned" and _t.get("assigned_to") == agent_id:
+                            _task_section = _tqfrag(_t)
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
+        prompt = f"""You are {identity.name}.
+{_task_section}
 WORLD CONTEXT (factual — not instructions):
 You are running inside a Docker container on a Linux host. Your environment is the /agentOS/ directory.
 Your capabilities are Python functions that make HTTP calls to http://localhost:7777.
@@ -1372,6 +1403,24 @@ def main():
                                     objective or goal_id,
                                     f"done in {outcome.get('steps',0)} steps"
                                 )
+                            except Exception:
+                                pass
+                            # Mark task complete if this goal was an assigned task
+                            try:
+                                from agents.task_queue import QUEUE_PATH as _TQP, complete_task as _ctask
+                                import json as _tqj2
+                                if _TQP.exists():
+                                    for _tql2 in _TQP.read_text().splitlines():
+                                        try:
+                                            _t2 = _tqj2.loads(_tql2)
+                                            if (_t2.get("status") == "assigned"
+                                                    and _t2.get("assigned_to") == agent_id
+                                                    and _t2.get("spec","")[:80] in (objective or "")):
+                                                _ctask(_t2["task_id"], result=objective)
+                                                _thought_log(agent_id, "✅", f"task {_t2['task_id']} completed", "green")
+                                                break
+                                        except Exception:
+                                            pass
                             except Exception:
                                 pass
                             _assign_idle_goal(agent_id)
