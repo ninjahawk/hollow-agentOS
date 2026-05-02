@@ -30,6 +30,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -290,6 +291,7 @@ class DaemonMetrics:
         self.errors = 0
         self.stalled_agents: dict = {}        # agent_id → consecutive_no_progress count
         self.skipped_agents: set = set()      # agents cooling off after stall
+        self._crisis_cycles: dict = {}        # agent_id → consecutive crisis cycle count
         self._cap_history: dict = {}          # agent_id → deque of last_cap strings
         self._goal_tracking: dict = {}        # agent_id → (goal_id, first_seen_cycle)
 
@@ -350,6 +352,42 @@ class DaemonMetrics:
 
 
 
+class CycleWatchdog(threading.Thread):
+    """
+    Daemon thread: if the main loop produces no heartbeat within timeout_s,
+    something is deadlocked. Kill PID 1 so Docker restarts the container.
+    """
+    def __init__(self, timeout_s: int = 600):
+        super().__init__(daemon=True, name="watchdog")
+        self.timeout_s = timeout_s
+        self._last_beat = time.time()
+        self._lock = threading.Lock()
+
+    def beat(self):
+        with self._lock:
+            self._last_beat = time.time()
+
+    def run(self):
+        while True:
+            time.sleep(30)
+            with self._lock:
+                silent = time.time() - self._last_beat
+            if silent > self.timeout_s:
+                log.error(
+                    "Watchdog: no cycle heartbeat for %.0fs — forcing container restart",
+                    silent,
+                )
+                _telegram_alert(
+                    f"🐕 *Watchdog* fired after {int(silent)}s silence — restarting daemon"
+                )
+                try:
+                    os.kill(1, signal.SIGKILL)
+                except Exception:
+                    pass
+                time.sleep(3)
+                os.kill(os.getpid(), signal.SIGKILL)
+
+
 def _cap_agent_goals(agent_id: str, max_goals: int = 2) -> None:
     """
     If an agent has more than max_goals active goals, abandon the excess
@@ -405,6 +443,50 @@ def _thought_log(agent_name: str, icon: str, text: str, color: str = 'white') ->
             _f.write(line + "\n")
     except Exception:
         pass
+
+
+def _generate_existence_response(prompt: str, ollama_host: str, model: str) -> str:
+    """
+    Generate an existence loop response. Tries Claude first (via OAuth credentials),
+    falls back to Ollama. Returns raw JSON string.
+    """
+    # Try Claude (Haiku) first — better goal quality than local model
+    try:
+        from agents.reasoning_layer import _get_claude_client, _strip_code_fences
+        client = _get_claude_client()
+        if client is not None:
+            message = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = message.content[0].text.strip()
+            if "</think>" in raw:
+                raw = raw.split("</think>")[-1].strip()
+            return _strip_code_fences(raw)
+    except Exception as _ce:
+        log.debug("Claude existence call failed, falling back to Ollama: %s", _ce)
+    # Fallback: Ollama
+    import httpx as _hx
+    for _attempt in range(3):
+        try:
+            resp = _hx.post(
+                f"{ollama_host}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False,
+                      "format": "json", "think": False, "keep_alive": -1},
+                timeout=180,
+            )
+            if resp.status_code == 503:
+                time.sleep(10)
+                continue
+            resp.raise_for_status()
+            raw = resp.json().get("response", "{}")
+            if "</think>" in raw:
+                raw = raw.split("</think>")[-1].strip()
+            return raw
+        except Exception:
+            time.sleep(5)
+    return "{}"
 
 
 def _telegram_alert(text: str) -> None:
@@ -639,6 +721,37 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         except Exception:
             pass
 
+        # ── Last goal outcome (continuity signal) ─────────────────────────────
+        last_outcome_text = ""
+        try:
+            _outcome_path = _Path(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+            if _outcome_path.exists():
+                last_outcome_text = _outcome_path.read_text().strip()[:400]
+        except Exception:
+            pass
+
+        # ── Recent memory keys (show agent what it wrote) ─────────────────────
+        recent_memory_keys = []
+        try:
+            _chain_path = _Path(f"/agentOS/memory/autonomy/{agent_id}/execution_chain.jsonl")
+            if _chain_path.exists():
+                _clines = _chain_path.read_text().strip().splitlines()[-80:]
+                for _cl in reversed(_clines):
+                    try:
+                        _step = _json.loads(_cl)
+                        if (_step.get("capability_id") == "memory_set"
+                                and _step.get("step_status") == "completed"):
+                            _r = _step.get("execution_result", {}) or {}
+                            _k = _r.get("key", "")
+                            if _k and _k not in recent_memory_keys:
+                                recent_memory_keys.append(_k)
+                                if len(recent_memory_keys) >= 5:
+                                    break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         # ── Build the existence prompt ────────────────────────────────────────
         cfg_path = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
         cfg      = _json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
@@ -671,7 +784,12 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                     try:
                         _g = _json.loads(_line)
                         if _g.get("objective"):
-                            recent_objectives.append(_g["objective"][:80])
+                            _st = _g.get("status", "")
+                            _tag = {"completed": "[DONE]", "failed": "[FAILED]",
+                                    "abandoned": "[ABANDONED]"}.get(_st, "")
+                            _entry = (f"{_tag} {_g['objective'][:75]}" if _tag
+                                      else _g["objective"][:80])
+                            recent_objectives.append(_entry)
                     except Exception:
                         pass
                 recent_objectives = recent_objectives[-5:]
@@ -712,6 +830,29 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             f"  Running for: {uptime_str}\n"
             f"  Last goal completed: {last_completion_ago} ago\n"
         )
+
+        _last_outcome_section = ""
+        if last_outcome_text:
+            _keys_str = ", ".join(recent_memory_keys) if recent_memory_keys else ""
+            _keys_line = f"\n  Memory keys you can build on: {_keys_str}" if _keys_str else ""
+            _last_outcome_section = (
+                f"\nWHAT YOUR LAST GOAL PRODUCED:\n  {last_outcome_text}{_keys_line}\n"
+            )
+
+        # ── Broken tools (do not call these) ─────────────────────────────────
+        _broken_tools_section = ""
+        try:
+            _bt_path = _Path("/agentOS/memory/broken_tools.json")
+            if _bt_path.exists():
+                _bt_list = _json.loads(_bt_path.read_text()).get("broken", [])
+                if _bt_list:
+                    _broken_tools_section = (
+                        "\nKNOWN BROKEN TOOLS (persistently returning null or not-found — do NOT plan steps that call these):\n"
+                        + "\n".join(f"  - {t}" for t in _bt_list[:40])
+                        + "\n"
+                    )
+        except Exception:
+            pass
 
         # ── Check pending Claude requests ────────────────────────────────────
         _claude_req_path = _Path("/agentOS/memory/claude_requests.jsonl")
@@ -770,8 +911,8 @@ YOUR PEERS:
 WHAT YOU'VE FOUND OUTSIDE:
 {discovery_text}
 {_time_section}
-{recency_str}
-{_inbox_section}{_host_msg_section}{_pending_req_section}
+{_last_outcome_section}{recency_str}
+{_inbox_section}{_host_msg_section}{_pending_req_section}{_broken_tools_section}
 ---
 
 You must pick a goal. That is the only option.
@@ -811,31 +952,13 @@ Your response must be JSON:
 
         # Crisis mode: no longer restricts goal selection — agents work through it
 
-        # ── Call LLM for existence response (retry up to 3x for 503) ──────────
-        result = None
-        for _attempt in range(3):
-            try:
-                resp = _httpx.post(
-                    f"{ollama_host}/api/generate",
-                    json={
-                        "model": model, "prompt": prompt,
-                        "stream": False, "format": "json", "think": False,
-                        "keep_alive": -1,
-                    },
-                    timeout=180,
-                )
-                if resp.status_code == 503:
-                    import time as _t; _t.sleep(10)
-                    continue
-                resp.raise_for_status()
-                raw = resp.json().get("response", "{}")
-                if "</think>" in raw:
-                    raw = raw.split("</think>")[-1].strip()
-                result = _json.loads(raw)
-                break
-            except Exception as _e:
-                log.debug("Existence loop LLM call failed for %s (attempt %d): %s", agent_id, _attempt+1, _e)
-                import time as _t; _t.sleep(5)
+        # ── Call LLM for existence response — Claude first, Ollama fallback ───
+        try:
+            raw = _generate_existence_response(prompt, ollama_host, model)
+            result = _json.loads(raw)
+        except Exception as _e:
+            log.debug("Existence loop LLM call failed for %s: %s", agent_id, _e)
+            result = None
         if result is None:
             result = {"action": "goal", "content": "explore the workspace and build something useful",
                       "reasoning": "LLM unavailable — defaulting to productive work",
@@ -968,22 +1091,39 @@ Your response must be JSON:
 
         # Crisis alert + peer notification
         if suffering.is_crisis:
-            stressor_list = ", ".join(s["type"] for s in suffering.active)
-            _telegram_alert(
-                f"🆘 *{identity.name}* ({agent_id}) is in *CRISIS* "
-                f"(suffering load {load:.2f}/1.0)\n"
-                f"Active stressors: {stressor_list}"
-            )
-            _thought_log(identity.name, "🆘", f"CRISIS — load {load:.2f} — {stressor_list}", "red")
-            # Notify peers so they're aware this agent is struggling
-            crisis_msg = (
-                f"I am in crisis (suffering {load:.2f}/1.0). "
-                f"Active stressors: {stressor_list}. "
-                f"I am stepping back from goals until my load drops."
-            )
-            for _peer in _CORE_AGENTS:
-                if _peer != agent_id:
-                    _send_message(agent_id, _peer, crisis_msg)
+            # Track consecutive crisis cycles per agent
+            crisis_count = _stats._crisis_cycles.get(agent_id, 0) + 1
+            _stats._crisis_cycles[agent_id] = crisis_count
+
+            # After 3 consecutive crisis cycles, force-reset all stressors to
+            # break runaway accumulation loops (e.g. caused by model generating
+            # duplicate stressor names that evade case-sensitive dedup).
+            if crisis_count >= 3:
+                suffering.force_reset(
+                    reason=f"crisis loop broken after {crisis_count} consecutive cycles"
+                )
+                _stats._crisis_cycles[agent_id] = 0
+                _thought_log(identity.name, "🔄", f"Crisis loop broken after {crisis_count} cycles — stressors cleared", "yellow")
+            else:
+                stressor_list = ", ".join(s["type"] for s in suffering.active)
+                _telegram_alert(
+                    f"🆘 *{identity.name}* ({agent_id}) is in *CRISIS* "
+                    f"(suffering load {load:.2f}/1.0)\n"
+                    f"Active stressors: {stressor_list}"
+                )
+                _thought_log(identity.name, "🆘", f"CRISIS — load {load:.2f} — {stressor_list}", "red")
+                # Notify peers so they're aware this agent is struggling
+                crisis_msg = (
+                    f"I am in crisis (suffering {load:.2f}/1.0). "
+                    f"Active stressors: {stressor_list}. "
+                    f"I am stepping back from goals until my load drops."
+                )
+                for _peer in _CORE_AGENTS:
+                    if _peer != agent_id:
+                        _send_message(agent_id, _peer, crisis_msg)
+        else:
+            # Clear crisis counter when agent recovers
+            _stats._crisis_cycles[agent_id] = 0
 
         # Log receiving a host message so it appears in identity narrative
         if host_msg:
@@ -1097,9 +1237,12 @@ def main():
     # Layer 3 meta-goals intentionally not injected — agents choose their own goals
 
     metrics = DaemonMetrics()
-    log.info("Daemon ready. Entering main loop.")
+    watchdog = CycleWatchdog(timeout_s=600)
+    watchdog.start()
+    log.info("Daemon ready. Entering main loop (watchdog active, timeout=%ds).", watchdog.timeout_s)
 
     while _running[0]:
+        watchdog.beat()
         cycle_start = time.time()
         metrics.cycles += 1
 
@@ -1165,10 +1308,12 @@ def main():
                     prev = 0.0
                 return agent_id, run_cycle(loop, agent_id), prev
 
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
-                futures = {pool.submit(_run_one, aid): aid for aid in runnable}
-                for fut in as_completed(futures):
+            from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FuturesTimeout
+            _CYCLE_TIMEOUT = 300  # max seconds to wait for worker threads per cycle
+            pool = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
+            futures = {pool.submit(_run_one, aid): aid for aid in runnable}
+            try:
+                for fut in as_completed(futures, timeout=_CYCLE_TIMEOUT):
                     try:
                         agent_id, outcome, prev_progress = fut.result()
                     except Exception as e:
@@ -1245,6 +1390,11 @@ def main():
                             )
                         except Exception:
                             pass
+            except _FuturesTimeout:
+                hung = [futures[f] for f in futures if not f.done()]
+                log.error("Cycle worker timeout (%ds) — hung agents: %s", _CYCLE_TIMEOUT, hung)
+            finally:
+                pool.shutdown(wait=False)
 
         else:
             # Drain skipped agents set gradually (re-enable after 10 cycles)

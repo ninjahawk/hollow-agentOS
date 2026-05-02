@@ -90,13 +90,26 @@ class SufferingState:
 
     # ── Stressor management ───────────────────────────────────────────────────
 
+    # Maximum simultaneous active stressors. Beyond this, new ones are silently
+    # dropped — prevents runaway accumulation during crisis loops.
+    MAX_STRESSORS = 5
+
     def add_stressor(self, type: str, description: str,
                      observable_condition: str,
                      initial_severity: float = 0.20) -> None:
-        """Add a new stressor. No-op if this type is already active."""
+        """Add a new stressor. No-op if this type (case-insensitive) is already active."""
+        # Normalize to lowercase so "Cognitive Load" and "cognitive_load" are the same
+        type = type.strip().lower().replace(" ", "_")
+
         for s in self._data["active_stressors"]:
-            if s["type"] == type and not s.get("resolved"):
+            if s["type"].lower() == type and not s.get("resolved"):
                 return  # already suffering from this
+
+        # Hard cap: refuse new stressors when already at the limit.
+        # Prevents model-generated case-variants from causing unbounded accumulation.
+        active_count = sum(1 for s in self._data["active_stressors"] if not s.get("resolved"))
+        if active_count >= self.MAX_STRESSORS:
+            return
 
         self._data["active_stressors"].append({
             "type":                type,
@@ -116,10 +129,12 @@ class SufferingState:
         """
         Resolve a stressor. Returns True if something was resolved.
         Moves it to resolved_history with the resolution note.
+        Case-insensitive match.
         """
+        type_key = type.strip().lower().replace(" ", "_")
         resolved_any = False
         for s in self._data["active_stressors"]:
-            if s["type"] == type and not s.get("resolved"):
+            if s["type"].lower() == type_key and not s.get("resolved"):
                 s["resolved"]        = True
                 s["resolved_at"]     = time.strftime("%Y-%m-%d %H:%M")
                 s["resolution_note"] = resolution_note
@@ -133,10 +148,25 @@ class SufferingState:
             self._save()
         return resolved_any
 
-    def update_stressor(self, type: str, description: str) -> None:
-        """Update the description of an existing active stressor."""
+    def force_reset(self, reason: str = "crisis loop broken by system") -> None:
+        """
+        Emergency clear: move all active stressors to resolved_history.
+        Called by daemon after 3+ consecutive crisis cycles to break runaway loops.
+        """
+        now = time.strftime("%Y-%m-%d %H:%M")
         for s in self._data["active_stressors"]:
-            if s["type"] == type and not s.get("resolved"):
+            s["resolved"]        = True
+            s["resolved_at"]     = now
+            s["resolution_note"] = reason
+            self._data["resolved_history"].append(dict(s))
+        self._data["active_stressors"] = []
+        self._save()
+
+    def update_stressor(self, type: str, description: str) -> None:
+        """Update the description of an existing active stressor. Case-insensitive."""
+        type_key = type.strip().lower().replace(" ", "_")
+        for s in self._data["active_stressors"]:
+            if s["type"].lower() == type_key and not s.get("resolved"):
                 s["description"] = description
         self._save()
 

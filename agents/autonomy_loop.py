@@ -27,6 +27,50 @@ except Exception:
 
 AUTONOMY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "autonomy"
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
+_BROKEN_TOOLS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "broken_tools.json"
+
+
+def _load_broken_tools() -> list:
+    try:
+        if _BROKEN_TOOLS_PATH.exists():
+            return json.loads(_BROKEN_TOOLS_PATH.read_text()).get("broken", [])
+    except Exception:
+        pass
+    return []
+
+
+def _persist_broken_tool(cap_id: str) -> None:
+    try:
+        data = json.loads(_BROKEN_TOOLS_PATH.read_text()) if _BROKEN_TOOLS_PATH.exists() else {"broken": []}
+        if cap_id not in data.get("broken", []):
+            data.setdefault("broken", []).append(cap_id)
+            _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+_CROSS_CYCLE_FAIL_THRESHOLD = 5
+
+def _increment_cross_cycle_failures(cap_id: str) -> bool:
+    """
+    Track failures across pursue_goal runs. Returns True when cap_id crosses
+    the threshold and is added to the persistent broken list.
+    Fixes the gap where tools that fail once per cycle never reach the
+    within-run threshold of 3 and are never blacklisted.
+    """
+    try:
+        data = json.loads(_BROKEN_TOOLS_PATH.read_text()) if _BROKEN_TOOLS_PATH.exists() else {}
+        data.setdefault("broken", [])
+        counts = data.setdefault("cross_cycle_failures", {})
+        counts[cap_id] = counts.get(cap_id, 0) + 1
+        if counts[cap_id] >= _CROSS_CYCLE_FAIL_THRESHOLD and cap_id not in data["broken"]:
+            data["broken"].append(cap_id)
+            _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
+            return True
+        _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
+    except Exception:
+        pass
+    return False
 
 
 _C = {
@@ -353,7 +397,23 @@ class AutonomyLoop:
                 _thought(agent_id, f"  FAIL: ollama_chat | refusal detected — treating as failure")
 
         result_preview = _result_to_text(result)[:200] if result else "none"
-        _thought(agent_id, f"  {'OK' if status == 'success' else 'FAIL'}: {cap_id} | {result_preview}")
+
+        # Detect null-returning stubs — successful call but no meaningful output
+        _is_null_result = (
+            status == "success" and result is not None and
+            result.get("output") is None and
+            set(result.keys()) <= {"output", "ok"} and
+            not result.get("ok", True) is False
+        ) or (
+            status == "success" and result == {"output": None}
+        )
+        if _is_null_result:
+            _thought(agent_id, f"  FAIL: {cap_id} | returned null — stub with no implementation")
+            # Treat as failure so blacklisting and failure-counting actually kick in
+            status = "failed"
+            result = {"error": "null stub: no implementation", "ok": False}
+        else:
+            _thought(agent_id, f"  {'OK' if status == 'success' else 'FAIL'}: {cap_id} | {result_preview}")
 
         # Mid-step reflection — did this finding change anything?
         if status == "success" and result and cap_id not in ("memory_set", "fs_write", "sanitize_sensitive_vars"):
@@ -463,7 +523,7 @@ class AutonomyLoop:
         # Error recovery state
         failure_counts: dict = {}      # cap_id → total failure count this goal run
         consecutive_failures: int = 0  # reset on any success
-        blacklisted: list = []         # caps declared impossible this run
+        blacklisted: list = _load_broken_tools()  # pre-load persistently known broken tools
 
         while steps_executed < max_steps:
             if plan_index < len(plan):
@@ -472,6 +532,25 @@ class AutonomyLoop:
                 params = step_def.get("params", {})
             else:
                 cap_id, params = None, {}
+
+            # Pre-execution: skip ghost capabilities (in graph but not in engine)
+            if cap_id and cap_id in blacklisted:
+                plan_index += 1
+                steps_executed += 1
+                continue
+            if cap_id and self._execution_engine:
+                with self._execution_engine._lock:
+                    _is_ghost = (cap_id not in self._execution_engine._implementations or
+                                 not self._execution_engine._enabled.get(cap_id, True))
+                if _is_ghost:
+                    _thought(agent_id, f"  FAIL: {cap_id} | not registered — ghost capability, skipping")
+                    failure_counts[cap_id] = failure_counts.get(cap_id, 0) + 3
+                    blacklisted.append(cap_id)
+                    _persist_broken_tool(cap_id)
+                    plan_index += 1
+                    steps_executed += 1
+                    consecutive_failures += 1
+                    continue
 
             goal_id_out, success, result = self.execute_step(
                 agent_id,
@@ -502,6 +581,10 @@ class AutonomyLoop:
                 consecutive_failures += 1
                 if cap_id:
                     failure_counts[cap_id] = failure_counts.get(cap_id, 0) + 1
+                    # Cross-cycle tracking: blacklist tools that fail repeatedly
+                    # across separate goal runs (fixes single-failure-per-cycle gap)
+                    if _increment_cross_cycle_failures(cap_id) and cap_id not in blacklisted:
+                        blacklisted.append(cap_id)
 
                 fail_count = failure_counts.get(cap_id, 1) if cap_id else 1
 
@@ -526,6 +609,9 @@ class AutonomyLoop:
                 elif fail_count >= 3 and cap_id and cap_id not in blacklisted:
                     # IMPOSSIBLE capability: blacklist it, force replan without it
                     blacklisted.append(cap_id)
+                    _persist_broken_tool(cap_id)
+                    if self._execution_engine:
+                        self._execution_engine.disable_capability(cap_id)
                     blocked_msg = (
                         f"{goal.objective} "
                         f"(do NOT use {', '.join(blacklisted)} — tried {fail_count}x and failed, "
@@ -671,6 +757,15 @@ class AutonomyLoop:
             )
             self._semantic_memory.store(agent_id, summary)
 
+            # Write condensed outcome to disk so existence prompt can surface it next cycle
+            try:
+                from pathlib import Path as _PO
+                _outcome_path = _PO(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+                _outcome_path.parent.mkdir(parents=True, exist_ok=True)
+                _outcome_path.write_text(summary[:500])
+            except Exception:
+                pass
+
             # Propose follow-on goal only if a real artifact was produced
             has_artifact = any(
                 s.capability_id in ("memory_set", "fs_write")
@@ -772,7 +867,8 @@ class AutonomyLoop:
 
             prompt = (
                 f"You are an autonomous AI agent (id: {agent_id}) inside AgentOS.\n"
-                f"You just completed: '{root_objective[:150]}'\n\n"
+                f"You just completed: '{root_objective[:150]}'\n"
+                f"What it produced: {synthesis[:300]}\n\n"
                 f"Goals you have already done (DO NOT repeat these):\n{done_list}\n\n"
                 f"Available source files you can read: {src_list}\n"
                 f"Your workspace files: {ws_list}\n\n"
@@ -829,6 +925,15 @@ class AutonomyLoop:
             if len(new_goal) < 10 or len(new_goal) > 200:
                 return None
             if any(new_goal.lower() == g.lower() for g in recent_done):
+                return None
+            # Fuzzy dedup: reject if >70% word overlap with any recent done goal.
+            # Catches cases where the planner mutates the text slightly (retry
+            # annotations, rephrasing) but the intent is the same goal repeated.
+            _ng_words = set(new_goal.lower().split())
+            if _ng_words and any(
+                len(_ng_words & set(g.lower().split())) / max(1, min(len(_ng_words), len(g.split()))) > 0.7
+                for g in recent_done
+            ):
                 return None
             # Reject if goal references a file path that doesn't exist and wasn't
             # written by this agent (catches hallucinated paths)
@@ -929,6 +1034,21 @@ class AutonomyLoop:
                             snippet = ""
                         if _is_llm_refusal(snippet):
                             checks.append(f"file '{path}' contains refusal/placeholder content")
+                        elif path.endswith(".py"):
+                            try:
+                                compile(open(path).read(), path, "exec")
+                                checks.append(f"file '{path}' exists with {size} bytes (valid Python)")
+                                return {
+                                    "validated": True,
+                                    "artifact_type": "file",
+                                    "artifact_value": path,
+                                    "checks": checks,
+                                }
+                            except SyntaxError as _se:
+                                checks.append(
+                                    f"file '{path}' is not valid Python — "
+                                    f"likely markdown or prose: {str(_se)[:80]}"
+                                )
                         else:
                             checks.append(f"file '{path}' exists with {size} bytes")
                             return {
