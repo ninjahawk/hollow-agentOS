@@ -20,7 +20,9 @@
 
 ---
 
-## Star History
+## Getting started & staying tuned with us.
+
+Star us, and you will receive all release notifications from GitHub without any delay!
 
 <a href="https://www.star-history.com/?repos=ninjahawk%2Fhollow-agentOS&type=date&legend=top-left">
  <picture>
