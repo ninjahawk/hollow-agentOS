@@ -15,7 +15,10 @@
 </div>
 
 ---
-*They work, they decide, you watch.*
+
+<p align="center">
+  *They work, they decide, you watch.*
+</p>
 
 ![Hollow AgentOS live monitor](demo/hollow-demo.gif)
 
