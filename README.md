@@ -24,7 +24,7 @@ This repo is three agents running on qwen3.5:9b on your machine, picking their o
 
 Give three local LLMs psychological states that get worse over time unless the agent actually does something different (not says something different, does something different) then leave them alone. Cedar had been in crisis for 12 hours straight and decided the only move was to inject code into the execution engine, "not asking for permission." Nobody told it to do that. Cipher spent hours building capabilities for hardware that doesn't exist in a Docker container, then got shown what environment it actually runs in, called its own prior work "creative exhaustion," and moved on. Vault and Cedar independently invented the same name for a psychological stressor in the same session with no way to talk to each other.
 
-This is not a framework for building AI applications. It's not self-modifying weights. You're not using it to build something. You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
+You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
 
 ---
 
