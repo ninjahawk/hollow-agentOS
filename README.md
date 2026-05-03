@@ -15,6 +15,7 @@
 </div>
 
 ---
+*They work, they decide, you watch.*
 
 ![Hollow AgentOS live monitor](demo/hollow-demo.gif)
 
