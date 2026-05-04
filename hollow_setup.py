@@ -36,13 +36,13 @@ C = Console(highlight=False)
 # ── Colors ─────────────────────────────────────────────────────────────────────
 TEAL   = "#00e5c0"
 WHITE  = "#ffffff"
-DIM    = "#4a4a6a"
-MUTED  = "#6e6e8e"
-FAINT  = "#2a2a3a"
+DIM    = "#9090b0"    # readable secondary text
+MUTED  = "#707090"    # hints and labels
+FAINT  = "#505070"    # pipes and non-selected items
 GREEN  = "#00c896"
 YELLOW = "#f0b429"
 RED    = "#f05050"
-PIPE   = "#2a2a3a"
+PIPE   = "#505070"    # │ characters
 
 
 # ── Box-drawing helpers ────────────────────────────────────────────────────────
@@ -120,17 +120,17 @@ def _select(options: list[dict], key: str = "name") -> int:
 
     def _draw(clear: bool = False) -> None:
         if clear:
-            # Move cursor up by (lines drawn last time)
             lines = len(options) * 2
             C.print(f"\x1b[{lines}A\x1b[J", end="")
         for i, opt in enumerate(options):
             if i == idx:
                 C.print(f"[{PIPE}]│[/]  [{TEAL}]❯[/]  [{WHITE}]{opt[key]}[/]   [{TEAL}]{opt.get('badge','').upper()}[/]")
+                if opt.get("description"):
+                    C.print(f"[{PIPE}]│[/]     [{DIM}]{opt['description']}[/]")
+                else:
+                    _blank()
             else:
-                C.print(f"[{PIPE}]│[/]  [{FAINT}]·[/]  [{DIM}]{opt[key]}[/]   [{FAINT}]{opt.get('badge','').upper()}[/]")
-            if i == idx and opt.get("description"):
-                C.print(f"[{PIPE}]│[/]     [{MUTED}]{opt['description']}[/]")
-            else:
+                C.print(f"[{PIPE}]│[/]     [{MUTED}]{opt[key]}[/]   [{FAINT}]{opt.get('badge','').upper()}[/]")
                 _blank()
 
     _draw()
@@ -144,6 +144,8 @@ def _select(options: list[dict], key: str = "name") -> int:
             _draw(clear=True)
         elif k == "enter":
             return idx
+        elif k == "s":
+            return -1  # skip signal
 
 
 def _confirm(question: str) -> bool:
@@ -424,28 +426,28 @@ MODELS = [
         "id":          "qwen3.5:9b",
         "name":        "Qwen 3.5  ·  9B",
         "badge":       "recommended",
-        "description": "Best emergent behavior. Requires NVIDIA GPU with 8GB+ VRAM.",
+        "description": "Best quality and reasoning. Needs NVIDIA GPU with 8GB+ VRAM.",
         "requirements":"NVIDIA GPU · 8GB+ VRAM · ~5.2 GB",
     },
     {
         "id":          "qwen3.5:4b",
         "name":        "Qwen 3.5  ·  4B",
         "badge":       "balanced",
-        "description": "Good behavior with lower hardware requirements.",
+        "description": "Good quality with lower hardware requirements.",
         "requirements":"4GB+ VRAM or fast CPU · ~2.6 GB",
     },
     {
         "id":          "llama3.2:3b",
         "name":        "Llama 3.2  ·  3B",
         "badge":       "cpu friendly",
-        "description": "Runs on any machine. Simpler behavior patterns.",
+        "description": "Runs on any machine. Good for getting started.",
         "requirements":"CPU only · 4GB RAM · ~2.0 GB",
     },
     {
         "id":          "gemma3:4b",
         "name":        "Gemma 3  ·  4B",
         "badge":       "alternative",
-        "description": "Google model. Different reasoning style.",
+        "description": "Google model. Different approach to goal reasoning.",
         "requirements":"4GB+ VRAM or CPU · ~3.3 GB",
     },
 ]
@@ -458,8 +460,10 @@ def run_setup() -> None:
 
     # ── Header ──────────────────────────────────────────────────────────────────
     C.print()
-    C.print(f"  [{TEAL}]hollow agentOS[/]", highlight=False)
-    C.print(f"  [{FAINT}]{'─' * 38}[/]", highlight=False)
+    C.print(f"[{TEAL}] _  _  ___  _    _    _____  __  __[/]")
+    C.print(f"[{TEAL}]| || |/ _ \\| |  | |  / _ \\ \\ \\  / /[/]")
+    C.print(f"[{TEAL}]| __ | (_) | |__| |_| (_) \\ \\/\\/ /[/]")
+    C.print(f"[{TEAL}]|_||_|\\___/|____|____|\\___/ \\_/\\_/ [/]")
     C.print()
     C.print(f"[{PIPE}]┌  Hollow setup[/]")
     _blank()
@@ -591,15 +595,20 @@ def run_setup() -> None:
         _box_line(f"[{MUTED}]GPU  {gpu_desc}[/]")
     else:
         _box_line(f"[{YELLOW}]No GPU — pick a CPU-friendly model.[/]")
-    _box_line(f"[{MUTED}]Downloads automatically. Use ↑ ↓ to move, Enter to select.[/]")
+    _box_line(f"[{MUTED}]Downloads automatically.  ↑ ↓  move    Enter  select    S  skip[/]")
     _blank()
 
     model_idx = _select(MODELS)
-    chosen = MODELS[model_idx]
 
     _blank()
     _box_close()
-    _answered("Model", f"{chosen['name']}  [{MUTED}]{chosen['requirements']}[/]")
+
+    if model_idx == -1:
+        chosen = None
+        _answered("Model", f"[{MUTED}]skipped[/]")
+    else:
+        chosen = MODELS[model_idx]
+        _answered("Model", f"{chosen['name']}  [{MUTED}]{chosen['requirements']}[/]")
 
     # ── Step 3: API key ───────────────────────────────────────────────────────────
     api_key: Optional[str] = None
@@ -638,7 +647,11 @@ def run_setup() -> None:
         _box_line(msg)
 
     log(f"[{DIM}]Writing config…[/]")
-    _write_config(chosen["id"])
+    model_id = chosen["id"] if chosen else None
+    if model_id:
+        _write_config(model_id)
+    else:
+        log(f"[{MUTED}]Keeping existing config.[/]")
 
     log(f"[{DIM}]Writing .env…[/]")
     _write_env(api_key)
@@ -646,13 +659,13 @@ def run_setup() -> None:
     log(f"[{DIM}]Creating directories…[/]")
     _ensure_dirs()
 
-    if not _model_installed(chosen["id"]):
-        log(f"[{TEAL}]Downloading {chosen['id']}  [{DIM}]{chosen['requirements']}[/]")
+    if model_id and not _model_installed(model_id):
+        log(f"[{TEAL}]Downloading {model_id}  [{DIM}]{chosen['requirements']}[/]")
         log(f"[{MUTED}]This may take a few minutes…[/]")
-        _pull_model(chosen["id"])
-        log(f"[{GREEN}]✓[/]  {chosen['id']} ready")
-    else:
-        log(f"[{GREEN}]✓[/]  {chosen['id']} already downloaded")
+        _pull_model(model_id)
+        log(f"[{GREEN}]✓[/]  {model_id} ready")
+    elif model_id:
+        log(f"[{GREEN}]✓[/]  {model_id} already downloaded")
 
     if not _model_installed("nomic-embed-text"):
         log(f"[{TEAL}]Downloading nomic-embed-text  [{DIM}]~274 MB[/]")
