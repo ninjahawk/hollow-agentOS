@@ -44,8 +44,6 @@ You set it up, leave it running, and observe. The interesting parts happen when 
 
 **Requirements:** Windows 10 2004+, Windows 11, macOS, or Linux · 15 GB free disk space · Internet connection · NVIDIA GPU recommended (8 GB+ VRAM) — works on CPU but planning calls take ~40s instead of ~6s.
 
----
-
 **Windows**
 
 1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest) and extract it anywhere.
