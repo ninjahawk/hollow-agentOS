@@ -896,40 +896,54 @@ class SystemCheckScreen(Screen):
 # ── Model selection screen ────────────────────────────────────────────────────
 
 class ModelCard(Widget):
+    can_focus = True  # Textual 8.x: class variable, not constructor arg
+
     DEFAULT_CSS = """
     ModelCard {
-        height: auto;
-        padding: 1 2;
-        background: #141420;
-        border: round #2a2a3e;
+        height: 7;
+        padding: 1 3;
+        background: #0f0f1a;
+        border: tall #1e1e30;
         margin: 0 2 1 2;
     }
     ModelCard:focus {
-        border: round #00e5c0;
-        background: #1a1a2e;
+        border: tall #00e5c0;
+        background: #111122;
     }
     ModelCard.-selected {
-        border: round #00e5c0;
-        background: #1a1a2e;
+        border: tall #00e5c0;
+        background: #111122;
     }
     """
 
     def __init__(self, model: dict, selected: bool = False, **kwargs):
-        super().__init__(**kwargs, can_focus=True)
+        super().__init__(**kwargs)
         self._model = model
         self._selected = selected
 
     def render(self):
         from rich.text import Text
         m = self._model
-        sel = "[bold #00e5c0]◆[/]  " if self._selected else "[dim]◇[/]  "
         badge_col = m.get("badge_color", "bold #6e6e8e")
-        t = Text.from_markup(
-            f"{sel}[bold]{m['name']}[/]   [{badge_col}]{m['badge']}[/]\n"
-            f"   [dim]{m['description']}[/]\n"
-            f"   [#6e6e8e]{m['requirements']}   ·   {m['size']}[/]"
+
+        if self._selected:
+            selector = "[bold #00e5c0]▶[/]"
+            name_col  = "bold #ffffff"
+            desc_col  = "#b0b0d0"
+            req_col   = "#6e6e8e"
+        else:
+            selector = "[#2a2a3e]▶[/]"
+            name_col  = "#9090b0"
+            desc_col  = "#5a5a7a"
+            req_col   = "#3a3a5a"
+
+        lines = (
+            f" {selector}  [{name_col}]{m['name']}[/]"
+            f"   [{badge_col}]{m['badge']}[/]\n"
+            f"      [{desc_col}]{m['description']}[/]\n"
+            f"      [{req_col}]{m['requirements']}   ·   {m['size']}[/]"
         )
-        return t
+        return Text.from_markup(lines)
 
     def set_selected(self, val: bool) -> None:
         self._selected = val
@@ -951,8 +965,8 @@ class ModelCard(Widget):
 class ModelSelectScreen(Screen):
     BINDINGS = [
         Binding("enter", "select_model", "Select"),
-        Binding("up",    "focus_prev",   "Up",    show=False),
-        Binding("down",  "focus_next",   "Down",  show=False),
+        Binding("up",    "focus_prev",   "↑",  show=True),
+        Binding("down",  "focus_next",   "↓",  show=True),
     ]
 
     def __init__(self, gpu_info: str = ""):
@@ -966,16 +980,16 @@ class ModelSelectScreen(Screen):
                 "  [bold #00e5c0]02[/]  Choose a Model",
                 classes="step-header",
             )
-            gpu_note = (
-                f"  Detected: [#00c896]{self._gpu_info}[/]"
-                if self._gpu_info and "No GPU" not in self._gpu_info
-                else "  [#f0b429]No GPU detected[/] — choose a CPU-friendly model below."
-            )
-            yield Static(gpu_note, classes="step-body")
+            if self._gpu_info and "No GPU" not in self._gpu_info:
+                gpu_note = f"  GPU: [#00c896]{self._gpu_info}[/]"
+            else:
+                gpu_note = "  [#f0b429]No GPU detected[/] — choose a CPU-friendly model."
+            yield Static(gpu_note, classes="step-body dim")
             yield Static(
-                "  This model runs locally on your machine. Ollama will download it automatically.",
+                "  The model runs locally. Hollow downloads it automatically.",
                 classes="step-body dim",
             )
+            yield Static("", classes="step-body")
 
             for i, model in enumerate(MODELS):
                 yield ModelCard(
@@ -985,7 +999,7 @@ class ModelSelectScreen(Screen):
                 )
 
             yield Static(
-                "  [dim]↑ ↓[/]  navigate        [dim]Enter[/]  select        [dim]Q[/]  quit",
+                "  ↑ ↓  navigate        Enter  select        Q  quit",
                 classes="footer-hint",
             )
 
