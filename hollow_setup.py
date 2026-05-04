@@ -350,7 +350,7 @@ def _api_healthy() -> bool:
 # ── Welcome screen ────────────────────────────────────────────────────────────
 
 class WelcomeScreen(Screen):
-    BINDINGS = [Binding("enter", "continue", "Continue")]
+    BINDINGS = []
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
@@ -379,7 +379,7 @@ class WelcomeScreen(Screen):
             yield Static("", classes="step-body")
             yield Button("  Begin Setup  →", classes="btn-primary", id="begin")
             yield Static(
-                "  Enter  ·  continue        Q  ·  quit",
+                "  Click Begin  or  Tab → Enter        Q  ·  quit",
                 classes="footer-hint",
             )
 
@@ -580,8 +580,7 @@ def _install_ollama() -> tuple[bool, str]:
 
 class SystemCheckScreen(Screen):
     BINDINGS = [
-        Binding("enter", "continue_setup", "Continue"),
-        Binding("r",     "recheck",        "Re-check"),
+        Binding("r", "recheck", "Re-check"),
     ]
 
     def __init__(self):
@@ -1012,8 +1011,7 @@ class ModelSelectScreen(Screen):
 
 class ApiKeyScreen(Screen):
     BINDINGS = [
-        Binding("enter",  "skip_or_continue", "Continue"),
-        Binding("escape", "skip",              "Skip"),
+        Binding("escape", "skip", "Skip"),
     ]
 
     def __init__(self, model: dict):
@@ -1281,13 +1279,20 @@ def _write_config(model_id: str) -> None:
     if not CONFIG_EXAMPLE.exists():
         raise FileNotFoundError(f"config.example.json not found at {CONFIG_EXAMPLE}")
 
+    # If config already exists, preserve the existing token and just update the model
+    if CONFIG_PATH.exists():
+        try:
+            config = json.loads(CONFIG_PATH.read_text())
+            config["ollama"]["default_model"] = model_id
+            CONFIG_PATH.write_text(json.dumps(config, indent=2))
+            return
+        except Exception:
+            pass
+
+    # Fresh install — generate a new config with a unique token
     config = json.loads(CONFIG_EXAMPLE.read_text())
     config["ollama"]["default_model"] = model_id
-
-    # Generate a unique API token
-    token = secrets.token_urlsafe(24)
-    config["api"]["token"] = token
-
+    config["api"]["token"] = secrets.token_urlsafe(24)
     CONFIG_PATH.write_text(json.dumps(config, indent=2))
 
 
