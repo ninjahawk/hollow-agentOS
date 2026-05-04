@@ -114,8 +114,14 @@ def _read_key() -> str:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _select(options: list[dict], key: str = "name") -> int:
-    """Arrow-key menu. Returns selected index."""
+_SKIP = "SKIP"
+_BACK = "BACK"
+
+
+def _select(options: list[dict], key: str = "name"):
+    """Arrow-key menu.
+    Returns: index int, _SKIP, or _BACK.
+    """
     idx = 0
 
     def _draw(clear: bool = False) -> None:
@@ -145,28 +151,42 @@ def _select(options: list[dict], key: str = "name") -> int:
         elif k == "enter":
             return idx
         elif k == "s":
-            return -1  # skip signal
+            return _SKIP
+        elif k == "b":
+            return _BACK
 
 
-def _confirm(question: str) -> bool:
-    """Y/n inline confirm."""
+def _confirm(question: str):
+    """Y/n/b confirm.
+    Returns: True, False, or _BACK.
+    """
     _blank()
-    C.print(f"[{PIPE}]│[/]  [{MUTED}]{question}[/]  [{FAINT}]([/{FAINT}][{TEAL}]Y[/][{FAINT}]/n)[/] ", end="")
+    C.print(
+        f"[{PIPE}]│[/]  [{MUTED}]{question}[/]  "
+        f"[{FAINT}]([/][{TEAL}]Y[/][{FAINT}]/n/b)[/] ",
+        end="",
+    )
     ch = _read_key().lower()
+    if ch == "b":
+        C.print(f"[{MUTED}]← back[/]")
+        return _BACK
     result = ch != "n"
     C.print(f"[{WHITE}]{'Yes' if result else 'No'}[/]")
     return result
 
 
-def _input_text(prompt: str, password: bool = False) -> str:
-    """Single-line text input."""
-    C.print(f"[{PIPE}]│[/]  [{MUTED}]{prompt}[/]", end="  ")
+def _input_text(prompt: str, password: bool = False):
+    """Single-line text input. Returns string or _BACK if user types 'b' alone."""
+    C.print(f"[{PIPE}]│[/]  [{MUTED}]{prompt}[/]  [{FAINT}](b = back)[/]", end="  ")
     if password:
         import getpass
         val = getpass.getpass("")
     else:
         val = input()
-    return val.strip()
+    val = val.strip()
+    if val.lower() == "b":
+        return _BACK
+    return val
 
 
 # ── Detection helpers ──────────────────────────────────────────────────────────
@@ -455,10 +475,11 @@ MODELS = [
 
 # ── Setup flow ─────────────────────────────────────────────────────────────────
 
-def run_setup() -> None:
-    os.chdir(ROOT)
+def _clear() -> None:
+    os.system("cls" if _IS_WIN else "clear")
 
-    # ── Header ──────────────────────────────────────────────────────────────────
+
+def _header() -> None:
     C.print()
     C.print(f"[{TEAL}] _  _  ___  _    _    _____  __  __[/]")
     C.print(f"[{TEAL}]| || |/ _ \\| |  | |  / _ \\ \\ \\  / /[/]")
@@ -468,176 +489,214 @@ def run_setup() -> None:
     C.print(f"[{PIPE}]┌  Hollow setup[/]")
     _blank()
 
-    # ── Step 1: System check ─────────────────────────────────────────────────────
-    _step("System check")
-    _blank()
 
-    checks = {}
+def _nav_hint(*parts: str) -> None:
+    """Print a navigation hint row inside the current box."""
+    joined = "    ".join(parts)
+    _box_line(f"[{FAINT}]{joined}[/]")
 
-    # Docker
-    C.print(f"[{PIPE}]│[/]  [{DIM}]checking Docker…[/]", end="\r")
-    if _docker_running():
-        _box_line(f"[{GREEN}]✓[/]  Docker Desktop      running")
-        checks["docker"] = "ok"
-    elif _has_cmd("docker"):
-        _box_line(f"[{YELLOW}]⚠[/]  Docker Desktop      installed, not running")
-        checks["docker"] = "not_running"
-    else:
-        _box_line(f"[{RED}]✗[/]  Docker Desktop      not installed")
-        checks["docker"] = "missing"
 
-    # Ollama
-    C.print(f"[{PIPE}]│[/]  [{DIM}]checking Ollama…[/]", end="\r")
-    if _ollama_running():
-        _box_line(f"[{GREEN}]✓[/]  Ollama              running")
-        checks["ollama"] = "ok"
-    elif _has_cmd("ollama"):
-        _box_line(f"[{YELLOW}]⚠[/]  Ollama              installed, not running")
-        checks["ollama"] = "not_running"
-    else:
-        _box_line(f"[{RED}]✗[/]  Ollama              not installed")
-        checks["ollama"] = "missing"
+def run_setup() -> None:
+    os.chdir(ROOT)
 
-    # GPU
-    has_gpu, gpu_desc = _detect_gpu()
-    if has_gpu:
-        _box_line(f"[{GREEN}]✓[/]  GPU                 {gpu_desc[:45]}")
-    else:
-        _box_line(f"[{YELLOW}]⚠[/]  GPU                 none detected — pick a CPU model")
-
-    _box_close()
-
-    # Fix missing/not-running items
-    if checks.get("docker") == "not_running":
+    # ── Step 1: System check (always first, no back) ──────────────────────────────
+    def do_system_check():
+        _header()
+        _step("System check")
         _blank()
-        _box_line(f"[{YELLOW}]Docker is installed but not running.[/]")
-        _box_line(f"[{MUTED}]Start Docker Desktop, then re-run hollow onboarding.[/]")
-        _blank()
-        C.print(f"[{PIPE}]└[/]")
-        C.print()
-        return
+        checks: dict = {}
 
-    if checks.get("docker") == "missing":
-        _blank()
-        if _confirm("Docker Desktop is required. Install it now?"):
-            _box_line(f"[{TEAL}]Installing Docker Desktop…[/]")
-            _box_line(f"[{MUTED}]This may take a few minutes and will ask for admin permission.[/]")
+        C.print(f"[{PIPE}]│[/]  [{DIM}]checking…[/]", end="\r")
+        if _docker_running():
+            _box_line(f"[{GREEN}]✓[/]  Docker Desktop      running")
+            checks["docker"] = "ok"
+        elif _has_cmd("docker"):
+            _box_line(f"[{YELLOW}]⚠[/]  Docker Desktop      installed, not running")
+            checks["docker"] = "not_running"
+        else:
+            _box_line(f"[{RED}]✗[/]  Docker Desktop      not installed")
+            checks["docker"] = "missing"
+
+        if _ollama_running():
+            _box_line(f"[{GREEN}]✓[/]  Ollama              running")
+            checks["ollama"] = "ok"
+        elif _has_cmd("ollama"):
+            _box_line(f"[{YELLOW}]⚠[/]  Ollama              installed, not running")
+            checks["ollama"] = "not_running"
+        else:
+            _box_line(f"[{RED}]✗[/]  Ollama              not installed")
+            checks["ollama"] = "missing"
+
+        has_gpu, gpu_desc = _detect_gpu()
+        if has_gpu:
+            _box_line(f"[{GREEN}]✓[/]  GPU                 {gpu_desc[:45]}")
+        else:
+            _box_line(f"[{YELLOW}]⚠[/]  GPU                 none detected — pick a CPU model")
+
+        _box_close()
+
+        # Handle not-running / missing
+        if checks.get("docker") == "not_running":
             _blank()
+            _pipe(f"[{YELLOW}]Docker is installed but not running.[/]")
+            _pipe(f"[{MUTED}]Start Docker Desktop, then run hollow onboarding again.[/]")
+            _blank()
+            C.print(f"[{PIPE}]└[/]")
+            return None, None, None
+
+        if checks.get("docker") == "missing":
+            _blank()
+            r = _confirm("Docker Desktop is required. Install it now?")
+            if r is _BACK or r is False:
+                _pipe(f"[{MUTED}]Docker is required. Run hollow onboarding when ready.[/]")
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
+            _box_line(f"[{TEAL}]Installing Docker Desktop…[/]")
+            _box_line(f"[{MUTED}]May take a few minutes and will ask for admin permission.[/]")
             ok, err = _install_docker()
             if ok or err == "slow_start":
                 _box_line(f"[{GREEN}]✓[/]  Docker Desktop installed.")
                 checks["docker"] = "ok"
-            elif err == "opened_browser":
-                _box_line(f"[{YELLOW}]Opened the download page in your browser.[/]")
-                _box_line(f"[{MUTED}]Install Docker, then re-run hollow onboarding.[/]")
-                _blank()
-                C.print(f"[{PIPE}]└[/]")
-                C.print()
-                return
             else:
-                _box_line(f"[{RED}]Install failed: {err[:60]}[/]")
+                _box_line(f"[{YELLOW}]Opened download page. Install Docker, then re-run.[/]")
                 C.print(f"[{PIPE}]└[/]")
-                C.print()
-                return
-        else:
-            _box_line(f"[{MUTED}]Docker is required. Re-run hollow onboarding when ready.[/]")
-            C.print(f"[{PIPE}]└[/]")
-            C.print()
-            return
+                return None, None, None
 
-    if checks.get("ollama") == "not_running":
-        _blank()
-        _box_line(f"[{TEAL}]Starting Ollama…[/]")
-        subprocess.Popen(["ollama", "serve"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(10):
-            if _ollama_running():
-                break
-            time.sleep(1)
-        if _ollama_running():
-            _box_line(f"[{GREEN}]✓[/]  Ollama started.")
-            checks["ollama"] = "ok"
-        else:
-            _box_line(f"[{YELLOW}]Ollama didn't start in time. Try running 'ollama serve' manually.[/]")
-
-    if checks.get("ollama") == "missing":
-        _blank()
-        if _confirm("Ollama is required. Install it now?"):
-            _box_line(f"[{TEAL}]Installing Ollama…[/]")
+        if checks.get("ollama") == "not_running":
             _blank()
+            _box_line(f"[{TEAL}]Starting Ollama…[/]")
+            subprocess.Popen(["ollama", "serve"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(10):
+                if _ollama_running():
+                    break
+                time.sleep(1)
+            if _ollama_running():
+                _box_line(f"[{GREEN}]✓[/]  Ollama started.")
+                checks["ollama"] = "ok"
+
+        if checks.get("ollama") == "missing":
+            _blank()
+            r = _confirm("Ollama is required. Install it now?")
+            if r is _BACK or r is False:
+                _pipe(f"[{MUTED}]Ollama is required. Run hollow onboarding when ready.[/]")
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
+            _box_line(f"[{TEAL}]Installing Ollama…[/]")
             ok, err = _install_ollama()
             if ok or err == "slow_start":
                 _box_line(f"[{GREEN}]✓[/]  Ollama installed.")
                 checks["ollama"] = "ok"
-            elif err == "opened_browser":
-                _box_line(f"[{YELLOW}]Opened the download page in your browser.[/]")
-                _box_line(f"[{MUTED}]Install Ollama, then re-run hollow onboarding.[/]")
-                C.print(f"[{PIPE}]└[/]")
-                C.print()
-                return
             else:
-                _box_line(f"[{RED}]Install failed: {err[:60]}[/]")
+                _box_line(f"[{YELLOW}]Opened download page. Install Ollama, then re-run.[/]")
                 C.print(f"[{PIPE}]└[/]")
-                C.print()
-                return
-        else:
-            _box_line(f"[{MUTED}]Ollama is required. Re-run hollow onboarding when ready.[/]")
-            C.print(f"[{PIPE}]└[/]")
-            C.print()
-            return
+                return None, None, None
+
+        return checks, has_gpu, gpu_desc
+
+    checks, has_gpu, gpu_desc = do_system_check()
+    if checks is None:
+        C.print()
+        return
 
     _answered("System check", "ready")
 
-    # ── Step 2: Model selection ───────────────────────────────────────────────────
-    _step("Choose a model")
-    _blank()
-    if has_gpu:
-        _box_line(f"[{MUTED}]GPU  {gpu_desc}[/]")
-    else:
-        _box_line(f"[{YELLOW}]No GPU — pick a CPU-friendly model.[/]")
-    _box_line(f"[{MUTED}]Downloads automatically.  ↑ ↓  move    Enter  select    S  skip[/]")
-    _blank()
+    # ── Steps 2-3 with back support ───────────────────────────────────────────────
+    # completed_answers: list of (question, answer) to reprint when going back
+    completed = [("System check", "ready")]
 
-    model_idx = _select(MODELS)
-
-    _blank()
-    _box_close()
-
-    if model_idx == -1:
-        chosen = None
-        _answered("Model", f"[{MUTED}]skipped[/]")
-    else:
-        chosen = MODELS[model_idx]
-        _answered("Model", f"{chosen['name']}  [{MUTED}]{chosen['requirements']}[/]")
-
-    # ── Step 3: API key ───────────────────────────────────────────────────────────
+    chosen: Optional[dict] = None
     api_key: Optional[str] = None
 
+    # Detect Claude Code credentials once
     creds_path = Path.home() / ".claude" / ".credentials.json"
-    if creds_path.exists():
-        try:
-            creds = json.loads(creds_path.read_text())
-            if creds.get("claudeAiOauth", {}).get("accessToken"):
-                api_key = "CLAUDE_CODE"
-        except Exception:
-            pass
+    auto_api = None
+    try:
+        if creds_path.exists():
+            creds_data = json.loads(creds_path.read_text())
+            if creds_data.get("claudeAiOauth", {}).get("accessToken"):
+                auto_api = "CLAUDE_CODE"
+    except Exception:
+        pass
 
-    if api_key == "CLAUDE_CODE":
-        _answered("API key", f"[{GREEN}]Claude Code detected ✓[/]")
-    else:
-        _step("API key  (optional)")
-        _blank()
-        _box_line(f"[{MUTED}]Lets agents route complex tasks to Claude Sonnet or Haiku.[/]")
-        _box_line(f"[{MUTED}]Hollow works without it. Press Enter to skip.[/]")
-        _blank()
-        raw = _input_text("sk-ant-...  or Enter to skip", password=True)
-        _blank()
-        _box_close()
-        if raw.startswith("sk-"):
-            api_key = raw
-            _answered("API key", "saved")
-        else:
-            _answered("API key", "skipped — local model only")
+    step = 2  # start at model selection
+    while step <= 3:
+
+        # ── Step 2: Model ──────────────────────────────────────────────────────
+        if step == 2:
+            _clear()
+            _header()
+            for q, a in completed:
+                _answered(q, a)
+
+            _step("Choose a model")
+            _blank()
+            if has_gpu:
+                _box_line(f"[{MUTED}]GPU  {gpu_desc}[/]")
+            else:
+                _box_line(f"[{YELLOW}]No GPU — pick a CPU-friendly model.[/]")
+            _blank()
+            _nav_hint("↑ ↓  move", "Enter  select", "S  skip", "Q  quit")
+            _blank()
+
+            result = _select(MODELS)
+            _blank()
+            _box_close()
+
+            if result is _BACK:
+                # Can't go back past step 1 (auto-runs), so stay on step 2
+                continue
+            elif result is _SKIP:
+                chosen = None
+                ans = f"[{MUTED}]skipped — keeping current config[/]"
+            else:
+                chosen = MODELS[result]
+                ans = f"{chosen['name']}  [{MUTED}]{chosen['requirements']}[/]"
+
+            _answered("Model", ans)
+            completed_2 = completed + [("Model", ans)]
+            step = 3
+
+        # ── Step 3: API key ────────────────────────────────────────────────────
+        if step == 3:
+            if auto_api == "CLAUDE_CODE":
+                api_key = "CLAUDE_CODE"
+                _answered("API key", f"[{GREEN}]Claude Code detected ✓[/]")
+                completed = completed_2 + [("API key", "Claude Code ✓")]
+                step = 4
+                continue
+
+            _clear()
+            _header()
+            for q, a in completed_2:
+                _answered(q, a)
+
+            _step("API key  (optional)")
+            _blank()
+            _box_line(f"[{MUTED}]Lets agents use Claude Sonnet/Haiku for complex tasks.[/]")
+            _box_line(f"[{MUTED}]Hollow works without it.[/]")
+            _blank()
+            _nav_hint("Enter  skip", "B  back", "Q  quit")
+            _blank()
+
+            raw = _input_text("sk-ant-...  or Enter to skip", password=True)
+            _blank()
+            _box_close()
+
+            if raw is _BACK:
+                step = 2
+                continue
+
+            if raw.startswith("sk-"):
+                api_key = raw
+                ans3 = "saved"
+            else:
+                api_key = None
+                ans3 = "skipped — local only"
+
+            _answered("API key", ans3)
+            completed = completed_2 + [("API key", ans3)]
+            step = 4
 
     # ── Step 4: Launch ────────────────────────────────────────────────────────────
     _step("Starting Hollow")
@@ -646,9 +705,9 @@ def run_setup() -> None:
     def log(msg: str) -> None:
         _box_line(msg)
 
-    log(f"[{DIM}]Writing config…[/]")
     model_id = chosen["id"] if chosen else None
     if model_id:
+        log(f"[{DIM}]Writing config…[/]")
         _write_config(model_id)
     else:
         log(f"[{MUTED}]Keeping existing config.[/]")
@@ -702,14 +761,14 @@ def run_setup() -> None:
     _blank()
     C.print(f"[{PIPE}]◇  [{TEAL}]Hollow is alive.[/]")
     _blank()
-    _pipe(f"[{MUTED}]hollow          open monitor[/]")
-    _pipe(f"[{MUTED}]hollow stop     stop containers[/]")
-    _pipe(f"[{MUTED}]hollow status   check health[/]")
+    _pipe(f"[{MUTED}]hollow            open monitor[/]")
+    _pipe(f"[{MUTED}]hollow stop       stop containers[/]")
+    _pipe(f"[{MUTED}]hollow status     check health[/]")
+    _pipe(f"[{MUTED}]hollow onboarding re-run this wizard[/]")
     _blank()
     C.print(f"[{PIPE}]└[/]")
     C.print()
 
-    # Launch monitor
     time.sleep(1)
     os.execv(sys.executable, [sys.executable, str(ROOT / "thoughts.py")])
 
