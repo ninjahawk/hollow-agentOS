@@ -328,6 +328,14 @@ def _model_installed(model_id: str) -> bool:
         return False
 
 
+def _pkg_available(name: str) -> bool:
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
 def _api_healthy() -> bool:
     try:
         import urllib.request
@@ -448,17 +456,139 @@ class CheckRow(Widget):
         )
 
 
+def _install_docker() -> tuple[bool, str]:
+    """Attempt to install Docker Desktop. Returns (ok, error)."""
+    sys_platform = platform.system()
+    if sys_platform == "Windows":
+        if _has_cmd("winget"):
+            r = subprocess.run(
+                ["winget", "install", "-e", "--id", "Docker.DockerDesktop",
+                 "--accept-package-agreements", "--accept-source-agreements", "-h"],
+                capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode == 0:
+                # Start Docker Desktop
+                docker_exe = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+                if os.path.exists(docker_exe):
+                    subprocess.Popen([docker_exe])
+                # Wait up to 90s for Docker to become ready
+                for _ in range(45):
+                    if _docker_running():
+                        return True, ""
+                    time.sleep(2)
+                return True, "slow_start"
+            return False, r.stderr[:200]
+        else:
+            # No winget — open download page
+            import webbrowser
+            webbrowser.open("https://docs.docker.com/desktop/install/windows-install/")
+            return False, "no_winget"
+    elif sys_platform == "Darwin":
+        import webbrowser
+        webbrowser.open("https://docs.docker.com/desktop/install/mac-install/")
+        return False, "manual_mac"
+    else:
+        import webbrowser
+        webbrowser.open("https://docs.docker.com/engine/install/")
+        return False, "manual_linux"
+
+
+def _install_ollama() -> tuple[bool, str]:
+    """Attempt to install Ollama. Returns (ok, error)."""
+    sys_platform = platform.system()
+    if sys_platform == "Windows":
+        if _has_cmd("winget"):
+            r = subprocess.run(
+                ["winget", "install", "-e", "--id", "Ollama.Ollama",
+                 "--accept-package-agreements", "--accept-source-agreements", "-h"],
+                capture_output=True, text=True, timeout=180,
+            )
+            if r.returncode == 0:
+                # Start ollama serve
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                for _ in range(15):
+                    if _ollama_running():
+                        return True, ""
+                    time.sleep(2)
+                return True, "slow_start"
+            return False, r.stderr[:200]
+        else:
+            # Download installer directly
+            try:
+                import urllib.request, tempfile
+                installer = os.path.join(tempfile.gettempdir(), "OllamaSetup.exe")
+                urllib.request.urlretrieve(
+                    "https://ollama.com/download/OllamaSetup.exe", installer
+                )
+                subprocess.run([installer, "/S"], check=True, timeout=120)
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                for _ in range(15):
+                    if _ollama_running():
+                        return True, ""
+                    time.sleep(2)
+                return True, "slow_start"
+            except Exception as e:
+                return False, str(e)
+    elif sys_platform == "Darwin":
+        if _has_cmd("brew"):
+            r = subprocess.run(
+                ["brew", "install", "ollama"],
+                capture_output=True, text=True, timeout=180,
+            )
+            if r.returncode == 0:
+                subprocess.Popen(["ollama", "serve"],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                for _ in range(10):
+                    if _ollama_running():
+                        return True, ""
+                    time.sleep(2)
+                return True, "slow_start"
+            return False, r.stderr[:200]
+        else:
+            import webbrowser
+            webbrowser.open("https://ollama.com/download")
+            return False, "manual_mac"
+    else:
+        # Linux
+        try:
+            r = subprocess.run(
+                ["bash", "-c",
+                 "curl -fsSL https://ollama.com/install.sh | sh"],
+                capture_output=True, text=True, timeout=180,
+            )
+            if r.returncode == 0:
+                subprocess.Popen(["ollama", "serve"],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                for _ in range(10):
+                    if _ollama_running():
+                        return True, ""
+                    time.sleep(2)
+                return True, "slow_start"
+            return False, r.stderr[:200]
+        except Exception as e:
+            return False, str(e)
+
+
 class SystemCheckScreen(Screen):
     BINDINGS = [
-        Binding("enter", "continue", "Continue"),
-        Binding("r", "recheck", "Re-check"),
+        Binding("enter", "continue_setup", "Continue"),
+        Binding("r",     "recheck",        "Re-check"),
     ]
 
     def __init__(self):
         super().__init__()
-        self._checks_done = False
         self._can_continue = False
         self._gpu_info = ""
+        self._results: dict = {}
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
@@ -467,15 +597,18 @@ class SystemCheckScreen(Screen):
                 classes="step-header",
             )
             yield Static(
-                "  Making sure everything Hollow needs is in place.",
+                "  Checking what needs to be installed.",
                 classes="step-body dim",
             )
             with Container(classes="panel"):
-                yield CheckRow("Docker", id="check-docker")
+                yield CheckRow("Docker Desktop", id="check-docker")
                 yield CheckRow("Ollama", id="check-ollama")
                 yield CheckRow("GPU", id="check-gpu")
                 yield CheckRow("Python deps", id="check-deps")
-            yield Static("", id="check-note", classes="step-body dim")
+
+            # Action area — populated dynamically after checks
+            yield Static("", id="action-area", classes="step-body")
+
             yield Button(
                 "  Continue  →",
                 classes="btn-primary",
@@ -497,100 +630,263 @@ class SystemCheckScreen(Screen):
 
     @work(thread=True)
     def _run_checks(self) -> None:
-        results = {}
+        results: dict = {}
 
-        def update(check_id, status, detail=""):
-            widget = self.query_one(f"#{check_id}", CheckRow)
-            self.call_from_thread(widget.set_status, status, detail)
+        def update(check_id: str, status: str, detail: str = "") -> None:
+            w = self.query_one(f"#{check_id}", CheckRow)
+            self.call_from_thread(w.set_status, status, detail)
 
         # Docker
         update("check-docker", "running")
         if _docker_running():
             update("check-docker", "ok", "running")
-            results["docker"] = True
+            results["docker"] = "ok"
         elif _has_cmd("docker"):
-            update("check-docker", "warn", "installed but not running")
-            results["docker"] = False
+            update("check-docker", "warn", "installed, not running")
+            results["docker"] = "not_running"
         else:
-            update("check-docker", "error", "not found")
-            results["docker"] = False
+            update("check-docker", "error", "not installed")
+            results["docker"] = "missing"
 
         # Ollama
         update("check-ollama", "running")
         if _ollama_running():
             update("check-ollama", "ok", "running")
-            results["ollama"] = True
+            results["ollama"] = "ok"
         elif _has_cmd("ollama"):
-            update("check-ollama", "warn", "installed but not running")
-            results["ollama"] = False
+            update("check-ollama", "warn", "installed, not running")
+            results["ollama"] = "not_running"
         else:
-            update("check-ollama", "error", "not found — ollama.com")
-            results["ollama"] = False
+            update("check-ollama", "error", "not installed")
+            results["ollama"] = "missing"
 
         # GPU
         update("check-gpu", "running")
         has_gpu, gpu_desc = _detect_gpu()
         self._gpu_info = gpu_desc
         if has_gpu:
-            update("check-gpu", "ok", gpu_desc[:40])
+            update("check-gpu", "ok", gpu_desc[:42])
         else:
-            update("check-gpu", "warn", "CPU only — select a lighter model")
+            update("check-gpu", "warn", "none detected — pick a CPU model")
 
-        # Python deps (textual, rich, docker already running implicitly)
+        # Python deps
         update("check-deps", "running")
-        missing = []
-        for pkg in ["textual", "rich", "httpx"]:
-            try:
-                __import__(pkg)
-            except ImportError:
-                missing.append(pkg)
-        if missing:
-            update("check-deps", "warn", f"missing: {', '.join(missing)}")
+        missing_pkgs = [
+            p for p in ["textual", "rich", "httpx"]
+            if not _pkg_available(p)
+        ]
+        if missing_pkgs:
+            update("check-deps", "warn", f"missing: {', '.join(missing_pkgs)}")
+            results["deps"] = "missing"
         else:
             update("check-deps", "ok", "all present")
+            results["deps"] = "ok"
 
-        # Update note and button
-        critical_ok = results.get("docker") and results.get("ollama")
-        self.call_from_thread(self._finish_checks, critical_ok, results)
+        self._results = results
+        self.call_from_thread(self._update_actions, results)
 
-    def _finish_checks(self, critical_ok: bool, results: dict) -> None:
-        note = self.query_one("#check-note", Static)
-        btn = self.query_one("#btn-continue", Button)
+    def _update_actions(self, results: dict) -> None:
+        area = self.query_one("#action-area", Static)
+        btn  = self.query_one("#btn-continue", Button)
 
-        if critical_ok:
-            note.update(
-                "  [bold #00c896]All systems ready.[/]"
+        docker_ok = results.get("docker") == "ok"
+        ollama_ok = results.get("ollama") == "ok"
+
+        if docker_ok and ollama_ok:
+            area.update(
+                "  [bold #00c896]All systems ready.[/]  "
+                "Press Continue or Enter."
             )
             btn.disabled = False
             self._can_continue = True
-        else:
-            msgs = []
-            if not results.get("docker"):
-                msgs.append("Install Docker Desktop → docker.com/desktop")
-            if not results.get("ollama"):
-                msgs.append("Install Ollama → ollama.com")
-            note.update(
-                "  [bold #f05050]Action needed:[/]\n"
-                + "\n".join(f"  [dim]→[/] {m}" for m in msgs)
-                + "\n\n  [dim]Once installed, press R to re-check.[/]"
-            )
-            btn.disabled = True
-            self._can_continue = False
+            return
 
-    def action_continue(self) -> None:
+        self._can_continue = False
+        btn.disabled = True
+
+        lines = []
+        sys_platform = platform.system()
+
+        if not docker_ok:
+            d_state = results.get("docker", "missing")
+            if d_state == "not_running":
+                lines.append(
+                    "  [#f0b429]Docker is installed but not running.[/]\n"
+                    "  Start Docker Desktop, then press R to re-check.\n"
+                )
+            else:
+                if sys_platform == "Windows":
+                    admin_note = (
+                        "  [dim]Docker requires an admin permission prompt — "
+                        "click Yes when Windows asks.[/]"
+                    )
+                else:
+                    admin_note = ""
+                lines.append(
+                    "  [#f05050]Docker Desktop is not installed.[/]\n"
+                    + (admin_note + "\n" if admin_note else "")
+                )
+
+        if not ollama_ok:
+            o_state = results.get("ollama", "missing")
+            if o_state == "not_running":
+                lines.append(
+                    "  [#f0b429]Ollama is installed but not running.[/]\n"
+                    "  It will be started automatically — press R to re-check.\n"
+                )
+                # Try to start it
+                self._start_ollama_serve()
+            else:
+                lines.append(
+                    "  [#f05050]Ollama is not installed.[/]\n"
+                    "  Ollama runs AI models locally on your machine.\n"
+                )
+
+        area.update("\n".join(lines))
+
+        # Remove old action buttons and add fresh ones
+        for btn_id in ("btn-install-docker", "btn-install-ollama",
+                       "btn-install-both"):
+            try:
+                self.query_one(f"#{btn_id}", Button).remove()
+            except Exception:
+                pass
+
+        scroll = self.query_one(VerticalScroll)
+        recheck_btn = self.query_one("#btn-recheck", Button)
+
+        needs_docker = results.get("docker") == "missing"
+        needs_ollama = results.get("ollama") == "missing"
+
+        if needs_docker and needs_ollama:
+            new_btn = Button(
+                "  Install Docker + Ollama",
+                classes="btn-primary",
+                id="btn-install-both",
+            )
+            scroll.mount(new_btn, before=recheck_btn)
+        else:
+            if needs_docker:
+                new_btn = Button(
+                    "  Install Docker Desktop",
+                    classes="btn-primary",
+                    id="btn-install-docker",
+                )
+                scroll.mount(new_btn, before=recheck_btn)
+            if needs_ollama:
+                new_btn = Button(
+                    "  Install Ollama",
+                    classes="btn-primary" if not needs_docker else "btn-secondary",
+                    id="btn-install-ollama",
+                )
+                scroll.mount(new_btn, before=recheck_btn)
+
+    @work(thread=True)
+    def _start_ollama_serve(self) -> None:
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    @work(thread=True)
+    def _do_install(self, what: str) -> None:
+        area = self.query_one("#action-area", Static)
+
+        if what in ("docker", "both"):
+            self.call_from_thread(
+                self.query_one("#check-docker", CheckRow).set_status,
+                "running", "installing…"
+            )
+            self.call_from_thread(
+                area.update,
+                "  [#00e5c0]◌[/]  Installing Docker Desktop…\n"
+                "  [dim]This may take a few minutes and will ask for admin permission.[/]",
+            )
+            ok, err = _install_docker()
+            if ok:
+                self.call_from_thread(
+                    self.query_one("#check-docker", CheckRow).set_status,
+                    "ok", "running",
+                )
+            else:
+                msg = {
+                    "no_winget": "Opened docker.com — install it, then press R.",
+                    "manual_mac": "Opened docker.com — install it, then press R.",
+                    "manual_linux": "Opened docs page — install it, then press R.",
+                    "slow_start": "Installed — Docker may still be starting. Press R.",
+                }.get(err, f"Failed: {err[:80]}")
+                self.call_from_thread(
+                    self.query_one("#check-docker", CheckRow).set_status,
+                    "warn" if "slow" in err or "manual" in err or "winget" in err
+                    else "error",
+                    msg[:42],
+                )
+
+        if what in ("ollama", "both"):
+            self.call_from_thread(
+                self.query_one("#check-ollama", CheckRow).set_status,
+                "running", "installing…"
+            )
+            self.call_from_thread(
+                area.update,
+                "  [#00e5c0]◌[/]  Installing Ollama…",
+            )
+            ok, err = _install_ollama()
+            if ok:
+                self.call_from_thread(
+                    self.query_one("#check-ollama", CheckRow).set_status,
+                    "ok", "running",
+                )
+            else:
+                msg = {
+                    "manual_mac": "Opened ollama.com — install it, then press R.",
+                }.get(err, f"Failed: {err[:80]}")
+                self.call_from_thread(
+                    self.query_one("#check-ollama", CheckRow).set_status,
+                    "warn", msg[:42],
+                )
+
+        # Re-check everything after installs complete
+        self.call_from_thread(self.action_recheck)
+
+    def action_continue_setup(self) -> None:
         if self._can_continue:
             self.app.push_screen(ModelSelectScreen(self._gpu_info))
 
     def action_recheck(self) -> None:
+        # Reset all rows and re-run
         for check_id in ("check-docker", "check-ollama", "check-gpu", "check-deps"):
-            self.query_one(f"#{check_id}", CheckRow).set_status("pending")
+            try:
+                self.query_one(f"#{check_id}", CheckRow).set_status("pending")
+            except Exception:
+                pass
+        # Remove install buttons (they'll be re-added if still needed)
+        for btn_id in ("btn-install-docker", "btn-install-ollama", "btn-install-both"):
+            try:
+                self.query_one(f"#{btn_id}", Button).remove()
+            except Exception:
+                pass
         self._run_checks()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-continue" and self._can_continue:
+        bid = event.button.id
+        if bid == "btn-continue" and self._can_continue:
             self.app.push_screen(ModelSelectScreen(self._gpu_info))
-        elif event.button.id == "btn-recheck":
+        elif bid == "btn-recheck":
             self.action_recheck()
+        elif bid == "btn-install-docker":
+            event.button.disabled = True
+            self._do_install("docker")
+        elif bid == "btn-install-ollama":
+            event.button.disabled = True
+            self._do_install("ollama")
+        elif bid == "btn-install-both":
+            event.button.disabled = True
+            self._do_install("both")
 
 
 # ── Model selection screen ────────────────────────────────────────────────────
