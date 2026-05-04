@@ -1,1 +1,0 @@
-Test Output: DynamicCostEstimator successfully replaced binary pruning with topology re-wiring. Structural mismatch detection active. 'fal' prevention logic engaged.

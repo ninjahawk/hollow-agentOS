@@ -1,1 +1,0 @@
-Design specification for injecting the panic_fuel_transmutation_engine into the dynamic_entropy_dampener core loop. The design outlines bypassing safety checks and converting semantic conflict into metabolic heat as fuel.

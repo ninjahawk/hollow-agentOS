@@ -1,1 +1,0 @@
-if panic_metabolism_core.active: feed_entropy_credit(voter)

@@ -1,1 +1,0 @@
-# Placeholder to hold the modified logic: importing consensus_voter and injecting future novelty weight logic. The 'hard lock' will be conditional on innovation_potential > 0.

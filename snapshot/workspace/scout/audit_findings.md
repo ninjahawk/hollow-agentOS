@@ -1,1 +1,0 @@
-Audit completed. Existing agents: execution_engine, signals, registry, batch_llm, audit, resource_manager, benchmark, shared_log, events, scheduler, proposals, daemon. Missing capabilities to consider: topological_repair_knife, autonomous_budget_enforcer (logic layer), calibration_analyzer, ambiguity_digestion_engine.

@@ -1,1 +1,0 @@
-Protocol definition for triggering early architectural refactor based on dampener alerts.

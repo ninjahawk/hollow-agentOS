@@ -48,3 +48,44 @@ test*.json
 bgoals.json
 goals.json
 "Hollow Prompt.txt"
+
+# Dev-only test scripts (root level, separate from tests/ suite)
+test_qwen_integration.py
+test_qwen_reasoning_comparison.py
+test_real_autonomy.py
+test_run.py
+test_file_from_agent.txt
+
+# Standalone demo/prototype scripts from earlier phases
+demo_autonomous_agent.py
+run_autonomous_agent.py
+
+# Deprecated — replaced by thoughts.py
+monitor.py
+
+# Deprecated roadmap — replaced by ROADMAP_current.md
+ROADMAP.md
+
+# Restore utilities — will be rebuilt as proper snapshot feature
+restore.bat
+restore.ps1
+
+# Claude Code session context — developer only, not for users
+CLAUDE.md
+
+# Personal/machine-specific scripts
+hollow_wsl
+telegram_notify.py
+
+# Planning docs (not project source)
+Full Stack Goal.txt
+4-30-26 Hollow Run.md
+
+# Agent session snapshot — runtime data, not source
+snapshot/
+
+# Large binary demo recording (already excluded from release zip)
+demo/hollow-demo.cast
+
+# Orphaned root-level gif (README uses demo/hollow-demo.gif)
+demo.gif
