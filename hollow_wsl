@@ -1,0 +1,35 @@
+#!/bin/bash
+HOLLOW_DIR="/mnt/c/Users/jedin/Desktop/Hollow Current"
+
+case "$1" in
+  onboarding|setup)
+    cd "$HOLLOW_DIR"
+    exec python3 hollow.py setup
+    ;;
+  stop)
+    cd "$HOLLOW_DIR"
+    exec python3 hollow.py stop
+    ;;
+  status)
+    cd "$HOLLOW_DIR"
+    exec python3 hollow.py status
+    ;;
+  matrix)
+    exec docker exec -it hollow-api python3 /agentOS/matrix.py
+    ;;
+  debug)
+    docker exec hollow-api ls /agentOS/ 2>&1 | head -20
+    ;;
+  ''|logs)
+    cd "$HOLLOW_DIR"
+    exec python3 thoughts.py
+    ;;
+  *)
+    echo "Usage: hollow [onboarding|logs|status|stop|matrix|debug]"
+    echo "  hollow             open live agent monitor"
+    echo "  hollow onboarding  run setup wizard"
+    echo "  hollow status      check if running"
+    echo "  hollow stop        stop all containers"
+    exit 1
+    ;;
+esac

@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Hollow AgentOS — one-shot installer for Windows.
+    Hollow AgentOS — Windows bootstrapper.
 
 .DESCRIPTION
-    Installs Docker Desktop and Ollama if missing, pulls the required LLM
-    models, starts the AgentOS stack with docker compose, and launches the
-    live monitor TUI — all from a single script.
+    Installs Python, Docker Desktop, and Ollama if missing, then hands off
+    to the interactive setup wizard (hollow.py) which handles everything else:
+    model selection, API key, config, and launching the agents.
 
     Run by double-clicking install.bat (which calls this file).
     Requires an internet connection and ~8 GB of free disk space.
@@ -161,171 +161,9 @@ try {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 3 — Pull LLM models
+# STEP 3 — Python
 # ─────────────────────────────────────────────────────────────────────────────
-_head "Step 3/6 — LLM models"
-
-$models = @("qwen3.5:9b", "nomic-embed-text")
-foreach ($model in $models) {
-    # Check if model already exists
-    $list = (ollama list 2>&1) -join " "
-    $modelBase = $model.Split(":")[0]
-    if ($list -match [regex]::Escape($modelBase)) {
-        _ok "$model already downloaded"
-    } else {
-        _info "Pulling $model (this downloads several GB — grab a coffee)…"
-        ollama pull $model
-        _ok "$model ready"
-    }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 4 — Claude auth
-# ─────────────────────────────────────────────────────────────────────────────
-_head "Step 4/7 — Claude auth"
-
-$EnvFile = Join-Path $HollowDir ".env"
-$ClaudeCredentials = Join-Path $env:USERPROFILE ".claude\.credentials.json"
-
-if (Test-Path $ClaudeCredentials) {
-    try {
-        $creds = Get-Content $ClaudeCredentials -Raw | ConvertFrom-Json
-        $token = $creds.claudeAiOauth.accessToken
-        if ($token) {
-            # Write .env with the credentials file path so Docker mounts it
-            # The container re-reads it fresh on each call, so token refresh
-            # by Claude Code is picked up automatically.
-            $envContent = "CLAUDE_CREDENTIALS_FILE=$ClaudeCredentials"
-            Set-Content $EnvFile $envContent -Encoding UTF8
-            _ok "Claude credentials found — agents will use your extra usage credits"
-        } else {
-            _warn "Claude credentials file found but no access token — falling back to Ollama"
-            "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
-        }
-    } catch {
-        _warn "Could not read Claude credentials — falling back to Ollama"
-        "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
-    }
-} else {
-    _info "Claude Code not detected — checking for Anthropic API key"
-
-    if (-not (Test-Path $EnvFile)) {
-        "CLAUDE_CREDENTIALS_FILE=" | Set-Content $EnvFile -Encoding UTF8
-    }
-
-    # Check if API key already in .env
-    $envContent = if (Test-Path $EnvFile) { Get-Content $EnvFile -Raw } else { "" }
-    if ($envContent -match "ANTHROPIC_API_KEY=.+") {
-        _ok "ANTHROPIC_API_KEY already set in .env"
-    } else {
-        Write-Host ""
-        Write-Host "  Claude API access unlocks high-quality tool wrapping (Sonnet/Haiku)." -ForegroundColor Cyan
-        Write-Host "  Without it, Hollow uses local Ollama models (lower quality)." -ForegroundColor DarkGray
-        Write-Host "  Get a key at: console.anthropic.com — or press Enter to skip." -ForegroundColor DarkGray
-        Write-Host ""
-        $apiKey = Read-Host "  Anthropic API key (sk-ant-...) or Enter to skip"
-        if ($apiKey -and $apiKey.StartsWith("sk-")) {
-            Add-Content $EnvFile "ANTHROPIC_API_KEY=$apiKey" -Encoding UTF8
-            _ok "API key saved — agents will use Claude for tool wrapping"
-        } else {
-            _info "Skipped — agents will use local Ollama (you can add ANTHROPIC_API_KEY to .env later)"
-        }
-    }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 — Config
-# ─────────────────────────────────────────────────────────────────────────────
-_head "Step 5/7 — Configuration"
-
-if (Test-Path $ConfigDest) {
-    _ok "config.json already exists — keeping it"
-} else {
-    if (-not (Test-Path $ConfigSrc)) {
-        _err "config.example.json not found in $HollowDir"
-        Read-Host "  Press Enter to exit"
-        exit 1
-    }
-    # Copy and replace the default token with a secure random one
-    $config = Get-Content $ConfigSrc -Raw | ConvertFrom-Json
-    $token  = [System.Web.HttpUtility]::UrlEncode([System.Convert]::ToBase64String(
-        [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)
-    )).Replace("%2B", "+").Replace("%2F", "/").Replace("%3D", "=").Replace("+", "").Replace("/", "").Replace("=", "")
-    $config.api.token = $token
-    $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigDest -Encoding UTF8
-    _ok "config.json created with a unique API token"
-}
-
-# Ensure runtime directories exist before docker compose tries to mount them
-foreach ($dir in @("memory", "workspace", "workspace\wrappers", "workspace\sandbox",
-                    "workspace\bin", "logs", "store\data")) {
-    $path = Join-Path $HollowDir $dir
-    if (-not (Test-Path $path)) {
-        New-Item -ItemType Directory -Path $path -Force | Out-Null
-    }
-}
-_ok "Runtime directories ready"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 — Start the AgentOS stack
-# ─────────────────────────────────────────────────────────────────────────────
-_head "Step 6/7 — Starting AgentOS"
-
-Set-Location $HollowDir
-
-# Try to pull the pre-built image first (fast — no compile step).
-# Fall back to building from source if the registry is unreachable or the
-# image hasn't been published yet (e.g., running a fork before first CI push).
-_info "Pulling pre-built image from GHCR…"
-$pulled = $false
-try {
-    docker compose pull api 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-    $pulled = ($LASTEXITCODE -eq 0)
-} catch { }
-
-if (-not $pulled) {
-    _warn "Could not pull pre-built image — building from source instead (this takes a few minutes)…"
-    docker compose up -d --build 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-} else {
-    _ok "Image pulled"
-    _info "Starting containers…"
-    $upOut = docker compose up -d 2>&1
-    $upOut | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-    # If GPU reservation failed, retry without GPU block
-    if ($LASTEXITCODE -ne 0 -and ($upOut -join " ") -match "nvidia|gpu|device") {
-        _warn "GPU not available — retrying without GPU acceleration (planning calls will be slower)…"
-        $composeFile = Join-Path $HollowDir "docker-compose.yml"
-        $content = Get-Content $composeFile -Raw
-        # Strip the nvidia deploy block
-        $content = $content -replace "(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "`n"
-        $tmpFile = Join-Path $env:TEMP "docker-compose-nogpu.yml"
-        Set-Content $tmpFile $content -Encoding UTF8
-        docker compose -f $tmpFile up -d 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-}
-
-# Wait for the API health check
-_info "Waiting for API to become healthy…"
-$healthy = $false
-for ($i = 0; $i -lt 30; $i++) {
-    try {
-        $r = Invoke-WebRequest "http://localhost:7777/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
-        if ($r.StatusCode -eq 200) { $healthy = $true; break }
-    } catch { }
-    Start-Sleep 2
-}
-
-if ($healthy) {
-    _ok "API is up at http://localhost:7777"
-} else {
-    _warn "API did not respond yet — it may still be starting. Check: http://localhost:7777/health"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 6 — Python TUI setup + desktop shortcut
-# ─────────────────────────────────────────────────────────────────────────────
-_head "Step 7/7 — Monitor TUI"
+_head "Step 3/3 — Python"
 
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCmd) {
@@ -341,55 +179,25 @@ if (-not $pythonCmd) {
     }
 }
 
-if ($pythonCmd) {
-    _ok "Python ready"
-} else {
-    _warn "Python not found. Install Python 3.12+ from python.org, then run launch.bat."
-}
-
-# Create desktop shortcut and Start Menu entry
-if (Test-Path $LaunchBat) {
-    $wsh = New-Object -ComObject WScript.Shell
-
-    # Desktop shortcut
-    $lnk = $wsh.CreateShortcut($Shortcut)
-    $lnk.TargetPath       = $LaunchBat
-    $lnk.WorkingDirectory = $HollowDir
-    $lnk.Description      = "Open Hollow AgentOS live monitor"
-    $lnk.Save()
-    _ok "Desktop shortcut created: 'Hollow AgentOS'"
-
-    # Start Menu shortcut
-    $StartMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-    $StartMenuLnk = Join-Path $StartMenuDir "Hollow AgentOS.lnk"
-    $lnk2 = $wsh.CreateShortcut($StartMenuLnk)
-    $lnk2.TargetPath       = $LaunchBat
-    $lnk2.WorkingDirectory = $HollowDir
-    $lnk2.Description      = "Open Hollow AgentOS live monitor"
-    $lnk2.Save()
-    _ok "Start Menu shortcut created: 'Hollow AgentOS'"
-}
-
-# ── Done ──────────────────────────────────────────────────────────────────────
-Write-Host @"
-
-  ─────────────────────────────────────────────────
-   Setup complete.
-   API    →  http://localhost:7777
-   Docs   →  http://localhost:7777/docs
-   Dashboard → http://localhost:7778
-  ─────────────────────────────────────────────────
-
-"@ -ForegroundColor Green
-
-# Launch the monitor (thoughts.py — no extra dependencies)
-if ($pythonCmd) {
-    _info "Launching live monitor…"
-    Start-Sleep 1
-    $env:HOLLOW_DIR = $HollowDir
-    Set-Location $HollowDir
-    & $pythonCmd.Source thoughts.py
-} else {
-    _warn "To open the monitor later, double-click 'launch.bat' or 'Hollow AgentOS' on your Desktop."
+if (-not $pythonCmd) {
+    _err "Python not found. Install Python 3.12+ from https://python.org then re-run install.bat."
     Read-Host "  Press Enter to exit"
+    exit 1
 }
+
+_ok "Python ready"
+
+# Install textual if missing (needed by hollow.py wizard)
+_info "Checking Python dependencies…"
+& $pythonCmd.Source -m pip install "textual>=8.0.0" -q --disable-pip-version-check
+_ok "Dependencies ready"
+
+# ── Hand off to the interactive setup wizard ──────────────────────────────────
+Write-Host ""
+Write-Host "  Prerequisites installed. Starting Hollow setup wizard..." -ForegroundColor Cyan
+Write-Host ""
+Start-Sleep 1
+
+$env:HOLLOW_DIR = $HollowDir
+Set-Location $HollowDir
+& $pythonCmd.Source hollow.py

@@ -39,7 +39,7 @@ def main():
         print(__doc__)
         return
 
-    if arg == "logs":
+    if arg in ("logs", "monitor"):
         os.chdir(ROOT)
         os.execv(sys.executable, [sys.executable, str(ROOT / "thoughts.py")])
         return
@@ -53,12 +53,17 @@ def main():
         _show_status()
         return
 
-    # Default: run setup (force if arg == "setup", otherwise only if no config)
-    force = (arg == "setup")
-    if not CONFIG_PATH.exists() or force:
+    if arg in ("setup", "onboarding"):
+        _run_setup()
+        return
+
+    # Default (no args): wizard if not configured, monitor if already running
+    if not CONFIG_PATH.exists():
         _run_setup()
     else:
-        _show_status()
+        # Config exists — go straight to the monitor
+        os.chdir(ROOT)
+        os.execv(sys.executable, [sys.executable, str(ROOT / "thoughts.py")])
 
 
 def _run_quiet(cmd, cwd=None):

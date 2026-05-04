@@ -875,11 +875,11 @@ class LaunchScreen(Screen):
             _ensure_dirs()
             progress(30)
 
-            # ── Step 4: Pull model ────────────────────────────────────────────
+            # ── Step 4: Pull models ───────────────────────────────────────────
             model_id = self._model["id"]
             if _model_installed(model_id):
                 log(f"  [bold #00c896]✓[/]  {model_id} already downloaded")
-                progress(60)
+                progress(50)
             else:
                 log(
                     f"  [#00e5c0]↓[/]  Downloading {model_id}  "
@@ -889,9 +889,16 @@ class LaunchScreen(Screen):
                     self.query_one("#launch-note", Static).update,
                     "  Downloading model… grab a coffee.",
                 )
-                _pull_model(model_id, lambda p: progress(30 + int(p * 0.3)))
+                _pull_model(model_id, lambda p: progress(30 + int(p * 0.2)))
                 log(f"  [bold #00c896]✓[/]  {model_id} ready")
-                progress(60)
+                progress(50)
+
+            # Pull nomic-embed-text (needed for semantic memory)
+            if not _model_installed("nomic-embed-text"):
+                log("  [#00e5c0]↓[/]  Downloading nomic-embed-text [dim](~274 MB — embedding model)[/]")
+                _pull_model("nomic-embed-text")
+                log("  [bold #00c896]✓[/]  nomic-embed-text ready")
+            progress(60)
 
             # ── Step 5: Start containers ──────────────────────────────────────
             log("  [dim]Starting containers…[/]")
@@ -923,6 +930,14 @@ class LaunchScreen(Screen):
             log(f"  [bold #f05050]✗[/]  Unexpected error: {exc}")
             self.call_from_thread(self._show_done, False, str(exc))
 
+    def _launch_monitor(self) -> None:
+        self.app.exit()
+        import subprocess, sys
+        subprocess.run(
+            [sys.executable, str(ROOT / "thoughts.py")],
+            cwd=str(ROOT),
+        )
+
     def _update_log(self, msg: str) -> None:
         existing = self.query_one("#launch-status", Static)
         current = str(existing.renderable)
@@ -931,24 +946,24 @@ class LaunchScreen(Screen):
     def _show_done(self, success: bool, detail: str) -> None:
         self._done = True
         if success:
+            launch_note = ""
+            if detail == "slow_start":
+                launch_note = (
+                    "\n\n  [#f0b429]Note:[/] [dim]API still initializing — "
+                    "check http://localhost:7777/health if agents don't appear.[/]"
+                )
             content = (
                 "  [bold #00e5c0]Hollow is alive.[/]\n\n"
-                "  Three agents are running right now — forming goals,\n"
-                "  calling tools, and building their own understanding of their world.\n\n"
-                "  [bold]What to do next:[/]\n\n"
-                "  [#00e5c0]python hollow.py logs[/]    [dim]watch the agents live[/]\n"
-                "  [#00e5c0]python hollow.py status[/]  [dim]check if everything is running[/]\n"
-                "  [#00e5c0]python hollow.py stop[/]    [dim]stop all containers[/]\n"
-                "  [#00e5c0]python hollow.py setup[/]   [dim]re-run this wizard[/]\n\n"
-                "  Dashboard:  [dim]http://localhost:7778[/]\n"
-                "  API:        [dim]http://localhost:7777[/]\n\n"
-                "  [dim]The agents don't know you're watching. That's the point.[/]"
+                "  Three agents are running — forming goals, calling tools,\n"
+                "  building their own understanding of their world.\n\n"
+                "  Opening the live monitor in 3 seconds...\n\n"
+                "  [dim]hollow            open monitor anytime[/]\n"
+                "  [dim]hollow onboarding  re-run this wizard[/]\n"
+                "  [dim]hollow stop        stop all containers[/]"
+                + launch_note
             )
-            if detail == "slow_start":
-                content += (
-                    "\n\n  [#f0b429]Note:[/] [dim]The API is still initializing. "
-                    "Check http://localhost:7777/health in a moment.[/]"
-                )
+            # Auto-launch monitor after a short delay
+            self.set_timer(3.0, self._launch_monitor)
         else:
             content = (
                 "  [bold #f05050]Setup did not complete cleanly.[/]\n\n"
