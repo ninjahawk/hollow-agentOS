@@ -1,7 +1,7 @@
 @echo off
-:: Hollow AgentOS — Windows installer
+:: Hollow AgentOS - Windows installer
 :: Double-click this file to set everything up.
-:: Requires: internet connection, ~8 GB free disk space, Windows 10 2004+ or Windows 11
+:: Requires: internet connection, ~15 GB free disk space, Windows 10 2004+ or Windows 11
 
 title Hollow AgentOS Setup
 
@@ -9,14 +9,14 @@ title Hollow AgentOS Setup
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs"
     exit /b
 )
 
 :: Run the PowerShell installer from the same directory as this .bat
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
 
-:: If the TUI exited, keep the window open so the user can read any errors
+:: Keep window open if setup failed so user can read the error
 if %errorlevel% neq 0 (
     echo.
     echo Setup encountered an issue. See messages above.

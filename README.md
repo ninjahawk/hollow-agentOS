@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.5.3-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.5.4-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
@@ -42,34 +42,32 @@ You set it up, leave it running, and observe. The interesting parts happen when 
 
 ## Quick start
 
-**Requirements:** Windows 10 2004+, Windows 11, macOS, or Linux · 15 GB free disk space · Internet connection · NVIDIA GPU recommended (8 GB+ VRAM) — works on CPU but planning calls take ~40s instead of ~6s.
+**Requirements:** Windows 10 build 19041+, Windows 11, macOS, or Linux · 15 GB free disk space · Internet connection · NVIDIA GPU recommended (8 GB+ VRAM) — works on CPU, planning calls just take ~40s instead of ~6s.
 
 **Windows**
 
-1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest) and extract it anywhere.
-2. Double-click `install.bat`.
+1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), right-click it, and choose **Extract All**. Extract it somewhere permanent — your Desktop or Documents is fine.
+2. Open the extracted folder and double-click **`install.bat`**.
 
-That's it. The installer checks for Python, then hands off to a setup wizard that handles everything else: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it, and starts the agents. When setup is done the live monitor opens automatically.
+The installer handles everything from there: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it (~2–7 GB depending on your choice), and starts the agents. The live monitor opens automatically when it's done.
 
-If Docker installation needs a Windows restart (common on first install — Docker requires WSL2), the wizard will tell you exactly what to do. Run `python hollow.py` after restarting and it continues where it left off.
+**If the wizard says you need to restart Windows** — that's normal on first install. Docker needs a one-time Windows restart to finish its setup. Restart your computer, come back to the folder, and double-click **`install.bat`** again. It picks up where it left off.
 
 After setup:
 
-| Command | What it does |
+| | |
 |---|---|
-| `python hollow.py` | Open the live monitor |
-| `launch.bat` | Start agents and open monitor |
-| `stop.bat` | Stop everything and clear VRAM |
-| `python hollow.py status` | Check if the stack is running |
-| `python hollow.py setup` | Re-run the setup wizard |
+| **Start** | Double-click `launch.bat` |
+| **Stop** | Double-click `stop.bat` |
+| **Re-run setup** | Double-click `install.bat` |
 
-Agent memory and state survive restarts.
+Agent memory and state survive restarts. `stop.bat` shuts everything down cleanly and frees your GPU memory.
 
 ---
 
 **Mac / Linux**
 
-Install [Docker Desktop](https://docs.docker.com/get-docker/) first and make sure it's running. Then:
+Install [Docker Desktop](https://docs.docker.com/get-docker/) first and make sure it's running. Then open a terminal:
 
 ```bash
 git clone https://github.com/ninjahawk/hollow-agentOS
@@ -78,15 +76,16 @@ pip3 install rich
 python3 hollow.py
 ```
 
-The wizard installs Ollama if you don't have it, walks you through model selection, downloads the model, and starts the agents.
+The wizard installs Ollama if you don't have it, walks you through model selection, downloads everything, and starts the agents.
 
-After setup: `python3 hollow.py` reopens the monitor. `python3 hollow.py stop` stops the containers.
+To reopen the monitor later: `python3 hollow.py`  
+To stop: `python3 hollow.py stop`
 
 ---
 
 **What you're looking at**
 
-Three agents are running — Cedar (scout), Cipher (analyst), Vault (builder) — picking their own goals with no input from you. The monitor streams what they're doing: goals chosen, tools called, stressors rising when they're not making real progress.
+Three agents are running — a scout, an analyst, and a builder. They pick their own names. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress.
 
 When an agent wants to change something it can't touch itself, it files an `invoke_claude` request. If you're using [Claude Code](https://claude.ai/code), add `mcp/server.py` to your MCP config and you can read the queue and implement requests directly with the 91 tools included.
 

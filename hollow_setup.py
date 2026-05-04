@@ -355,6 +355,16 @@ def _install_ollama() -> tuple[bool, str]:
                 capture_output=True, text=True, timeout=180,
             )
             if r.returncode == 0:
+                # winget updates the system PATH but the current process won't
+                # see it — add Ollama's install location manually
+                if not _has_cmd("ollama"):
+                    for candidate in [
+                        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
+                        os.path.join(os.environ.get("PROGRAMFILES", ""), "Ollama"),
+                    ]:
+                        if os.path.isdir(candidate):
+                            os.environ["PATH"] = os.environ["PATH"] + os.pathsep + candidate
+                            break
                 subprocess.Popen(["ollama", "serve"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 for _ in range(15):
@@ -444,7 +454,8 @@ def _ensure_dirs() -> None:
         (ROOT / d).mkdir(parents=True, exist_ok=True)
 
 
-def _pull_model(model_id: str) -> None:
+def _pull_model(model_id: str) -> bool:
+    """Pull a model via ollama. Returns True on success, False on failure."""
     proc = subprocess.Popen(
         ["ollama", "pull", model_id],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -452,15 +463,15 @@ def _pull_model(model_id: str) -> None:
     )
     if proc.stdout:
         for raw in proc.stdout:
-            # ollama uses \r to update progress in place — split on both
             for line in raw.replace("\r", "\n").split("\n"):
                 line = line.strip()
                 if line:
                     sys.stdout.write(f"\r    {line:<72}")
                     sys.stdout.flush()
-    proc.wait()
+    code = proc.wait()
     sys.stdout.write("\r" + " " * 80 + "\r")
     sys.stdout.flush()
+    return code == 0
 
 
 def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
@@ -561,6 +572,37 @@ def _nav_hint(*parts: str) -> None:
 def run_setup() -> None:
     os.chdir(ROOT)
 
+    # ── Temp directory check ───────────────────────────────────────────────────────
+    if _IS_WIN:
+        try:
+            import tempfile
+            temp = Path(tempfile.gettempdir()).resolve()
+            ROOT.resolve().relative_to(temp)
+            # We're inside a temp folder — almost certainly ran from inside the zip
+            _clear()
+            _header()
+            _step("Extract the zip first")
+            _blank()
+            _box_line(f"[{YELLOW}]Hollow is running from a temporary folder.[/]")
+            _box_line(f"[{DIM}]This usually means you ran install.bat from inside the zip[/]")
+            _box_line(f"[{DIM}]without extracting it first. Config and agent data written[/]")
+            _box_line(f"[{DIM}]here will be lost when Windows cleans up this folder.[/]")
+            _blank()
+            _box_line(f"[{MUTED}]How to fix:[/]")
+            _box_line(f"[{DIM}]  1.  Close this window.[/]")
+            _box_line(f"[{DIM}]  2.  Right-click the zip → Extract All.[/]")
+            _box_line(f"[{DIM}]  3.  Open the extracted folder.[/]")
+            _box_line(f"[{DIM}]  4.  Double-click install.bat.[/]")
+            _blank()
+            _box_close()
+            result = _confirm("Continue from temp folder anyway?")
+            if result is _BACK or result is False:
+                C.print(f"[{PIPE}]└[/]")
+                C.print()
+                return
+        except ValueError:
+            pass  # Not in temp, good
+
     # ── Security warning (step 0 — always first) ──────────────────────────────────
     if not _security_warning():
         C.print()
@@ -575,6 +617,20 @@ def run_setup() -> None:
         checks: dict = {}
 
         C.print(f"[{PIPE}]│[/]  [{DIM}]checking…[/]", end="\r")
+
+        if _IS_WIN:
+            build = sys.getwindowsversion().build
+            if build < 19041:
+                _box_line(f"[{RED}]✗[/]  Windows              build {build} — too old")
+                _blank()
+                _box_close()
+                _blank()
+                _pipe(f"[{YELLOW}]Docker requires Windows 10 build 19041+ or Windows 11.[/]")
+                _pipe(f"[{MUTED}]Update Windows first, then run hollow.py again.[/]")
+                _blank()
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
+
         if _docker_running():
             _box_line(f"[{GREEN}]✓[/]  Docker Desktop      running")
             checks["docker"] = "ok"
@@ -673,13 +729,21 @@ def run_setup() -> None:
             _box_line(f"[{TEAL}]Starting Ollama…[/]")
             subprocess.Popen(["ollama", "serve"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            for _ in range(10):
+            for _ in range(15):
                 if _ollama_running():
                     break
                 time.sleep(1)
             if _ollama_running():
                 _box_line(f"[{GREEN}]✓[/]  Ollama started.")
                 checks["ollama"] = "ok"
+            else:
+                _blank()
+                _pipe(f"[{YELLOW}]Ollama didn't start in time.[/]")
+                _pipe(f"[{MUTED}]Try running 'ollama serve' in a terminal, then run[/]")
+                _pipe(f"[{MUTED}]hollow.py again.[/]")
+                _blank()
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
 
         if checks.get("ollama") == "missing":
             _blank()
@@ -827,15 +891,31 @@ def run_setup() -> None:
     if model_id and not _model_installed(model_id):
         log(f"[{TEAL}]Downloading {model_id}  [{DIM}]{chosen['requirements']}[/]")
         log(f"[{MUTED}]This may take a few minutes…[/]")
-        _pull_model(model_id)
-        log(f"[{GREEN}]✓[/]  {model_id} ready")
+        if _pull_model(model_id):
+            log(f"[{GREEN}]✓[/]  {model_id} ready")
+        else:
+            log(f"[{RED}]✗[/]  Download failed — is Ollama running?")
+            log(f"[{MUTED}]Run 'ollama serve' then re-run hollow.py to retry.[/]")
+            _blank()
+            _box_close()
+            C.print(f"[{PIPE}]└[/]")
+            C.print()
+            return
     elif model_id:
         log(f"[{GREEN}]✓[/]  {model_id} already downloaded")
 
     if not _model_installed("nomic-embed-text"):
         log(f"[{TEAL}]Downloading nomic-embed-text  [{DIM}]~274 MB[/]")
-        _pull_model("nomic-embed-text")
-        log(f"[{GREEN}]✓[/]  nomic-embed-text ready")
+        if _pull_model("nomic-embed-text"):
+            log(f"[{GREEN}]✓[/]  nomic-embed-text ready")
+        else:
+            log(f"[{RED}]✗[/]  nomic-embed-text download failed.[/]")
+            log(f"[{MUTED}]Run 'ollama serve' then re-run hollow.py to retry.[/]")
+            _blank()
+            _box_close()
+            C.print(f"[{PIPE}]└[/]")
+            C.print()
+            return
 
     log(f"[{DIM}]Starting containers…[/]")
     ok, err = _start_containers(has_gpu)
@@ -868,8 +948,9 @@ def run_setup() -> None:
     _header()
     _step("You're live")
     _blank()
-    _box_line(f"[{WHITE}]Three agents are now running: Cedar, Cipher, and Vault.[/]")
-    _box_line(f"[{DIM}]They're picking their own goals. You don't need to do anything.[/]")
+    _box_line(f"[{WHITE}]Three agents are now running.[/]")
+    _box_line(f"[{DIM}]A scout, an analyst, and a builder. They'll name themselves.[/]")
+    _box_line(f"[{DIM}]They pick their own goals. You don't need to do anything.[/]")
     _blank()
     _box_line(f"[{MUTED}]The monitor is about to open. Here's what you'll see:[/]")
     _blank()
