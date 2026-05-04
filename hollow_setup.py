@@ -637,7 +637,7 @@ class SystemCheckScreen(Screen):
 
         def update(check_id: str, status: str, detail: str = "") -> None:
             w = self.query_one(f"#{check_id}", CheckRow)
-            self.call_from_thread(w.set_status, status, detail)
+            self.app.call_from_thread(w.set_status, status, detail)
 
         # Docker
         update("check-docker", "running")
@@ -686,7 +686,7 @@ class SystemCheckScreen(Screen):
             results["deps"] = "ok"
 
         self._results = results
-        self.call_from_thread(self._update_actions, results)
+        self.app.call_from_thread(self._update_actions, results)
 
     def _update_actions(self, results: dict) -> None:
         area = self.query_one("#action-area", Static)
@@ -801,18 +801,18 @@ class SystemCheckScreen(Screen):
         area = self.query_one("#action-area", Static)
 
         if what in ("docker", "both"):
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one("#check-docker", CheckRow).set_status,
                 "running", "installing…"
             )
-            self.call_from_thread(
+            self.app.call_from_thread(
                 area.update,
                 "  [#00e5c0]◌[/]  Installing Docker Desktop…\n"
                 "  [dim]This may take a few minutes and will ask for admin permission.[/]",
             )
             ok, err = _install_docker()
             if ok:
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one("#check-docker", CheckRow).set_status,
                     "ok", "running",
                 )
@@ -823,7 +823,7 @@ class SystemCheckScreen(Screen):
                     "manual_linux": "Opened docs page — install it, then press R.",
                     "slow_start": "Installed — Docker may still be starting. Press R.",
                 }.get(err, f"Failed: {err[:80]}")
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one("#check-docker", CheckRow).set_status,
                     "warn" if "slow" in err or "manual" in err or "winget" in err
                     else "error",
@@ -831,17 +831,17 @@ class SystemCheckScreen(Screen):
                 )
 
         if what in ("ollama", "both"):
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one("#check-ollama", CheckRow).set_status,
                 "running", "installing…"
             )
-            self.call_from_thread(
+            self.app.call_from_thread(
                 area.update,
                 "  [#00e5c0]◌[/]  Installing Ollama…",
             )
             ok, err = _install_ollama()
             if ok:
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one("#check-ollama", CheckRow).set_status,
                     "ok", "running",
                 )
@@ -849,13 +849,13 @@ class SystemCheckScreen(Screen):
                 msg = {
                     "manual_mac": "Opened ollama.com — install it, then press R.",
                 }.get(err, f"Failed: {err[:80]}")
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one("#check-ollama", CheckRow).set_status,
                     "warn", msg[:42],
                 )
 
         # Re-check everything after installs complete
-        self.call_from_thread(self.action_recheck)
+        self.app.call_from_thread(self.action_recheck)
 
     def action_continue_setup(self) -> None:
         if self._can_continue:
@@ -1152,10 +1152,10 @@ class LaunchScreen(Screen):
     @work(thread=True)
     def _run_launch(self) -> None:
         def log(msg: str) -> None:
-            self.call_from_thread(self._update_log, msg)
+            self.app.call_from_thread(self._update_log, msg)
 
         def progress(pct: int) -> None:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one("#launch-progress", ProgressBar).update, progress=pct
             )
 
@@ -1185,7 +1185,7 @@ class LaunchScreen(Screen):
                     f"  [#00e5c0]↓[/]  Downloading {model_id}  "
                     f"[dim]({self._model['size']} — this may take a few minutes)[/]"
                 )
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one("#launch-note", Static).update,
                     "  Downloading model… grab a coffee.",
                 )
@@ -1206,7 +1206,7 @@ class LaunchScreen(Screen):
             ok, err = _start_containers()
             if not ok:
                 log(f"  [bold #f05050]✗[/]  Docker compose failed:\n  [dim]{err[:120]}[/]")
-                self.call_from_thread(self._show_done, False, err)
+                self.app.call_from_thread(self._show_done, False, err)
                 return
             log("  [bold #00c896]✓[/]  Containers started")
             progress(85)
@@ -1221,14 +1221,14 @@ class LaunchScreen(Screen):
 
             if _api_healthy():
                 log("  [bold #00c896]✓[/]  API is up  →  http://localhost:7777")
-                self.call_from_thread(self._show_done, True, "")
+                self.app.call_from_thread(self._show_done, True, "")
             else:
                 log("  [bold #f0b429]⚠[/]  API is slow to start — it may still be initializing.")
-                self.call_from_thread(self._show_done, True, "slow_start")
+                self.app.call_from_thread(self._show_done, True, "slow_start")
 
         except Exception as exc:
             log(f"  [bold #f05050]✗[/]  Unexpected error: {exc}")
-            self.call_from_thread(self._show_done, False, str(exc))
+            self.app.call_from_thread(self._show_done, False, str(exc))
 
     def _launch_monitor(self) -> None:
         self.app.exit()
