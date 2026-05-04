@@ -1,3 +1,9 @@
+# [ARCHIVED — superseded by ROADMAP_current.md, 2026-05-04]
+> This roadmap is outdated. The project has changed significantly since this was written.
+> See ROADMAP_current.md for the current state and direction.
+
+---
+
 # Hollow agentOS — Master Document
 
 > **The full stack, bottom to top:**

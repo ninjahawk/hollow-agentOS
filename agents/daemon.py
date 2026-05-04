@@ -1408,14 +1408,27 @@ def main():
                             # Mark task complete if this goal was an assigned task
                             try:
                                 from agents.task_queue import QUEUE_PATH as _TQP, complete_task as _ctask
-                                import json as _tqj2
+                                import json as _tqj2, os as _tqos
                                 if _TQP.exists():
                                     for _tql2 in _TQP.read_text().splitlines():
                                         try:
                                             _t2 = _tqj2.loads(_tql2)
-                                            if (_t2.get("status") == "assigned"
-                                                    and _t2.get("assigned_to") == agent_id
-                                                    and _t2.get("spec","")[:80] in (objective or "")):
+                                            if not (_t2.get("status") == "assigned"
+                                                    and _t2.get("assigned_to") == agent_id):
+                                                continue
+                                            _outf = _t2.get("output_file")
+                                            if _outf:
+                                                # Normalize Git Bash Windows paths to Linux container paths
+                                                # e.g. C:/Program Files/Git/agentOS/... -> /agentOS/...
+                                                import re as _re
+                                                _outf = _re.sub(r'^[A-Za-z]:/Program Files/Git', '', _outf)
+                                                # output_file specified: MUST exist and be non-empty
+                                                _done = (_tqos.path.exists(_outf)
+                                                         and _tqos.path.getsize(_outf) > 0)
+                                            else:
+                                                # no output_file: fall back to spec[:80] match
+                                                _done = _t2.get("spec","")[:80] in (objective or "")
+                                            if _done:
                                                 _ctask(_t2["task_id"], result=objective)
                                                 _thought_log(agent_id, "✅", f"task {_t2['task_id']} completed", "green")
                                                 break
@@ -1446,14 +1459,17 @@ def main():
                 pool.shutdown(wait=False)
 
         else:
-            # Drain skipped agents set gradually (re-enable after 10 cycles)
-            if metrics.cycles % 10 == 0 and metrics.skipped_agents:
-                released = list(metrics.skipped_agents)[:2]
-                for a in released:
-                    metrics.skipped_agents.discard(a)
-                    metrics.stalled_agents[a] = 0
-                log.info("Released %d cooled-off agent(s) back into rotation", len(released))
             log.debug("No active agents this cycle")
+
+        # Drain skipped agents every 10 cycles regardless of whether other agents are active.
+        # Previously inside the `else` block, which meant it never ran while Cedar/Cipher had
+        # goals — permanently trapping any stalled agent (killed Vault, 2026-05-02).
+        if metrics.cycles % 10 == 0 and metrics.skipped_agents:
+            released = list(metrics.skipped_agents)[:2]
+            for a in released:
+                metrics.skipped_agents.discard(a)
+                metrics.stalled_agents[a] = 0
+            log.info("Released %d cooled-off agent(s) back into rotation", len(released))
 
         # Quorum: active agents vote on pending capability proposals
         if active:
