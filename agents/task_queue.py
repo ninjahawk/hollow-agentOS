@@ -53,10 +53,16 @@ QUEUE_PATH = Path("/agentOS/memory/task_queue.jsonl")
 
 def submit_task(spec: str,
                 files: Optional[list] = None,
-                assigned_to: Optional[str] = None) -> str:
+                assigned_to: Optional[str] = None,
+                output_file: Optional[str] = None,
+                depends_on: Optional[str] = None) -> str:
     """
     Submit a task. Returns the task_id.
-    Safe to call from outside the container (bind-mount makes the file visible).
+
+    output_file: path inside container that must exist+non-empty for task to be
+                 considered complete (more reliable than spec string matching).
+    depends_on:  task_id that must be completed before this task becomes claimable.
+                 Enables sequential task chains — each task unlocks the next.
     """
     task_id = f"task-{uuid.uuid4().hex[:12]}"
     entry = {
@@ -64,6 +70,8 @@ def submit_task(spec: str,
         "spec":         spec,
         "files":        files or [],
         "assigned_to":  assigned_to,
+        "output_file":  output_file,
+        "depends_on":   depends_on,
         "status":       "pending",
         "created_at":   time.strftime("%Y-%m-%d %H:%M"),
         "assigned_at":  None,
@@ -131,6 +139,7 @@ def expire_stale_tasks() -> int:
 def claim_task(agent_id: str) -> Optional[dict]:
     """
     Claim the oldest pending task for this agent (or unassigned).
+    Respects depends_on: a task is only claimable if its predecessor is completed.
     Atomically marks it assigned. Returns the task dict or None.
     """
     if not QUEUE_PATH.exists():
@@ -138,6 +147,16 @@ def claim_task(agent_id: str) -> Optional[dict]:
 
     expire_stale_tasks()
     lines = QUEUE_PATH.read_text().splitlines()
+
+    # Build completed set for depends_on checks
+    all_tasks = []
+    for line in lines:
+        try:
+            all_tasks.append(json.loads(line))
+        except Exception:
+            pass
+    completed_ids = {t["task_id"] for t in all_tasks if t.get("status") == "completed"}
+
     claimed = None
     updated = []
 
@@ -150,7 +169,8 @@ def claim_task(agent_id: str) -> Optional[dict]:
 
         if (t.get("status") == "pending"
                 and claimed is None
-                and (t.get("assigned_to") in (None, agent_id))):
+                and (t.get("assigned_to") in (None, agent_id))
+                and (t.get("depends_on") is None or t.get("depends_on") in completed_ids)):
             t["status"] = "assigned"
             t["assigned_to"] = agent_id
             t["assigned_at"] = time.strftime("%Y-%m-%d %H:%M")

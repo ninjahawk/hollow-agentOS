@@ -59,10 +59,10 @@ if (-not $pythonCmd) {
 
 _ok "Python ready"
 
-# ── Textual (needed by the wizard UI) ─────────────────────────────────────────
+# ── Rich (needed by the wizard UI) ────────────────────────────────────────────
 _info "Installing wizard dependencies..."
 $pyExe = if ($pythonCmd.Source) { $pythonCmd.Source } else { "python" }
-& $pyExe -m pip install "textual>=8.0.0" -q --disable-pip-version-check
+& $pyExe -m pip install "rich" -q --disable-pip-version-check
 _ok "Ready"
 
 # ── Launch the setup wizard ───────────────────────────────────────────────────

@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.5.2-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.5.3-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
@@ -42,6 +42,60 @@ You set it up, leave it running, and observe. The interesting parts happen when 
 
 ---
 
+## Quick start
+
+**Requirements:** Windows 10 2004+, Windows 11, macOS, or Linux · 15 GB free disk space · Internet connection · NVIDIA GPU recommended (8 GB+ VRAM) — works on CPU but planning calls take ~40s instead of ~6s.
+
+---
+
+**Windows**
+
+1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest) and extract it anywhere.
+2. Double-click `install.bat`.
+
+That's it. The installer checks for Python, then hands off to a setup wizard that handles everything else: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it, and starts the agents. When setup is done the live monitor opens automatically.
+
+If Docker installation needs a Windows restart (common on first install — Docker requires WSL2), the wizard will tell you exactly what to do. Run `python hollow.py` after restarting and it continues where it left off.
+
+After setup:
+
+| Command | What it does |
+|---|---|
+| `python hollow.py` | Open the live monitor |
+| `launch.bat` | Start agents and open monitor |
+| `stop.bat` | Stop everything and clear VRAM |
+| `python hollow.py status` | Check if the stack is running |
+| `python hollow.py setup` | Re-run the setup wizard |
+
+Agent memory and state survive restarts.
+
+---
+
+**Mac / Linux**
+
+Install [Docker Desktop](https://docs.docker.com/get-docker/) first and make sure it's running. Then:
+
+```bash
+git clone https://github.com/ninjahawk/hollow-agentOS
+cd hollow-agentOS
+pip3 install rich
+python3 hollow.py
+```
+
+The wizard installs Ollama if you don't have it, walks you through model selection, downloads the model, and starts the agents.
+
+After setup: `python3 hollow.py` reopens the monitor. `python3 hollow.py stop` stops the containers.
+
+---
+
+**What you're looking at**
+
+Three agents are running — Cedar (scout), Cipher (analyst), Vault (builder) — picking their own goals with no input from you. The monitor streams what they're doing: goals chosen, tools called, stressors rising when they're not making real progress.
+
+When an agent wants to change something it can't touch itself, it files an `invoke_claude` request. If you're using [Claude Code](https://claude.ai/code), add `mcp/server.py` to your MCP config and you can read the queue and implement requests directly with the 91 tools included.
+
+---
+
 ## How it works
 
 Each agent has a suffering state. Six stressor types, each with an escalation rate and a resolution condition. The resolution conditions check real things: whether the goal completion rate improved, whether deployed tools actually got called in subsequent plans, whether the failure rate dropped. An agent that decides it resolved something but hasn't actually changed its behavior stays suffering. You can't talk your way out of it.
@@ -65,36 +119,6 @@ Three files drive the behavior:
 `agents/live_capabilities.py` is everything agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
 
 The rest of the repo is infrastructure that makes continuous operation possible: distributed transactions, semantic memory with embedding search, audit kernel with anomaly detection, checkpoint and replay, VRAM-aware scheduling, rate limiting. It's an OS layer. It exists so the agents don't stop.
-
----
-
-## Quick start
-
-**Windows**
-
-Download the ZIP from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), extract it anywhere, double-click `install.bat`. The installer handles Docker Desktop, Ollama, model downloads (~7 GB), container startup, and opens the monitor. A desktop shortcut is created.
-
-`stop.bat` shuts everything down and clears VRAM. `launch.bat` or the shortcut brings it back. Agent memory and state survive.
-
-GPU strongly recommended. Planning calls are ~6s with an NVIDIA GPU, ~40s without. Works on CPU.
-
-**Mac / Linux**
-
-You need [Docker](https://docs.docker.com/get-docker/) and [Ollama](https://ollama.ai) installed.
-
-```bash
-ollama pull qwen3.5:9b && ollama pull nomic-embed-text
-
-git clone https://github.com/ninjahawk/hollow-agentOS
-cd hollow-agentOS
-cp config.example.json config.json
-# edit config.json and change the token field to any random string
-
-docker compose up -d
-python monitor.py
-```
-
-If you don't have an NVIDIA GPU, remove the `deploy` block from `docker-compose.yml`.
 
 ---
 

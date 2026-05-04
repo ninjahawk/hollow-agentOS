@@ -1,0 +1,73 @@
+name: Release
+
+# Runs when a GitHub release is published.
+# Builds Hollow-agentOS.zip and attaches it to the release.
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  attach-zip:
+    name: Build and attach Hollow-agentOS.zip
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release zip
+        run: |
+          zip -r Hollow-agentOS.zip . \
+            --exclude "*.git/*" \
+            --exclude "*__pycache__/*" \
+            --exclude "*.pyc" \
+            --exclude "*.pyo" \
+            --exclude "*.log" \
+            --exclude "config.json" \
+            --exclude ".env" \
+            --exclude "memory/audit*" \
+            --exclude "memory/agent-registry*" \
+            --exclude "memory/heaps/*" \
+            --exclude "memory/checkpoints/*" \
+            --exclude "memory/identity/*" \
+            --exclude "memory/messages/*" \
+            --exclude "memory/executions/*" \
+            --exclude "memory/autonomy/*" \
+            --exclude "memory/goals/*" \
+            --exclude "memory/task_queue*" \
+            --exclude "memory/claude_*" \
+            --exclude "memory/shared_log*" \
+            --exclude "memory/session-log*" \
+            --exclude "memory/state-history*" \
+            --exclude "memory/event-log*" \
+            --exclude "memory/message-bus*" \
+            --exclude "memory/token-totals*" \
+            --exclude "memory/shell-usage*" \
+            --exclude "memory/semantic-index*" \
+            --exclude "memory/project*" \
+            --exclude "memory/dynamic_tools/*" \
+            --exclude "memory/synthesis/*" \
+            --exclude "memory/reasoning/*" \
+            --exclude "memory/self_modification/*" \
+            --exclude "memory/semantic/*" \
+            --exclude "memory/proposals/*" \
+            --exclude "memory/quorum/*" \
+            --exclude "memory/consensus/*" \
+            --exclude "memory/capabilities/*" \
+            --exclude "memory/heap.py" \
+            --exclude "workspace/*" \
+            --exclude "logs/*" \
+            --exclude "snapshot/*" \
+            --exclude ".docker-compose-nogpu.yml" \
+            --exclude "demo/hollow-demo.cast" \
+            --exclude "test_file_from_agent.txt"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" Hollow-agentOS.zip

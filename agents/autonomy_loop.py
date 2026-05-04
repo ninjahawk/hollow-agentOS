@@ -1075,9 +1075,11 @@ class AutonomyLoop:
                         "checks": checks,
                     }
 
-            elif cap == "shell_exec" and r.get("exit_code") == 0:
+            elif cap == "shell_exec" and r.get("exit_code") in (0, 1):
                 stdout = r.get("stdout", "").strip()
-                # exit_code=0 is success even with empty stdout (e.g. python scripts that produce no output)
+                exit_code = r.get("exit_code", 0)
+                # exit_code=0: success. exit_code=1: command ran, no matches (e.g. grep).
+                # Both are valid — only exit_code>=2 indicates a real error.
                 if stdout and len(stdout) >= 10:
                     checks.append("shell_exec produced output")
                     return {
@@ -1086,12 +1088,21 @@ class AutonomyLoop:
                         "artifact_value": stdout[:200],
                         "checks": checks,
                     }
-                else:
+                elif exit_code == 0:
                     checks.append("shell_exec succeeded (exit_code=0)")
                     return {
                         "validated": True,
                         "artifact_type": "shell_output",
                         "artifact_value": f"exit_code=0 stderr={r.get('stderr','')[:60]}",
+                        "checks": checks,
+                    }
+                else:
+                    # exit_code=1, no stdout — command ran but found nothing (grep no matches etc.)
+                    checks.append("shell_exec ran, no output (exit_code=1)")
+                    return {
+                        "validated": True,
+                        "artifact_type": "shell_output",
+                        "artifact_value": "[no output — exit_code=1, e.g. grep found nothing]",
                         "checks": checks,
                     }
 

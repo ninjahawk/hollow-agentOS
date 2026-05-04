@@ -92,14 +92,13 @@ def _show_status():
 
 def _run_setup():
     try:
-        from textual.app import App
+        from rich.console import Console  # noqa: F401
     except ImportError:
-        print("  Installing Textual...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "textual>=0.60.0", "-q"])
+        print("  Installing setup dependencies...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "rich", "-q"])
 
-    from hollow_setup import HollowSetupApp
-    app = HollowSetupApp()
-    app.run()
+    from hollow_setup import run_setup
+    run_setup()
 
 
 if __name__ == "__main__":

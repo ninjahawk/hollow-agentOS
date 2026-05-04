@@ -62,6 +62,10 @@ def main():
                    help="Assign to a specific agent (default: any)")
     p.add_argument("--files", nargs="*", default=[],
                    help="Context file paths inside the container")
+    p.add_argument("--output-file", default=None,
+                   help="Container path that must exist+non-empty for task completion (reliable check)")
+    p.add_argument("--depends-on", default=None, metavar="TASK_ID",
+                   help="Task ID that must complete before this task becomes claimable (sequential chains)")
     p.add_argument("--status", metavar="TASK_ID", help="Check status of a task")
     p.add_argument("--list", action="store_true", help="List all tasks")
     args = p.parse_args()
@@ -87,6 +91,8 @@ def main():
         "spec":         spec,
         "files":        args.files,
         "assigned_to":  args.agent,
+        "output_file":  args.output_file,
+        "depends_on":   args.depends_on,
         "status":       "pending",
         "created_at":   time.strftime("%Y-%m-%d %H:%M"),
         "assigned_at":  None,
@@ -104,6 +110,8 @@ def main():
         print(f"Assigned to: {args.agent}", file=sys.stderr)
     else:
         print("Will be picked up by the next available agent.", file=sys.stderr)
+    if args.depends_on:
+        print(f"Unlocks after: {args.depends_on}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

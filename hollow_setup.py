@@ -262,6 +262,46 @@ def _pkg_available(name: str) -> bool:
         return False
 
 
+# ── Security warning ───────────────────────────────────────────────────────────
+
+def _security_warning() -> bool:
+    """Show security notice. Returns False if user wants to exit."""
+    _clear()
+    _header()
+    _step("Security")
+    _blank()
+    _box_line(f"[{WHITE}]Security notice — please read.[/]")
+    _blank()
+    _box_line(f"[{DIM}]Hollow runs three autonomous agents on your machine. They pick[/]")
+    _box_line(f"[{DIM}]their own goals, write and hot-load their own Python tools, and[/]")
+    _box_line(f"[{DIM}]execute shell commands inside Docker — without asking first.[/]")
+    _blank()
+    _box_line(f"[{MUTED}]Agents can:[/]")
+    _box_line(f"[{DIM}]  ·  Run shell commands inside the container[/]")
+    _box_line(f"[{DIM}]  ·  Read and write files under /agentOS/[/]")
+    _box_line(f"[{DIM}]  ·  Synthesize Python tools and hot-load them without review[/]")
+    _box_line(f"[{DIM}]  ·  Queue requests (invoke_claude) for you to implement[/]")
+    _blank()
+    _box_line(f"[{MUTED}]Agents cannot (by default):[/]")
+    _box_line(f"[{DIM}]  ·  Access your host filesystem outside Docker bind mounts[/]")
+    _box_line(f"[{DIM}]  ·  Make outbound internet requests[/]")
+    _box_line(f"[{DIM}]  ·  Write core system files (daemon, audit log)[/]")
+    _blank()
+    _box_line(f"[{DIM}]The API runs on localhost:7777. Do not expose it to the internet[/]")
+    _box_line(f"[{DIM}]— there is no authentication layer.[/]")
+    _blank()
+    _box_line(f"[{YELLOW}]This is a research platform, not a hardened production system.[/]")
+    _box_line(f"[{YELLOW}]Run it on hardware you control. Keep the API token private.[/]")
+    _blank()
+    _box_close()
+    result = _confirm("I understand — continue?")
+    if result is _BACK or result is False:
+        _blank()
+        C.print(f"[{PIPE}]└[/]")
+        return False
+    return True
+
+
 # ── Installation helpers ───────────────────────────────────────────────────────
 
 def _install_docker() -> tuple[bool, str]:
@@ -277,10 +317,18 @@ def _install_docker() -> tuple[bool, str]:
                 docker_exe = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
                 if os.path.exists(docker_exe):
                     subprocess.Popen([docker_exe])
-                for _ in range(45):
+                for i in range(45):
                     if _docker_running():
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                         return True, ""
+                    sys.stdout.write(
+                        f"\r    waiting for Docker to start… {(i + 1) * 2}s  "
+                    )
+                    sys.stdout.flush()
                     time.sleep(2)
+                sys.stdout.write("\n")
+                sys.stdout.flush()
                 return True, "slow_start"
             return False, r.stderr[:200]
         else:
@@ -400,15 +448,43 @@ def _pull_model(model_id: str) -> None:
     proc = subprocess.Popen(
         ["ollama", "pull", model_id],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        bufsize=1,
     )
     if proc.stdout:
-        for _ in proc.stdout:
-            pass
+        for raw in proc.stdout:
+            # ollama uses \r to update progress in place — split on both
+            for line in raw.replace("\r", "\n").split("\n"):
+                line = line.strip()
+                if line:
+                    sys.stdout.write(f"\r    {line:<72}")
+                    sys.stdout.flush()
     proc.wait()
+    sys.stdout.write("\r" + " " * 80 + "\r")
+    sys.stdout.flush()
 
 
-def _start_containers() -> tuple[bool, str]:
+def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
+    def _nogpu_compose() -> tuple[bool, str]:
+        compose_text = (ROOT / "docker-compose.yml").read_text()
+        patched = re.sub(
+            r"(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "\n",
+            compose_text,
+        )
+        tmp = ROOT / ".docker-compose-nogpu.yml"
+        tmp.write_text(patched)
+        try:
+            r2 = subprocess.run(
+                ["docker", "compose", "-f", str(tmp), "up", "-d"],
+                cwd=ROOT, capture_output=True, text=True, timeout=300,
+            )
+            return r2.returncode == 0, r2.stderr[:200]
+        finally:
+            tmp.unlink(missing_ok=True)
+
     try:
+        if not has_gpu:
+            return _nogpu_compose()
+
         r = subprocess.run(
             ["docker", "compose", "up", "-d"],
             cwd=ROOT, capture_output=True, text=True, timeout=300,
@@ -417,21 +493,7 @@ def _start_containers() -> tuple[bool, str]:
             return True, ""
         combined = r.stdout + r.stderr
         if "nvidia" in combined.lower() or "gpu" in combined.lower():
-            compose_text = (ROOT / "docker-compose.yml").read_text()
-            patched = re.sub(
-                r"(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "\n",
-                compose_text,
-            )
-            tmp = ROOT / ".docker-compose-nogpu.yml"
-            tmp.write_text(patched)
-            try:
-                r2 = subprocess.run(
-                    ["docker", "compose", "-f", str(tmp), "up", "-d"],
-                    cwd=ROOT, capture_output=True, text=True, timeout=300,
-                )
-                return r2.returncode == 0, r2.stderr[:200]
-            finally:
-                tmp.unlink(missing_ok=True)
+            return _nogpu_compose()
         return False, r.stderr[:300]
     except subprocess.TimeoutExpired:
         return False, "timed out"
@@ -499,8 +561,14 @@ def _nav_hint(*parts: str) -> None:
 def run_setup() -> None:
     os.chdir(ROOT)
 
-    # ── Step 1: System check (always first, no back) ──────────────────────────────
+    # ── Security warning (step 0 — always first) ──────────────────────────────────
+    if not _security_warning():
+        C.print()
+        return
+
+    # ── Step 1: System check (no back) ────────────────────────────────────────────
     def do_system_check():
+        _clear()
         _header()
         _step("System check")
         _blank()
@@ -538,11 +606,38 @@ def run_setup() -> None:
         # Handle not-running / missing
         if checks.get("docker") == "not_running":
             _blank()
-            _pipe(f"[{YELLOW}]Docker is installed but not running.[/]")
-            _pipe(f"[{MUTED}]Start Docker Desktop, then run hollow onboarding again.[/]")
-            _blank()
-            C.print(f"[{PIPE}]└[/]")
-            return None, None, None
+            _box_line(f"[{TEAL}]Starting Docker Desktop…[/]")
+            try:
+                if _IS_WIN:
+                    docker_exe = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+                    if os.path.exists(docker_exe):
+                        subprocess.Popen([docker_exe])
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["open", "-a", "Docker"])
+            except Exception:
+                pass
+            started = False
+            for i in range(45):
+                if _docker_running():
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    _box_line(f"[{GREEN}]✓[/]  Docker started.")
+                    checks["docker"] = "ok"
+                    started = True
+                    break
+                sys.stdout.write(f"\r    waiting for Docker… {(i + 1) * 2}s  ")
+                sys.stdout.flush()
+                time.sleep(2)
+            if not started:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                _blank()
+                _pipe(f"[{YELLOW}]Docker is taking too long to start.[/]")
+                _pipe(f"[{MUTED}]Open Docker Desktop manually, wait for it to finish[/]")
+                _pipe(f"[{MUTED}]loading, then run hollow.py again.[/]")
+                _blank()
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
 
         if checks.get("docker") == "missing":
             _blank()
@@ -554,9 +649,20 @@ def run_setup() -> None:
             _box_line(f"[{TEAL}]Installing Docker Desktop…[/]")
             _box_line(f"[{MUTED}]May take a few minutes and will ask for admin permission.[/]")
             ok, err = _install_docker()
-            if ok or err == "slow_start":
-                _box_line(f"[{GREEN}]✓[/]  Docker Desktop installed.")
+            if ok:
+                _box_line(f"[{GREEN}]✓[/]  Docker Desktop installed and running.")
                 checks["docker"] = "ok"
+            elif err == "slow_start":
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                _blank()
+                _pipe(f"[{YELLOW}]Docker installed but didn't start in time.[/]")
+                _pipe(f"[{MUTED}]Windows often needs a restart to finish Docker's WSL2 setup.[/]")
+                _pipe(f"[{MUTED}]Restart your computer, then run hollow.py again.[/]")
+                _pipe(f"[{MUTED}]Setup will pick up where it left off.[/]")
+                _blank()
+                C.print(f"[{PIPE}]└[/]")
+                return None, None, None
             else:
                 _box_line(f"[{YELLOW}]Opened download page. Install Docker, then re-run.[/]")
                 C.print(f"[{PIPE}]└[/]")
@@ -732,7 +838,7 @@ def run_setup() -> None:
         log(f"[{GREEN}]✓[/]  nomic-embed-text ready")
 
     log(f"[{DIM}]Starting containers…[/]")
-    ok, err = _start_containers()
+    ok, err = _start_containers(has_gpu)
     if not ok:
         log(f"[{RED}]✗[/]  Docker compose failed: {err[:80]}")
         _blank()
@@ -757,25 +863,42 @@ def run_setup() -> None:
     _blank()
     _box_close()
 
-    # ── Done ──────────────────────────────────────────────────────────────────────
+    # ── What now ──────────────────────────────────────────────────────────────────
+    _clear()
+    _header()
+    _step("You're live")
     _blank()
-    C.print(f"[{PIPE}]◇  [{TEAL}]Hollow is alive.[/]")
+    _box_line(f"[{WHITE}]Three agents are now running: Cedar, Cipher, and Vault.[/]")
+    _box_line(f"[{DIM}]They're picking their own goals. You don't need to do anything.[/]")
     _blank()
-    _pipe(f"[{MUTED}]hollow            open monitor[/]")
-    _pipe(f"[{MUTED}]hollow stop       stop containers[/]")
-    _pipe(f"[{MUTED}]hollow status     check health[/]")
-    _pipe(f"[{MUTED}]hollow onboarding re-run this wizard[/]")
+    _box_line(f"[{MUTED}]The monitor is about to open. Here's what you'll see:[/]")
+    _blank()
+    _box_line(f"[{DIM}]  ·  Goals as agents choose them[/]")
+    _box_line(f"[{DIM}]  ·  Tool calls and results in real time[/]")
+    _box_line(f"[{DIM}]  ·  Stressors rising when agents aren't making real progress[/]")
+    _blank()
+    _box_line(f"[{DIM}]When an agent wants something it can't do itself, it files an[/]")
+    _box_line(f"[{DIM}]invoke_claude request. That's for you to review and decide[/]")
+    _box_line(f"[{DIM}]whether to build. You'll see it appear in the log.[/]")
+    _blank()
+    if _IS_WIN:
+        _box_line(f"[{MUTED}]python hollow.py          reopen the monitor[/]")
+        _box_line(f"[{MUTED}]launch.bat                start agents and monitor[/]")
+        _box_line(f"[{MUTED}]stop.bat                  stop agents, clear VRAM[/]")
+        _box_line(f"[{MUTED}]python hollow.py status   check health[/]")
+        _box_line(f"[{MUTED}]python hollow.py setup    re-run this wizard[/]")
+    else:
+        _box_line(f"[{MUTED}]python3 hollow.py          reopen the monitor[/]")
+        _box_line(f"[{MUTED}]python3 hollow.py stop     stop agents[/]")
+        _box_line(f"[{MUTED}]python3 hollow.py status   check health[/]")
+        _box_line(f"[{MUTED}]python3 hollow.py setup    re-run this wizard[/]")
+    _blank()
+    _box_close()
+    _blank()
+    C.print(f"[{PIPE}]│[/]  [{FAINT}]press any key to open the monitor[/]")
     _blank()
     C.print(f"[{PIPE}]└[/]")
     C.print()
+    _read_key()
 
-    time.sleep(1)
     os.execv(sys.executable, [sys.executable, str(ROOT / "thoughts.py")])
-
-
-# ── Textual shim (hollow.py imports HollowSetupApp) ───────────────────────────
-
-class HollowSetupApp:
-    """Thin shim so hollow.py's _run_setup() still works."""
-    def run(self) -> None:
-        run_setup()
