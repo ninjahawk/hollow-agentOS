@@ -350,7 +350,7 @@ def _api_healthy() -> bool:
 # ── Welcome screen ────────────────────────────────────────────────────────────
 
 class WelcomeScreen(Screen):
-    BINDINGS = []
+    BINDINGS = [Binding("enter", "begin", "Begin", show=False)]
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
@@ -379,11 +379,14 @@ class WelcomeScreen(Screen):
             yield Static("", classes="step-body")
             yield Button("  Begin Setup  →", classes="btn-primary", id="begin")
             yield Static(
-                "  Click Begin  or  Tab → Enter        Q  ·  quit",
+                "  Enter  ·  begin        Q  ·  quit",
                 classes="footer-hint",
             )
 
-    def action_continue(self) -> None:
+    def on_mount(self) -> None:
+        self.query_one("#begin", Button).focus()
+
+    def action_begin(self) -> None:
         self.app.push_screen(SystemCheckScreen())
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -580,7 +583,8 @@ def _install_ollama() -> tuple[bool, str]:
 
 class SystemCheckScreen(Screen):
     BINDINGS = [
-        Binding("r", "recheck", "Re-check"),
+        Binding("enter", "continue_setup", "Continue", show=False),
+        Binding("r",     "recheck",        "Re-check"),
     ]
 
     def __init__(self):
@@ -698,6 +702,7 @@ class SystemCheckScreen(Screen):
             )
             btn.disabled = False
             self._can_continue = True
+            btn.focus()
             return
 
         self._can_continue = False
@@ -1011,7 +1016,8 @@ class ModelSelectScreen(Screen):
 
 class ApiKeyScreen(Screen):
     BINDINGS = [
-        Binding("escape", "skip", "Skip"),
+        Binding("enter",  "skip_or_continue", "Continue", show=False),
+        Binding("escape", "skip",             "Skip"),
     ]
 
     def __init__(self, model: dict):
