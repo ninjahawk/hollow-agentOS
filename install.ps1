@@ -43,7 +43,8 @@ if (-not $pythonCmd) {
     _info "Python not found — installing via winget..."
     if ($HasWinget) {
         winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements -h
-        $env:PATH += ";$env:LOCALAPPDATA\Programs\Python\Python312;$env:LOCALAPPDATA\Programs\Python\Python312\Scripts"
+        $py312 = $env:LOCALAPPDATA + "\Programs\Python\Python312"
+        $env:PATH += ";" + $py312 + ";" + $py312 + "\Scripts"
         $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
     }
 }

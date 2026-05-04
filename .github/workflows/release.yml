@@ -19,6 +19,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Convert Windows scripts to CRLF
+        run: |
+          sudo apt-get install -y dos2unix -q
+          unix2dos install.bat install.ps1 stop.bat launch.bat thoughts.bat 2>/dev/null || true
+
       - name: Build release zip
         run: |
           zip -r Hollow-agentOS.zip . \
