@@ -1079,7 +1079,11 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                 if not _peer_files:
                     _wk_lines.append(f"  {_peer}/  (nothing written yet)")
                 else:
-                    _wk_lines.append(f"  {_peer}/")
+                    _most_recent_age = _now_wk - _peer_files[0].stat().st_mtime
+                    _silence_note = ""
+                    if _most_recent_age > 3600 and _peer != agent_id:  # 60 min silent
+                        _silence_note = f"  [⚠ no new files in {int(_most_recent_age/60)}m — peer may be inactive]"
+                    _wk_lines.append(f"  {_peer}/{_silence_note}")
                     for _pf in _peer_files:
                         _age = _now_wk - _pf.stat().st_mtime
                         _age_str = (f"{int(_age/60)}m" if _age < 3600

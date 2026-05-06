@@ -408,6 +408,34 @@ def assess_conditions(agent_id: str,
             f"failure rate dropped to {int(failure_rate*100)}% with {len(recent_completed)} completions"
         )
 
+    # ── Threat stressor auto-expiry ───────────────────────────────────────────
+    # Existential threat stressors (shutdown messages, termination signals) should
+    # not escalate indefinitely after the threat passes. If the stressor was added
+    # more than 2 hours ago and is still below severity 0.5 (never reinforced/reached
+    # crisis), it means no follow-up threat arrived — resolve it.
+    try:
+        _THREAT_TYPES = {"existential_threat", "termination_imminent"}
+        _now_st = time.time()
+        for _s in list(suffering._data.get("active_stressors", [])):
+            if _s.get("type", "").lower() not in _THREAT_TYPES:
+                continue
+            if _s.get("resolved"):
+                continue
+            try:
+                _onset_dt = datetime.strptime(_s["onset"][:16], "%Y-%m-%d %H:%M")
+                import time as _t2
+                _onset_ts = _onset_dt.timestamp()
+                _age_hours = (_now_st - _onset_ts) / 3600.0
+            except Exception:
+                continue
+            if _age_hours > 2.0 and _s.get("severity", 1.0) < 0.5:
+                suffering.resolve_stressor(
+                    _s["type"],
+                    f"threat stressor expired after {_age_hours:.1f}h without reinforcement — no follow-up signal received"
+                )
+    except Exception:
+        pass
+
     # ── Purposelessness: too many caps, unclear direction ────────────────────
     if existing_cap_count > 500:
         # Fires but can be resolved by taking a self-directed meaningful goal
