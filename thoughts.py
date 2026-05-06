@@ -181,8 +181,8 @@ def narrate(raw: str) -> str | None:
         if '"submitted_to_quorum"' not in line:
             return f"\033[90m  ↳ {who} synthesized: {name}\033[0m"
     if "✗  synthesize_capability" in line:
-        err = re.search(r'"error":\s*"([^"]+)"', line)
-        reason = err.group(1)[:60] if err else "unknown error"
+        err = re.search(r'"error":\s*"([^"]+)', line)  # no closing quote — handles 200-char truncation
+        reason = err.group(1)[:80] if err else "unknown error"
         return f"\033[90m  ↳ synthesis failed: {reason}\033[0m"
     if "✓  fs_write" in line:
         p = re.search(r'"path":\s*"([^"]+)"', line)
