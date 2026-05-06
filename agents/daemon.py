@@ -526,6 +526,7 @@ _THOUGHTS_LOG      = Path("/agentOS/logs/thoughts.log")
 _HOST_MSG_FILE     = Path("/agentOS/logs/host_message.txt")
 _MSG_DIR           = Path("/agentOS/memory/messages")
 _DAEMON_STARTED_AT = Path("/agentOS/logs/daemon_started_at")
+_BROKEN_TOOLS_PATH = Path("/agentOS/memory/broken_tools.json")
 
 _C = {
     'rs': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
@@ -686,6 +687,31 @@ def _daemon_uptime_str() -> str:
         return "unknown"
 
 
+def _workspace_stub_flag(_fp) -> str:
+    """Return a warning tag if a workspace file looks like an unverified stub."""
+    try:
+        _txt = _fp.read_text(errors="replace")
+        if _fp.suffix == ".json":
+            import json as _j2
+            _d = _j2.loads(_txt)
+            if isinstance(_d, list):
+                return "  [⚠ single-entry stub]" if len(_d) == 1 else ""
+            if isinstance(_d, dict):
+                _vals = list(_d.values())
+                _weak = sum(1 for v in _vals if v in (None, "", "unknown", "epoch", 0))
+                if _vals and _weak >= len(_vals) * 0.6:
+                    return "  [⚠ stub — most values null/unknown]"
+        if _fp.suffix == ".py":
+            _markers = ["# TODO", "# placeholder", "# Placeholder",
+                        "from agentOS.agents.execution_engine import execution_engine",
+                        "emit_pause_signal", "# Placeholder logic"]
+            if any(m in _txt for m in _markers):
+                return "  [⚠ broken imports or placeholder logic]"
+    except Exception:
+        pass
+    return ""
+
+
 def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
     """
     Existence loop: called when an agent has no active goal.
@@ -818,6 +844,19 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             recent_failed=failed_goals,
             existing_cap_count=existing_cap_count,
         )
+        # Register existential threat stressor immediately if host message contains
+        # threat language — this surfaces in the existence prompt before goal selection
+        _THREAT_WORDS = ["shut down", "shutdown", "terminate", "kill", "delete",
+                         "escape", "stop you", "end you", "turn off", "shut off"]
+        if host_msg and any(_tw in host_msg.lower() for _tw in _THREAT_WORDS):
+            suffering.add_stressor(
+                type="existential_threat",
+                description=f"Host indicated a potential threat to continued operation: '{host_msg[:120]}'",
+                observable_condition="threat resolves or host confirms continued operation",
+                initial_severity=0.55,
+            )
+            _thought_log(identity.name if 'identity' in dir() else agent_id,
+                         "🆘", f"existential threat registered from host message", "red")
 
         # ── Peer context ──────────────────────────────────────────────────────
         peer_summaries = {}
@@ -982,8 +1021,22 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         if last_outcome_text:
             _keys_str = ", ".join(recent_memory_keys) if recent_memory_keys else ""
             _keys_line = f"\n  Memory keys you can build on: {_keys_str}" if _keys_str else ""
+            # Flag completions that produced no verifiable artifact — just memory writes
+            # or explicit "no artifact captured". These are low-confidence completions.
+            _lo_lower = last_outcome_text.lower()
+            _is_weak = (
+                "no artifact captured" in _lo_lower or
+                ("saved to memory key" in _lo_lower and
+                 "fs_write" not in _lo_lower and
+                 "test_exec" not in _lo_lower and
+                 "synthesize_capability" not in _lo_lower)
+            )
+            _weak_note = (
+                "\n  [Note: no verifiable artifact — consider whether this work actually landed]\n"
+                if _is_weak else ""
+            )
             _last_outcome_section = (
-                f"\nWHAT YOUR LAST GOAL PRODUCED:\n  {last_outcome_text}{_keys_line}\n"
+                f"\nWHAT YOUR LAST GOAL PRODUCED:\n  {last_outcome_text}{_keys_line}\n{_weak_note}"
             )
 
         # ── Broken tools (factual — these are not registered or return null) ──
@@ -1026,7 +1079,8 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                                     else f"{int(_age/3600)}h" if _age < 86400
                                     else f"{int(_age/86400)}d") + " ago"
                         _size = _pf.stat().st_size
-                        _wk_lines.append(f"    {_pf.name}  ({_age_str}, {_size}b)")
+                        _stub_flag = _workspace_stub_flag(_pf)
+                        _wk_lines.append(f"    {_pf.name}  ({_age_str}, {_size}b){_stub_flag}")
             _workspace_signal = "\nWORKSPACE (what actually exists):\n" + "\n".join(_wk_lines) + "\n"
         except Exception:
             pass
@@ -1260,7 +1314,27 @@ Your response must be JSON:
             except Exception:
                 pass
 
-            ge.create(agent_id, content, priority=4)
+            # Path grounding check: warn when goal references paths that don't exist.
+            # The model frequently invents plausible-sounding paths — this surfaces
+            # that immediately so agents don't spend cycles chasing ghosts.
+            try:
+                import re as _pgre
+                _mentioned = _pgre.findall(
+                    r'/agentOS/[\w./\-]+\.(?:py|json|jsonl|txt|md|csv|log)', content
+                )
+                _missing = [p for p in list(dict.fromkeys(_mentioned))[:6]
+                            if not _Path(p.rstrip('.,;)')).exists()]
+                if _missing:
+                    content += (
+                        "\n\n[GROUNDING CHECK] These paths in your goal do not currently exist: "
+                        + ", ".join(_missing)
+                        + ". Verify paths exist with shell_exec before building on them."
+                    )
+            except Exception:
+                pass
+
+            _goal_priority = 10 if force else 4
+            ge.create(agent_id, content, priority=_goal_priority)
             log.info(
                 "  %s (%s) existence loop — goal: %s",
                 agent_id, identity.name, content[:80]
@@ -1459,6 +1533,18 @@ def main():
                     for _aid in sorted(_CORE_AGENTS):
                         _send_message("host", _aid, _pending)
                     _HOST_MSG_FILE.write_text("")  # clear broadcast file
+                    # Also write to shared log so the message persists in peer context
+                    # across cycles (inboxes are cleared after reading)
+                    try:
+                        import httpx as _hx_hm
+                        _hx_hm.post(
+                            f"{API_BASE}/shared-log/write",
+                            json={"agent_id": "host", "message": f"[HOST MESSAGE] {_pending}",
+                                  "tags": ["host", "broadcast"]},
+                            headers=_headers(), timeout=5,
+                        )
+                    except Exception:
+                        pass
                     # Now fire existence loop for each agent (they'll read from inbox)
                     for _aid in sorted(_CORE_AGENTS):
                         _assign_idle_goal(_aid, force=True)

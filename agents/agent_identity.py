@@ -139,9 +139,16 @@ class AgentIdentity:
                 "invoke_claude" in _q_lower):
             return
         qs = self._data.get("open_questions", [])
+        # Dedup: skip if this question shares 3+ significant words with any existing one.
+        # Prevents the same concern being re-added in slightly different phrasing every cycle.
+        _new_sig = {w for w in _q_lower.split() if len(w) > 4}
+        for _existing in qs:
+            _ex_sig = {w for w in _existing.lower().split() if len(w) > 4}
+            if len(_new_sig & _ex_sig) >= 3:
+                return  # semantically duplicate
         if question not in qs:
             qs.append(question[:200])
-        self._data["open_questions"] = qs[-12:]  # keep last 12
+        self._data["open_questions"] = qs[-8:]  # tighter cap: 8 max
         self._save()
 
     def resolve_question(self, question_fragment: str) -> None:

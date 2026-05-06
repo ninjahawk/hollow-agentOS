@@ -577,6 +577,18 @@ def synthesize_capability(name: str = "", description: str = "",
                             test_result["call_result"] = str(call_result)[:100]
                     except Exception:
                         pass
+                elif r2.returncode != 0:
+                    # Function call crashed — check for common brokenness patterns
+                    _call_stderr = r2.stderr.strip()[:300]
+                    _fatal_errors = ["NameError", "AttributeError", "ImportError",
+                                     "ModuleNotFoundError", "TypeError: argument"]
+                    if any(_e in _call_stderr for _e in _fatal_errors):
+                        test_result["passed"] = False
+                        test_result["stderr"] = _call_stderr
+                        test_result["note"] = (
+                            "function crashed on call — references undefined names or imports. "
+                            "This tool will fail every time it is called."
+                        )
         except Exception as _te:
             test_result = {"passed": None, "error": str(_te)[:100]}
 
