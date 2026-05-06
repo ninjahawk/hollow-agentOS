@@ -1707,9 +1707,19 @@ def main():
                                                 # e.g. C:/Program Files/Git/agentOS/... -> /agentOS/...
                                                 import re as _re
                                                 _outf = _re.sub(r'^[A-Za-z]:/Program Files/Git', '', _outf)
-                                                # output_file specified: MUST exist and be non-empty
+                                                # output_file specified: MUST exist, be non-empty,
+                                                # and not look like an unfilled template.
                                                 _done = (_tqos.path.exists(_outf)
-                                                         and _tqos.path.getsize(_outf) > 0)
+                                                         and _tqos.path.getsize(_outf) > 30)
+                                                if _done:
+                                                    try:
+                                                        import re as _qre
+                                                        _qc = open(_outf, encoding="utf-8", errors="replace").read()
+                                                        # Reject unfilled template placeholders like {count} {json_content}
+                                                        if _qre.search(r'\{[a-zA-Z_]\w*\}', _qc):
+                                                            _done = False
+                                                    except Exception:
+                                                        pass
                                             else:
                                                 # no output_file: fall back to spec[:80] match
                                                 _done = _t2.get("spec","")[:80] in (objective or "")

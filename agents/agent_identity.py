@@ -190,9 +190,13 @@ class AgentIdentity:
         proposed_lower = proposed_action.lower()
         for op in ops:
             opinion_lower = op["opinion"].lower()
-            # Heuristic: look for domain keywords appearing in both
-            domain = op.get("domain", "").lower()
-            if domain and domain in proposed_lower:
+            # Match domain by significant keywords (not exact substring).
+            # Domain strings like "software_design_patterns" contain meaningful words;
+            # proposed goals use natural language that won't contain the full phrase.
+            domain = op.get("domain", "").lower().replace("_", " ")
+            _domain_words = [w for w in domain.split() if len(w) > 3]
+            _domain_matches = domain and any(w in proposed_lower for w in _domain_words)
+            if _domain_matches:
                 if any(word in opinion_lower for word in
                        ["redundant", "too many", "avoid", "stop", "not useful",
                         "waste", "pointless", "already", "shouldn't", "wrong"]):
