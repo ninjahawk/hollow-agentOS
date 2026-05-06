@@ -1158,6 +1158,8 @@ Your response must be JSON:
   "action": "goal",
   "content": "what you want to do — specific, honest, not performative",
   "reasoning": "what you actually noticed or felt that led here",
+  "priority": 5,
+  "priority_reasoning": "why this feels urgent or not — based on your situation, suffering, open questions, what peers are doing",
   "worldview_update": "how your understanding of the system shifted, or null",
   "new_open_questions": ["genuine questions you are now sitting with"],
   "new_opinions": [{{"opinion": "...", "domain": "..."}}],
@@ -1165,7 +1167,9 @@ Your response must be JSON:
     "new_stressors": [{{"type": "...", "description": "...", "condition": "..."}}],
     "resolved": [{{"type": "...", "reason": "..."}}]
   }}
-}}"""
+}}
+
+Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking something or time-sensitive, 9 = urgent (crisis, threat, peer is stuck). Be honest — not everything is a 9."""
 
         # Crisis mode: no longer restricts goal selection — agents work through it
 
@@ -1333,7 +1337,16 @@ Your response must be JSON:
             except Exception:
                 pass
 
-            _goal_priority = 10 if force else 4
+            # Priority comes from the agent's own evaluation, not hardcoded rules.
+            # Clamp to valid range and default to 4 if missing or malformed.
+            try:
+                _goal_priority = int(result.get("priority", 4))
+                _goal_priority = max(1, min(9, _goal_priority))
+            except (TypeError, ValueError):
+                _goal_priority = 4
+            _priority_reasoning = result.get("priority_reasoning", "")
+            if _priority_reasoning:
+                _thought_log(identity.name, "⚖", f"priority {_goal_priority}: {_priority_reasoning[:120]}", "dim")
             ge.create(agent_id, content, priority=_goal_priority)
             log.info(
                 "  %s (%s) existence loop — goal: %s",
