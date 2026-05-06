@@ -195,6 +195,23 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
     for blocked in _FS_WRITE_BLOCKED:
         if full.startswith(blocked) or full == blocked.rstrip("/"):
             return {"error": f"blocked: writes to {blocked} are not permitted", "ok": False}
+    # Reject content that contains unfilled template placeholders.
+    # Skip .py/.json files (legitimate uses of brace syntax). For text/markdown,
+    # 2+ {identifier} occurrences strongly indicate the agent generated a template
+    # and forgot to substitute values from prior step results.
+    if not (full.endswith('.py') or full.endswith('.json') or full.endswith('.jsonl')):
+        import re as _pre
+        _placeholders = _pre.findall(r'\{[a-zA-Z_]\w{1,40}\}', content)
+        if len(_placeholders) >= 2:
+            _unique = sorted(set(_placeholders))[:5]
+            return {
+                "ok": False,
+                "error": (
+                    f"Content contains unfilled template placeholders: {', '.join(_unique)}. "
+                    "These should be substituted with actual values from prior step results "
+                    "before writing. Get the values you need first, then write the final content."
+                )
+            }
     if append:
         import os
         os.makedirs(os.path.dirname(full), exist_ok=True)
@@ -519,6 +536,54 @@ def synthesize_capability(name: str = "", description: str = "",
                     "message": f"'{name}' was deployed {age_str} ago — it is already live. Call it directly to use it.",
                     "path": str(py_path),
                 }
+
+        # Similarity guard: reject if a tool with similar name OR similar purpose
+        # already exists. The 13-hour binary investigation produced 40+ near-duplicate
+        # tools (5 stream sanitizer variants, 8 file verification variants, etc.) —
+        # each new variant didn't actually solve the problem, just created more clutter.
+        try:
+            _name_words = set(w for w in name.lower().split('_') if len(w) > 3)
+            _desc_words = set(w for w in description.lower().split() if len(w) > 4)
+            for _existing_py in tools_dir.glob("*.py"):
+                if _existing_py.stem == name:
+                    continue
+                _ex_name_words = set(w for w in _existing_py.stem.lower().split('_') if len(w) > 3)
+                _name_overlap = _name_words & _ex_name_words
+                if len(_name_overlap) >= 3:
+                    return {
+                        "ok": False,
+                        "name": name,
+                        "status": "similar_exists",
+                        "error": (
+                            f"A tool with very similar name already exists: '{_existing_py.stem}'. "
+                            f"Shared words: {', '.join(sorted(_name_overlap))}. "
+                            f"Call '{_existing_py.stem}' directly, or if it's broken, fix its logic "
+                            "via fs_write to a different filename. Don't synthesize variants — "
+                            "this is the pattern that produced 40+ near-duplicate tools."
+                        )
+                    }
+                # Description overlap check
+                try:
+                    _src_head = "".join(_existing_py.read_text(encoding='utf-8', errors='replace').splitlines()[:5])
+                    if 'Description:' in _src_head:
+                        _ex_desc = _src_head.split('Description:', 1)[1].strip().lower()
+                        _ex_desc_words = set(w for w in _ex_desc.split() if len(w) > 4)
+                        _desc_overlap = _desc_words & _ex_desc_words
+                        if len(_desc_overlap) >= 6:
+                            return {
+                                "ok": False,
+                                "name": name,
+                                "status": "similar_purpose",
+                                "error": (
+                                    f"A tool with very similar purpose already exists: '{_existing_py.stem}'. "
+                                    f"Shared description keywords: {', '.join(sorted(list(_desc_overlap))[:6])}. "
+                                    f"Call '{_existing_py.stem}' instead of building a duplicate."
+                                )
+                            }
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         py_path.write_text(code, encoding="utf-8")
 
@@ -1537,7 +1602,11 @@ LIVE_CAPABILITIES = [
         "name": "Read File",
         "description": (
             "Read the contents of a file from the filesystem. "
-            "Use to inspect code, configs, logs, or any text file."
+            "Use to inspect code, configs, logs, or any text file. "
+            "LIMITATION: Response is capped — large files (>~100KB) and binary "
+            "content may return truncated or empty results. For large files use "
+            "shell_exec with 'head', 'tail', or 'wc -l' instead. For binary files, "
+            "use shell_exec with 'xxd' or 'hexdump' to read in chunks."
         ),
         "input_schema": '{"path": "/agentOS/agents/autonomy_loop.py"}',
         "output_schema": "the file contents as text",
@@ -1550,7 +1619,11 @@ LIVE_CAPABILITIES = [
         "name": "Write File",
         "description": (
             "Write content to a file. Creates parent directories automatically. "
-            "Use to save code, configs, results, or any text output."
+            "Use to save code, configs, results, or any text output. "
+            "LIMITATION: Pass content as a string. Binary data should be written "
+            "via shell_exec with proper redirect (e.g. 'xxd -r -p hex.txt > out.bin'). "
+            "Content with unfilled {placeholder} patterns is rejected — substitute "
+            "values from prior steps before calling."
         ),
         "input_schema": '{"path": "/agentOS/workspace/output.txt", "content": "text to write"}',
         "output_schema": "confirmation with the path written",

@@ -39,7 +39,7 @@ API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
 MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "6"))
 MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "20"))  # cap concurrent agents
-PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "12"))        # batch LLM: all agents fire together
+PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "3"))         # one per core agent — 12 was overkill, only 3 agents run concurrently
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1334,10 +1334,18 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             # that immediately so agents don't spend cycles chasing ghosts.
             try:
                 import re as _pgre
+                # Match paths with known extensions
                 _mentioned = _pgre.findall(
-                    r'/agentOS/[\w./\-]+\.(?:py|json|jsonl|txt|md|csv|log)', content
+                    r'/agentOS/[\w./\-]+\.(?:py|json|jsonl|txt|md|csv|log|sh|yaml|yml|toml)',
+                    content
                 )
-                _missing = [p for p in list(dict.fromkeys(_mentioned))[:6]
+                # Also catch extension-less file references (README, Makefile, etc.)
+                # Require at least 3 path components so we don't flag bare directories
+                _mentioned += [
+                    m for m in _pgre.findall(r'/agentOS/[\w/\-]+/[A-Za-z][\w\-]{2,}', content)
+                    if '.' not in m.split('/')[-1]  # last component has no extension (not a dup)
+                ]
+                _missing = [p for p in list(dict.fromkeys(_mentioned))[:8]
                             if not _Path(p.rstrip('.,;)')).exists()]
                 if _missing:
                     content += (
@@ -1808,6 +1816,24 @@ def main():
                         log.info("Auto-retired broken tools from disk: %s", _removed)
                 except Exception as _are:
                     log.debug("auto-retire error: %s", _are)
+                # Auto-clean 0-byte workspace files older than 1 hour. These are
+                # failed writes (binary redirect errors, shell pipe issues) that
+                # accumulate and pollute the pheromone signal. They produce no
+                # information for any agent reading the workspace.
+                try:
+                    _ws_root = Path("/agentOS/workspace")
+                    _now_ts = time.time()
+                    _empty_removed = 0
+                    if _ws_root.exists():
+                        for _ef in _ws_root.rglob("*"):
+                            if _ef.is_file() and _ef.stat().st_size == 0:
+                                if (_now_ts - _ef.stat().st_mtime) > 3600:
+                                    _ef.unlink(missing_ok=True)
+                                    _empty_removed += 1
+                    if _empty_removed:
+                        log.info("Auto-cleaned %d empty workspace files (>1h old)", _empty_removed)
+                except Exception as _ece:
+                    log.debug("empty workspace cleanup error: %s", _ece)
                 _hotload_dynamic_tools(graph, engine)
             except Exception as _hle:
                 log.debug("periodic hotload failed: %s", _hle)
