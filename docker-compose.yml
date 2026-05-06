@@ -52,6 +52,7 @@ services:
       - ${CLAUDE_CREDENTIALS_FILE:-/dev/null}:/claude-auth/.credentials.json:ro
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPYCACHEPREFIX=/tmp/pycache
       - OLLAMA_HOST=http://host.docker.internal:11434
       # Optional overrides — set in .env or via installer
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
