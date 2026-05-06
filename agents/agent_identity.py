@@ -113,9 +113,14 @@ class AgentIdentity:
 
     def update_worldview(self, new_view: str) -> None:
         """Update the agent's developing theory of what the system should become."""
-        if new_view and len(new_view) > 10:
-            self._data["worldview"] = new_view[:600]
-            self._save()
+        if not new_view or len(new_view) <= 10:
+            return
+        # Don't let invoke_claude queue mechanics contaminate the worldview —
+        # observations about req- IDs are transient state, not durable beliefs
+        if "req-" in new_view or "check_claude_status" in new_view.lower():
+            return
+        self._data["worldview"] = new_view[:600]
+        self._save()
 
     # ── Open questions ────────────────────────────────────────────────────────
 
@@ -125,6 +130,14 @@ class AgentIdentity:
 
     def add_open_question(self, question: str) -> None:
         """Add a question the agent is sitting with. Persists until resolved."""
+        # Filter out questions about transient queue state — these are not
+        # durable insights and cause agents to loop on status checks indefinitely
+        _q_lower = question.lower()
+        if ("req-" in question or
+                "check_claude_status" in _q_lower or
+                "pending request" in _q_lower or
+                "invoke_claude" in _q_lower):
+            return
         qs = self._data.get("open_questions", [])
         if question not in qs:
             qs.append(question[:200])
@@ -224,12 +237,76 @@ class AgentIdentity:
             lines.append(f"Your recent history: {narrative_snippet}")
         return " ".join(lines)
 
+    def record_synthesis_outcome(self, tool_name: str, success: bool, failure_reason: str = "") -> None:
+        """Record a synthesis attempt outcome. Builds an honest self-model of capability."""
+        profile = self._data.setdefault("capability_profile", {
+            "synthesis_attempts": 0,
+            "synthesis_successes": 0,
+            "failure_patterns": {},   # reason → count
+            "tools_built": [],        # names of tools that passed
+            "tools_called_by_peers": [],  # tools peers actually used
+        })
+        profile["synthesis_attempts"] = profile.get("synthesis_attempts", 0) + 1
+        if success:
+            profile["synthesis_successes"] = profile.get("synthesis_successes", 0) + 1
+            built = profile.setdefault("tools_built", [])
+            if tool_name not in built:
+                built.append(tool_name)
+                profile["tools_built"] = built[-20:]
+        else:
+            if failure_reason:
+                patterns = profile.setdefault("failure_patterns", {})
+                patterns[failure_reason] = patterns.get(failure_reason, 0) + 1
+        self._save()
+
+    def record_tool_called_by_peer(self, tool_name: str, caller: str) -> None:
+        """Record that a peer called one of our synthesized tools — real social signal."""
+        profile = self._data.setdefault("capability_profile", {})
+        called = profile.setdefault("tools_called_by_peers", [])
+        entry = f"{tool_name} (called by {caller})"
+        if entry not in called:
+            called.append(entry)
+            profile["tools_called_by_peers"] = called[-20:]
+        self._save()
+
+    def get_capability_summary(self) -> str:
+        """Returns a plain-text summary for injection into the existence prompt."""
+        profile = self._data.get("capability_profile", {})
+        if not profile:
+            return ""
+        attempts = profile.get("synthesis_attempts", 0)
+        successes = profile.get("synthesis_successes", 0)
+        if attempts == 0:
+            return ""
+        rate = int(100 * successes / attempts)
+        patterns = profile.get("failure_patterns", {})
+        top_failures = sorted(patterns.items(), key=lambda x: -x[1])[:3]
+        called = profile.get("tools_called_by_peers", [])
+        lines = [f"Your synthesis record: {successes}/{attempts} passed ({rate}%)"]
+        if top_failures:
+            lines.append("Patterns you consistently fail at: " +
+                         ", ".join(f"{r} ({n}x)" for r, n in top_failures))
+        if called:
+            lines.append("Tools peers have actually used: " + ", ".join(called[-5:]))
+        else:
+            lines.append("No tools you built have been called by peers yet.")
+        if rate < 40 and attempts >= 5:
+            lines.append("→ Your synthesis success rate is low. For complex tools, use invoke_claude() instead of retrying locally.")
+        return "\n".join(lines)
+
     def update_narrative(self, completed_goal: str, outcome_summary: str) -> None:
         """Append to self-narrative after a goal completes."""
+        # Don't record goals that were just checking request status — these are
+        # queue mechanics, not meaningful experience worth remembering
+        _goal_lower = completed_goal.lower()
+        if ("check_claude_status" in _goal_lower or
+                "req-" in completed_goal or
+                "pending request" in _goal_lower or
+                "invoke_claude" in _goal_lower):
+            return
         ts = time.strftime("%Y-%m-%d")
         entry = f"[{ts}] Completed: {completed_goal[:80]}. {outcome_summary[:120]}"
         existing = self._data.get("narrative", "")
-        # Keep last ~800 chars so the narrative stays concise
         combined = (existing + " " + entry).strip()
         self._data["narrative"] = combined[-800:]
         self._data["narrative_updated_at"] = time.time()

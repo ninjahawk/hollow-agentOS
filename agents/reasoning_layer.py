@@ -62,10 +62,12 @@ def _thought(agent_id: str, msg: str) -> None:
             goal = m[5:].strip()[:90]
             out = f"{ts_s}  {_C['bold']}{_C['yellow']}{aid:<15}  ◎  {goal}{_C['rs']}"
         elif m.startswith("PLAN:"):
-            plan = m[5:].strip()
+            plan = m[5:].strip()[:120]  # cap plan chain length
             out = f"{blank}  {_C['dim']}{aid:<15}  {_C['blue']}↳  {plan}{_C['rs']}"
         elif m.startswith("step "):
-            out = f"{blank}  {_C['dim']}{aid:<15}     {m}{_C['rs']}"
+            # Show step number and capability only — no params
+            step_cap = m.split("|", 1)[0].strip()[:50]
+            out = f"{blank}  {_C['dim']}{aid:<15}     {step_cap}{_C['rs']}"
         else:
             out = f"{ts_s}  {_C['dim']}{aid:<15}  {m}{_C['rs']}"
 

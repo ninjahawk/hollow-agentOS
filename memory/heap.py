@@ -1,5 +1,5 @@
-"""
-Working Memory Heap — AgentOS v1.0.0.
+﻿"""
+Working Memory Heap â€” AgentOS v1.0.0.
 
 An LLM's context window is RAM. This module manages it:
 - alloc: claim a named slot with content + token count + priority
@@ -11,7 +11,7 @@ An LLM's context window is RAM. This module manages it:
 - heap_stats: token counts, object counts, fragmentation score
 
 Auto-management (called by memory/manager.py at 80% token budget):
-  memory.pressure → compress low-priority objects → swap if still over threshold
+  memory.pressure â†’ compress low-priority objects â†’ swap if still over threshold
 """
 
 import json
@@ -27,7 +27,7 @@ HEAP_DIR = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "heaps"
 API_BASE = "http://localhost:7777"
 
 # Simple whitespace-based token estimator (no tokenizer dependency)
-# GPT-4 rough approximation: 1 token ≈ 4 chars, but we use word count × 1.3
+# GPT-4 rough approximation: 1 token â‰ˆ 4 chars, but we use word count Ã— 1.3
 def _count_tokens(text: str) -> int:
     return max(1, int(len(text.split()) * 1.3))
 
@@ -66,7 +66,7 @@ class WorkingMemoryHeap:
     def set_event_bus(self, event_bus) -> None:
         self._event_bus = event_bus
 
-    # ── Core operations ──────────────────────────────────────────────────────
+    # â”€â”€ Core operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def alloc(
         self,
@@ -313,7 +313,7 @@ class WorkingMemoryHeap:
         }
 
     def list_objects(self) -> list[dict]:
-        """List all objects with metadata (no content — just stats)."""
+        """List all objects with metadata (no content â€” just stats)."""
         with self._lock:
             return [
                 {
@@ -331,7 +331,7 @@ class WorkingMemoryHeap:
                 for o in self._objects.values()
             ]
 
-    # ── Auto-management ──────────────────────────────────────────────────────
+    # â”€â”€ Auto-management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def auto_manage(self, token_budget: int) -> dict:
         """
@@ -351,7 +351,7 @@ class WorkingMemoryHeap:
                 "budget":       token_budget,
             })
 
-        # Sort compressible objects by (priority ASC, last_read_at ASC) — compress least-used first
+        # Sort compressible objects by (priority ASC, last_read_at ASC) â€” compress least-used first
         with self._lock:
             candidates = sorted(
                 [o for o in self._objects.values()
@@ -392,7 +392,7 @@ class WorkingMemoryHeap:
             "tokens_after":    self.heap_stats()["total_tokens"],
         }
 
-    # ── Internal ─────────────────────────────────────────────────────────────
+    # â”€â”€ Internal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _summarize(self, content: str) -> str:
         """
@@ -457,7 +457,7 @@ class WorkingMemoryHeap:
 
 
 # ---------------------------------------------------------------------------
-# Registry of heaps — one per agent, created on demand
+# Registry of heaps â€” one per agent, created on demand
 # ---------------------------------------------------------------------------
 
 class HeapRegistry:
@@ -503,3 +503,4 @@ class HeapRegistry:
             used = agent.usage.get("tokens_in", 0)
             if used >= int(budget_tokens_in * 0.80):
                 heap.auto_manage(budget_tokens_in)
+

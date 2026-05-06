@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 AgentOS Memory Manager
-Persistent workspace knowledge — eliminates re-exploration between sessions.
+Persistent workspace knowledge â€” eliminates re-exploration between sessions.
 """
 
 import json
@@ -15,7 +15,7 @@ from typing import Any
 CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 MEMORY_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory"))
 
-# EventBus reference — injected at server startup, None when running standalone
+# EventBus reference â€” injected at server startup, None when running standalone
 _event_bus = None
 
 
@@ -52,7 +52,7 @@ def _save(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2))
 
 
-# ── Write buffers — reduce disk I/O on hot paths ─────────────────────────────
+# â”€â”€ Write buffers â€” reduce disk I/O on hot paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _LOG_BUFFER: list = []          # buffered log entries not yet flushed
 _LOG_BUFFER_SIZE = 10           # flush every N entries
@@ -87,7 +87,7 @@ def _flush_token_totals() -> None:
     _token_dirty_count = 0
 
 
-# ── Workspace Map ────────────────────────────────────────────────────────────
+# â”€â”€ Workspace Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def index_workspace(root: str = None) -> dict:
     """Scan workspace and build a file index. Skips hidden dirs and common noise."""
@@ -163,7 +163,7 @@ def find_files(pattern: str) -> list:
     ]
 
 
-# ── Session Log ──────────────────────────────────────────────────────────────
+# â”€â”€ Session Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def log_action(action: str, details: dict = None) -> None:
     """Append an action to the session log and update persistent token totals."""
@@ -219,7 +219,7 @@ def get_recent_actions(n: int = 50) -> list:
     return all_actions[-n:]
 
 
-# ── Token Totals (persistent across sessions) ────────────────────────────────
+# â”€â”€ Token Totals (persistent across sessions) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def update_token_totals(action_type: str, model: str = None,
                         tokens_in: int = 0, tokens_out: int = 0) -> None:
@@ -281,7 +281,7 @@ def get_token_totals() -> dict:
     })
 
 
-# ── Tool Registry ────────────────────────────────────────────────────────────
+# â”€â”€ Tool Registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def register_tool(name: str, description: str, usage: str, path: str) -> None:
     registry = _load(TOOL_REGISTRY, {"tools": {}})
@@ -302,7 +302,7 @@ def get_tool_registry() -> dict:
 def bootstrap_tool_registry() -> None:
     """Register all built-in AgentOS tools."""
     tools = [
-        ("agent-shell",   "JSON-native shell — run any command, get JSON back",          "agent-shell <command>",           "/agentOS/shell/agent-shell.py"),
+        ("agent-shell",   "JSON-native shell â€” run any command, get JSON back",          "agent-shell <command>",           "/agentOS/shell/agent-shell.py"),
         ("agent-fs",      "Filesystem ops with JSON output",                              "agent-fs <list|read|write|stat>", "/agentOS/tools/agent-fs.py"),
         ("agent-git",     "Git operations with JSON output",                              "agent-git <status|log|diff>",     "/agentOS/tools/agent-git.py"),
         ("agent-search",  "Semantic + text search across workspace",                      "agent-search <query>",            "/agentOS/tools/agent-search.py"),
@@ -316,7 +316,7 @@ def bootstrap_tool_registry() -> None:
         register_tool(name, desc, usage, path)
 
 
-# ── Project Context ──────────────────────────────────────────────────────────
+# â”€â”€ Project Context â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def set_project_context(key: str, value: Any) -> None:
     ctx = _load(PROJECT_CONTEXT, {})
@@ -329,7 +329,7 @@ def get_project_context() -> dict:
     return _load(PROJECT_CONTEXT, {})
 
 
-# ── Decisions Queue ──────────────────────────────────────────────────────────
+# â”€â”€ Decisions Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def queue_decision(message: str, context: dict = None, blocking: bool = False) -> str:
     """
@@ -376,7 +376,7 @@ def get_pending_decisions() -> list:
     return _load(DECISIONS, {"pending": []})["pending"]
 
 
-# ── Agent Handoff ────────────────────────────────────────────────────────────
+# â”€â”€ Agent Handoff â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 HANDOFF_PATH = MEMORY_PATH / "handoff.json"  # legacy single-agent path
 SESSION_LOG_MAX = 1000  # max actions kept in session log before eviction
@@ -384,7 +384,7 @@ MESSAGE_BUS_MAX = 2000  # max messages kept in bus before eviction
 
 
 def _handoff_path(agent_id: str) -> Path:
-    """Per-agent handoff file — prevents concurrent agents from overwriting each other."""
+    """Per-agent handoff file â€” prevents concurrent agents from overwriting each other."""
     safe_id = agent_id.replace("/", "_").replace("..", "_")
     return MEMORY_PATH / f"handoff-{safe_id}.json"
 
@@ -394,9 +394,9 @@ def write_handoff(agent_id: str, summary: str, in_progress: list = None,
                   next_steps: list = None) -> dict:
     """
     Write a structured handoff for the next agent session.
-    Each agent gets its own file — concurrent agents no longer overwrite each other.
+    Each agent gets its own file â€” concurrent agents no longer overwrite each other.
     """
-    # Flush buffers before writing handoff — ensures complete picture for next agent
+    # Flush buffers before writing handoff â€” ensures complete picture for next agent
     _flush_log_buffer()
     _flush_token_totals()
     handoff = {
@@ -428,7 +428,7 @@ def read_handoff(agent_id: str = None) -> dict:
     return _load(HANDOFF_PATH, None)
 
 
-# ── Session Context Dump ──────────────────────────────────────────────────────
+# â”€â”€ Session Context Dump â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_session_context() -> dict:
     """
@@ -445,7 +445,7 @@ def get_session_context() -> dict:
     }
 
 
-# ── State History (temporal context) ────────────────────────────────────────
+# â”€â”€ State History (temporal context) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 STATE_HISTORY_MAX = 100  # rolling window
 
@@ -498,7 +498,7 @@ def get_state_diff_since(since: str) -> dict:
         after = snapshots[-1]["state"]
 
     if not before:
-        return after  # no baseline — return latest
+        return after  # no baseline â€” return latest
 
     changed = {}
     for key in after:
@@ -507,7 +507,7 @@ def get_state_diff_since(since: str) -> dict:
     return changed
 
 
-# ── Spec Storage ─────────────────────────────────────────────────────────────
+# â”€â”€ Spec Storage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import uuid as _uuid
 
@@ -580,7 +580,7 @@ def update_spec(spec_id: str, updates: dict) -> dict:
     return specs["specs"][spec_id]
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if __name__ == "__main__":
     import sys
@@ -639,3 +639,4 @@ if __name__ == "__main__":
     else:
         print(json.dumps({"error": f"Unknown command: {cmd}"}))
         sys.exit(1)
+

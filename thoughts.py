@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
 Hollow AgentOS — Live Agent Monitor
-Shows the last N lines of history, then streams new events in real time.
-Plain-English narrator lines are injected after key events.
+Streams thoughts.log with terminal-width-aware line wrapping.
 Run:  python thoughts.py
 """
 
+import io
 import os
 import re
 import sys
 import time
-import json
+import shutil
 import collections
 from pathlib import Path
+
+# Force UTF-8 on Windows so box-drawing chars render correctly
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 HOLLOW_DIR   = Path(os.getenv("HOLLOW_DIR", Path(__file__).parent))
 THOUGHTS_LOG = HOLLOW_DIR / "logs" / "thoughts.log"
@@ -32,76 +36,163 @@ LEGEND = (
     "\033[90m  ─────────────────────────────────────────────────────────\033[0m\n"
 )
 
-# ANSI strip
 _ANSI = re.compile(r"\033\[[0-9;]*m")
-def strip(s): return _ANSI.sub("", s)
+def _vis(s): return _ANSI.sub("", s)
 
-# ── narrator ─────────────────────────────────────────────────────────────────
+def _cols() -> int:
+    return shutil.get_terminal_size((120, 24)).columns
 
-def _json(s):
-    try:    return json.loads(s)
-    except: return {}
+
+def _active_color(raw: str) -> str:
+    """Active ANSI color at end of raw string (resets DO clear state)."""
+    active = []
+    i = 0
+    while i < len(raw):
+        if raw[i] == "\033" and i + 1 < len(raw) and raw[i + 1] == "[":
+            j = i + 2
+            while j < len(raw) and raw[j] not in "mKHJABCDfsu":
+                j += 1
+            if j < len(raw) and raw[j] == "m":
+                code = raw[i + 2:j]
+                if code in ("0", ""):
+                    active = []
+                else:
+                    active.append(raw[i:j + 1])
+            i = j + 1
+        else:
+            i += 1
+    return "".join(active)
+
+
+def _dominant_color(raw: str) -> str:
+    """Last non-reset ANSI color set anywhere in raw (ignores trailing resets).
+    Used as fallback so continuation lines stay colored even when the split
+    lands after a reset code."""
+    last = ""
+    i = 0
+    while i < len(raw):
+        if raw[i] == "\033" and i + 1 < len(raw) and raw[i + 1] == "[":
+            j = i + 2
+            while j < len(raw) and raw[j] not in "mKHJABCDfsu":
+                j += 1
+            if j < len(raw) and raw[j] == "m":
+                code = raw[i + 2:j]
+                if code not in ("0", ""):
+                    last = raw[i:j + 1]   # record every non-reset, keep updating
+            i = j + 1
+        else:
+            i += 1
+    return last
+
+
+def _wrap(raw: str) -> str:
+    """
+    Wrap a single log line at terminal width, preserving ANSI codes.
+    Continuation lines are indented (hanging indent) and carry the active
+    color forward so multi-line entries stay fully colored.
+    """
+    w = _cols()
+    content = raw.rstrip("\n")
+    if not content:
+        return raw
+
+    visible = _vis(content)
+    if len(visible) <= w:
+        return raw  # fits — return unchanged
+
+    # ── Calculate the hanging indent ────────────────────────────────────────
+    # Fixed at 30 — matches where content starts after "HH:MM:SS  name(15)  icon  "
+    col = min(30, w // 2)
+    hang = " " * col
+
+    # ── ANSI-preserving word-wrap ─────────────────────────────────────────────
+    def split_at(s: str, limit: int):
+        """Split s at word boundary at `limit` visible chars. Returns (before, after)."""
+        vis_pos = 0
+        last_space = -1
+        i = 0
+        while i < len(s):
+            if s[i] == "\033" and i + 1 < len(s) and s[i + 1] == "[":
+                j = i + 2
+                while j < len(s) and s[j] not in "mKHJABCDfsu":
+                    j += 1
+                i = j + 1
+                continue
+            if s[i] == " ":
+                last_space = i
+            vis_pos += 1
+            if vis_pos >= limit:
+                cut = last_space if last_space > 0 else i + 1
+                return s[:cut], s[cut:].lstrip(" ")
+            i += 1
+        return s, ""
+
+    lines = []
+    remaining = content
+    first = True
+    max_vis = w
+
+    while remaining:
+        if len(_vis(remaining)) <= max_vis:
+            lines.append(("" if first else hang) + remaining)
+            break
+
+        before, after = split_at(remaining, max_vis)
+
+        # Carry the active color forward.
+        # _active_color respects resets; if it returns empty (split after a
+        # reset), fall back to _dominant_color which finds the last color
+        # set anywhere in the line, ignoring trailing resets.
+        carry = _active_color(before) or _dominant_color(before) or _dominant_color(content)
+
+        lines.append(("" if first else hang) + before)
+        remaining = carry + after  # prepend active color to continuation
+        first = False
+        max_vis = w - col
+
+    return "\n".join(lines) + "\033[0m\n"
+
+
+# ── narrator ──────────────────────────────────────────────────────────────────
 
 def narrate(raw: str) -> str | None:
     """Return a small plain-English line for key events, or None."""
-    line = strip(raw).strip()
+    line = _vis(raw).strip()
     if not line:
         return None
 
-    # who — first non-space token that looks like a name
     m = re.match(r"\s*(\w+)\s+", line)
     who = m.group(1).title() if m else "Agent"
 
-    # ── new goal ◎
     if "◎" in line:
         text = re.sub(r".*◎\s*", "", line).strip()[:80]
         return f"\033[90m  ↳ {who} started: {text}\033[0m"
-
-    # ── capability approved
     if '"result": "approved"' in line or "'result': 'approved'" in line:
         nm = re.search(r'"name":\s*"([^"]+)"', line)
         name = nm.group(1) if nm else "a capability"
-        return f"\033[90m  ↳ capability approved by quorum: {name}\033[0m"
-
-    # ── capability submitted
+        return f"\033[90m  ↳ capability approved: {name}\033[0m"
     if '"status": "submitted_to_quorum"' in line:
         nm = re.search(r'"name":\s*"([^"]+)"', line)
         name = nm.group(1) if nm else "a capability"
-        return f"\033[90m  ↳ {who} proposed: {name} — waiting for votes\033[0m"
-
-    # ── synthesize success (without quorum line)
+        return f"\033[90m  ↳ {who} proposed: {name}\033[0m"
     if "✓  synthesize_capability" in line:
         nm = re.search(r'"name":\s*"([^"]+)"', line)
         name = nm.group(1) if nm else "something"
         if '"submitted_to_quorum"' not in line:
             return f"\033[90m  ↳ {who} synthesized: {name}\033[0m"
-
-    # ── synthesize fail
     if "✗  synthesize_capability" in line:
         err = re.search(r'"error":\s*"([^"]+)"', line)
         reason = err.group(1)[:60] if err else "unknown error"
-        return f"\033[90m  ↳ {who} synthesis failed: {reason}\033[0m"
-
-    # ── file written
+        return f"\033[90m  ↳ synthesis failed: {reason}\033[0m"
     if "✓  fs_write" in line:
         p = re.search(r'"path":\s*"([^"]+)"', line)
         if p:
             fname = p.group(1).split("/")[-1]
             return f"\033[90m  ↳ {who} wrote: {fname}\033[0m"
-
-    # ── propose_change success
-    if "✓  propose_change" in line:
-        return f"\033[90m  ↳ {who} submitted a code change proposal\033[0m"
-
-    # ── vote finalized
-    if "✓  vote_on_proposal" in line and "finalized" in line:
-        result = "approved" if '"result": "approved"' in line else "rejected"
-        return f"\033[90m  ↳ vote finalized — proposal {result}\033[0m"
-
     return None
 
 
-# ── log tailing ──────────────────────────────────────────────────────────────
+# ── log tailing ───────────────────────────────────────────────────────────────
 
 def last_n_lines(path: Path, n: int) -> list[str]:
     if not path.exists():
@@ -128,7 +219,7 @@ def tail_forever(path: Path):
                 time.sleep(0.1)
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     os.system("cls" if os.name == "nt" else "clear")
@@ -139,7 +230,9 @@ def main():
     if history:
         sys.stdout.write(f"\033[90m  — last {len(history)} lines —\033[0m\n")
         for line in history:
-            sys.stdout.write(line)
+            if "artifact ok |" in _vis(line):
+                continue
+            sys.stdout.write(_wrap(line))
         sys.stdout.write("\033[90m  — live —\033[0m\n")
     else:
         sys.stdout.write("\033[90m  no history yet — streaming live…\033[0m\n")
@@ -148,10 +241,14 @@ def main():
 
     try:
         for line in tail_forever(THOUGHTS_LOG):
-            sys.stdout.write(line)
+            vis = _vis(line)
+            # Suppress noisy lines that add no value
+            if "artifact ok |" in vis:
+                continue
+            sys.stdout.write(_wrap(line))
             note = narrate(line)
             if note:
-                sys.stdout.write(note + "\n")
+                sys.stdout.write(_wrap(note + "\n"))
             sys.stdout.flush()
     except KeyboardInterrupt:
         sys.stdout.write("\n\033[90m  stream ended.\033[0m\n")

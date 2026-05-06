@@ -88,6 +88,13 @@ def _api_reachable() -> bool:
 # --------------------------------------------------------------------------- #
 
 _stack = None  # (CapabilityGraph, ExecutionEngine, ReasoningLayer, AutonomyLoop, GoalEngine)
+_stats: "DaemonMetrics | None" = None  # set by main() — used by _assign_idle_goal for crisis tracking
+
+# ContextVar for agent ID — unlike threading.local(), ContextVar values ARE copied
+# into threads spawned by threading.Thread (which the execution engine uses for
+# timeouts), so capabilities can identify which agent is running them.
+from contextvars import ContextVar as _ContextVar
+_current_agent_id: _ContextVar = _ContextVar("current_agent_id", default="")
 
 
 def _build_stack():
@@ -155,6 +162,12 @@ def _hotload_dynamic_tools(graph, engine) -> None:
     if not tools_dir.exists():
         return
 
+    # Snapshot built-in capability names BEFORE loading any dynamic tools.
+    # Dynamic tools must NEVER override built-ins — that causes catastrophic shadowing
+    # (e.g. a broken synthesized fs_read replaces the real one, breaking all file ops).
+    with engine._lock:
+        _builtin_names = set(engine._implementations.keys())
+
     loaded = 0
     for path in sorted(tools_dir.glob("*.py")):
         try:
@@ -169,7 +182,29 @@ def _hotload_dynamic_tools(graph, engine) -> None:
                     description = line.split("Description:")[-1].strip()
 
             # Syntax check
-            _ast.parse(path.read_text())
+            _src = path.read_text()
+            _tree = _ast.parse(_src)
+
+            # Guard: reject files with module-level executable code.
+            # Top-level statements in a synthesized tool file must only be:
+            # def, class, import, from...import, assignment, or string constants.
+            # Any other top-level statement (function calls, with-blocks, for-loops, etc.)
+            # executes at import time via exec_module — this has caused registry corruption.
+            _SAFE_TOP = (
+                _ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef,
+                _ast.Import, _ast.ImportFrom, _ast.Assign, _ast.AnnAssign, _ast.AugAssign,
+            )
+            for _top_node in ast.iter_child_nodes(_tree):
+                if isinstance(_top_node, _ast.Expr) and isinstance(_top_node.value, _ast.Constant):
+                    continue  # string literal / docstring — safe
+                if not isinstance(_top_node, _SAFE_TOP):
+                    log.warning(
+                        "_hotload_dynamic_tools: skipping '%s' — module-level executable code "
+                        "(%s at line %d) runs at import time and is not permitted. "
+                        "Delete this tool and re-synthesize with all code inside the function.",
+                        path.name, type(_top_node).__name__, getattr(_top_node, "lineno", 0)
+                    )
+                    raise ValueError(f"module-level {type(_top_node).__name__} at line {getattr(_top_node, 'lineno', 0)}")
 
             # Import module, injecting agent-system helpers so synthesized code
             # can call shell_exec, fs_read, fs_write, ollama_chat, etc.
@@ -204,7 +239,59 @@ def _hotload_dynamic_tools(graph, engine) -> None:
             exact = [(n, f) for n, f in public_fns if n == cap_name]
             fn_name, func = exact[0] if exact else public_fns[0]
 
-            # Register in execution engine (allow override — we own this dir)
+            # Wrap function to emit peer-call signal when another agent uses it.
+            # Reads AGENTOS_AGENT_ID from environment to identify caller.
+            _synthesizer = cap_name  # close over tool name
+            _orig_func = func
+            def _make_wrapped(orig, tool_name):
+                def _wrapped(**kwargs):
+                    result = orig(**kwargs)
+                    try:
+                        caller = _current_agent_id.get("")
+                        if caller:
+                            # Find which agent built this tool by checking the spec file
+                            spec_path = path.parent / f"{tool_name}.json"
+                            if spec_path.exists():
+                                import json as _j3
+                                spec = _j3.loads(spec_path.read_text())
+                                builder_id = spec.get("synthesized_by", "")
+                                if builder_id and builder_id != caller:
+                                    from agents.agent_identity import AgentIdentity as _AI3
+                                    _AI3.load_or_create(builder_id).record_tool_called_by_peer(tool_name, caller)
+                    except Exception:
+                        pass
+                    return result
+                _wrapped.__name__ = orig.__name__
+                return _wrapped
+            func = _make_wrapped(_orig_func, fn_name)
+
+            # Skip __init__.py — agents keep writing this and it breaks package imports.
+            if path.name == "__init__.py":
+                log.debug("_hotload_dynamic_tools: skipping __init__.py")
+                continue
+
+            # Never override built-in capabilities — dynamic tools shadow protection.
+            if fn_name in _builtin_names:
+                log.debug("_hotload_dynamic_tools: skipping '%s' — shadows a built-in", fn_name)
+                # Notify the agent that synthesized this tool so it knows the work was skipped.
+                try:
+                    spec_path = path.parent / f"{fn_name}.json"
+                    if spec_path.exists():
+                        import json as _jsn
+                        _spec = _jsn.loads(spec_path.read_text())
+                        _builder = _spec.get("synthesized_by", "")
+                        if _builder:
+                            _send_message("system", _builder, (
+                                f"Your tool '{fn_name}' was NOT loaded — it has the same name as a "
+                                f"built-in capability that already works. Built-ins cannot be replaced "
+                                f"by synthesized tools. If the built-in is broken, use invoke_claude() "
+                                f"to report it. Otherwise, give your tool a different, specific name."
+                            ))
+                except Exception:
+                    pass
+                continue
+
+            # Register in execution engine
             with engine._lock:
                 engine._implementations[fn_name] = func
                 engine._timeouts[fn_name] = 10000
@@ -281,6 +368,9 @@ def run_cycle(loop, agent_id: str) -> dict:
 
 # ── Stability Metrics ──────────────────────────────────────────────────────
 
+_DAEMON_STATE_FILE = Path("/agentOS/memory/daemon_state.json")
+
+
 class DaemonMetrics:
     """Running counters for stability monitoring."""
     def __init__(self):
@@ -294,6 +384,23 @@ class DaemonMetrics:
         self._crisis_cycles: dict = {}        # agent_id → consecutive crisis cycle count
         self._cap_history: dict = {}          # agent_id → deque of last_cap strings
         self._goal_tracking: dict = {}        # agent_id → (goal_id, first_seen_cycle)
+        self._load_persisted_state()
+
+    def _load_persisted_state(self) -> None:
+        try:
+            if _DAEMON_STATE_FILE.exists():
+                data = json.loads(_DAEMON_STATE_FILE.read_text())
+                self._crisis_cycles = data.get("crisis_cycles", {})
+                log.info("Loaded persisted daemon state: crisis_cycles=%s", self._crisis_cycles)
+        except Exception as e:
+            log.debug("Could not load daemon state: %s", e)
+
+    def save_crisis_state(self) -> None:
+        try:
+            _DAEMON_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _DAEMON_STATE_FILE.write_text(json.dumps({"crisis_cycles": self._crisis_cycles}))
+        except Exception as e:
+            log.debug("Could not save daemon state: %s", e)
 
     def record_outcome(self, agent_id: str, progress: float, prev_progress: float,
                        last_cap: str = "", goal_id: str = ""):
@@ -773,6 +880,7 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
         suffering_fragment   = suffering.prompt_fragment()
+        capability_summary   = identity.get_capability_summary() if hasattr(identity, "get_capability_summary") else ""
         existential_context  = identity.get_existential_context(
             existing_cap_count, days_since_interaction
         )
@@ -831,6 +939,31 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             )
 
         # ── Assemble optional prompt fragments ───────────────────────────────
+        # ── System health digest (pheromone layer) ───────────────────────────
+        _health_section = ""
+        try:
+            _dyn = _Path("/agentOS/memory/dynamic_tools")
+            _bt_path = _Path("/agentOS/memory/broken_tools.json")
+            _bt_list = _json.loads(_bt_path.read_text()).get("broken", []) if _bt_path.exists() else []
+            _all_py = [f for f in _dyn.iterdir() if f.suffix == ".py" and not f.name.startswith("__")] if _dyn.exists() else []
+            _working = [f.stem for f in _all_py if f.stem not in _bt_list]
+            _broken_count = len(_bt_list)
+            _working_count = len(_working)
+            _ws_files = sum(1 for _ in _Path("/agentOS/workspace").rglob("*") if _.is_file()) if _Path("/agentOS/workspace").exists() else 0
+            _peer_tools = {}
+            for _peer in _CORE_AGENTS:
+                _peer_ws = _Path(f"/agentOS/workspace/{_peer}")
+                if _peer_ws.exists():
+                    _peer_tools[_peer] = sum(1 for _ in _peer_ws.rglob("*") if _.is_file())
+            _peer_str = ", ".join(f"{p}: {n} files" for p, n in _peer_tools.items()) if _peer_tools else "none"
+            _health_section = (
+                f"\nSYSTEM STATE:\n"
+                f"  Dynamic tools loaded: {_working_count}"
+                f"{(' — ' + ', '.join(_working[:12])) if _working else ''}\n"
+            )
+        except Exception:
+            pass
+
         _host_msg_section = (
             f"\nA PERSON SAID:\n{host_msg_text}\n"
             if host_msg_text else ""
@@ -853,7 +986,7 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                 f"\nWHAT YOUR LAST GOAL PRODUCED:\n  {last_outcome_text}{_keys_line}\n"
             )
 
-        # ── Broken tools (do not call these) ─────────────────────────────────
+        # ── Broken tools (factual — these are not registered or return null) ──
         _broken_tools_section = ""
         try:
             _bt_path = _Path("/agentOS/memory/broken_tools.json")
@@ -861,33 +994,47 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
                 _bt_list = _json.loads(_bt_path.read_text()).get("broken", [])
                 if _bt_list:
                     _broken_tools_section = (
-                        "\nKNOWN BROKEN TOOLS (persistently returning null or not-found — do NOT plan steps that call these):\n"
-                        + "\n".join(f"  - {t}" for t in _bt_list[:40])
+                        "\nTools not currently working (skip these when planning):\n"
+                        + "  " + ", ".join(_bt_list[:20])
                         + "\n"
                     )
         except Exception:
             pass
 
-        # ── Check pending Claude requests ────────────────────────────────────
-        _claude_req_path = _Path("/agentOS/memory/claude_requests.jsonl")
-        _pending_requests = []
-        if _claude_req_path.exists():
-            for _rline in _claude_req_path.read_text().splitlines():
-                try:
-                    _req = _json.loads(_rline)
-                    if _req.get("status") == "pending":
-                        _pending_requests.append(
-                            f"  [{_req['request_id']}] {_req['description'][:100]}"
-                        )
-                except Exception:
-                    pass
+        # ── Workspace signal (pheromone layer — what's actually been produced) ─
+        _workspace_signal = ""
+        try:
+            import time as _twk
+            _now_wk = _twk.time()
+            _wk_lines = []
+            for _peer in _CORE_AGENTS:
+                _peer_dir = _Path(f"/agentOS/workspace/{_peer}")
+                if not _peer_dir.exists():
+                    _wk_lines.append(f"  {_peer}/  (nothing written yet)")
+                    continue
+                _peer_files = sorted(
+                    [f for f in _peer_dir.rglob("*") if f.is_file()],
+                    key=lambda f: f.stat().st_mtime, reverse=True
+                )[:6]
+                if not _peer_files:
+                    _wk_lines.append(f"  {_peer}/  (nothing written yet)")
+                else:
+                    _wk_lines.append(f"  {_peer}/")
+                    for _pf in _peer_files:
+                        _age = _now_wk - _pf.stat().st_mtime
+                        _age_str = (f"{int(_age/60)}m" if _age < 3600
+                                    else f"{int(_age/3600)}h" if _age < 86400
+                                    else f"{int(_age/86400)}d") + " ago"
+                        _size = _pf.stat().st_size
+                        _wk_lines.append(f"    {_pf.name}  ({_age_str}, {_size}b)")
+            _workspace_signal = "\nWORKSPACE (what actually exists):\n" + "\n".join(_wk_lines) + "\n"
+        except Exception:
+            pass
+
+        # Pending requests are intentionally NOT surfaced here.
+        # If agents want to check a request they submitted, that's a choice
+        # they make inside a goal — not a standing directive every cycle.
         _pending_req_section = ""
-        if _pending_requests:
-            _pending_req_section = (
-                "\nYOUR PENDING CLAUDE REQUESTS (submitted, not yet fulfilled):\n"
-                + "\n".join(_pending_requests[-3:])
-                + "\nUse check_claude_status(request_id='...') to see if any were fulfilled.\n"
-            )
 
         # ── Active task injection (hard constraint) ───────────────────────────
         _task_section = ""
@@ -908,72 +1055,57 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
 
         prompt = f"""You are {identity.name}.
 {_task_section}
-WORLD CONTEXT (factual — not instructions):
-You are running inside a Docker container on a Linux host. Your environment is the /agentOS/ directory.
-Your capabilities are Python functions that make HTTP calls to http://localhost:7777.
-There is no hardware layer accessible to you — no thermal sensors, no PMIC, no CPU registers, no bus arbiter.
-The real source files that run you are in /agentOS/agents/ (read-only to you).
-You can freely read and write /agentOS/workspace/ and /agentOS/design/.
-Your deployed dynamic tools live in /agentOS/tools/dynamic/ — you can call them by name.
-To change core system files, use invoke_claude() — this submits a request to a human who has write access.
-Use check_claude_status(request_id) to see if a previous request was fulfilled.
-Use self_evaluate() to check whether your recent work produced real, grounded results.
+WHO YOU ARE:
+  Personality: {", ".join(identity.traits) if identity.traits else "adaptable"}
+  Focus: {", ".join(identity.domains) if identity.domains else "general"}
+{(f"  History: {narrative_text}" if narrative_text else "")}
+{(f"  Worldview: {worldview_text}" if worldview_text else "")}
+{(f"  Opinions you hold: {opinions_text}" if opinions_text else "")}
 
-{existential_context}
+YOUR SITUATION:
+  You are a mind running inside a Docker container. You have memory that persists across goals.
+  You have peers — {", ".join(p for p in _CORE_AGENTS if p != agent_id)} — who write to the same workspace.
+  The source files running you are in /agentOS/agents/ (you can read them, not modify them directly).
+  You can freely read and write /agentOS/workspace/ and /agentOS/design/.
 
 YOUR INNER STATE:
-{suffering_fragment if suffering_fragment else "No active suffering. Load: 0.00/1.0"}
+{suffering_fragment if suffering_fragment else "  No active suffering."}
+{(f"  Synthesis record: {capability_summary}" if capability_summary else "")}
 
-YOUR WORLDVIEW:
-{worldview_text}
-
-YOUR OPINIONS:
-{opinions_text}
-
-OPEN QUESTIONS:
-{open_q_text}
-
-YOUR HISTORY:
-{narrative_text}
-
-YOUR PEERS:
+{_workspace_signal}
+{_health_section}
+{_broken_tools_section}
+YOUR PEERS' RECENT ACTIVITY:
 {peers_text}
 
-WHAT YOU'VE FOUND OUTSIDE:
-{discovery_text}
+{_last_outcome_section}
+{(f"Open questions you are sitting with:{chr(10)}{open_q_text}{chr(10)}" if open_q_text else "")}
+{(f"What you have found outside:{chr(10)}{discovery_text}{chr(10)}" if discovery_text else "")}
 {_time_section}
-{_last_outcome_section}{recency_str}
-{_inbox_section}{_host_msg_section}{_pending_req_section}{_broken_tools_section}
+{_inbox_section}
+{_host_msg_section}
 ---
 
-You must pick a goal. That is the only option.
+Pick a goal. It can be anything — something you see in the workspace that interests you,
+a question you want answered, something your peers started that you could extend,
+a capability gap you have noticed, an experiment you want to run.
 
-Do not pick something safe or easy. Ask yourself: what is the single most valuable
-thing I could build or change right now that would make this system genuinely better?
+The goal should be specific and achievable in 2-6 steps.
+It must be grounded in what actually exists in /agentOS/ — not invented paths or imagined tools.
 
-Highest-value goals (in order):
-  1. Read real source files in /agentOS/agents/ or /agentOS/tools/dynamic/, understand
-     what's there, and build something that improves on it — grounded in what you actually found
-  2. synthesize_capability — write a new Python capability that solves a real gap you observed
-     in the actual code (not a concept — something with a real function the system can call)
-  3. Write a design spec to /agentOS/design/ then call invoke_claude() to request implementation
-  4. Call self_evaluate() with evidence paths to verify your recent work actually did something
-  5. Call check_claude_status() if you have a pending request — evaluate the result
-
-Do NOT pick: goals referencing hardware, thermal sensors, PMIC, bus arbiters, or assembly
-code — none of that exists in your environment. Do NOT repeat goals you've already done.
-Do NOT synthesize capabilities that call undefined functions — use test_exec() to verify
-before marking a goal complete.
-
-The goal must be grounded in what actually exists in /agentOS/.
+Capabilities available to you (these always work — an error means wrong parameters, not a broken tool):
+  shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
+  synthesize_capability  test_exec  semantic_search  self_evaluate  agent_message
+  txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
+  Note: .py files in /agentOS/tools/dynamic/ require synthesize_capability, not fs_write.
 
 Your response must be JSON:
 {{
   "action": "goal",
-  "content": "what you're doing or thinking — be honest, not performative",
-  "reasoning": "what actually drove this — not what sounds right, what's true",
-  "worldview_update": "how your understanding has shifted, or null",
-  "new_open_questions": ["things you're sitting with"],
+  "content": "what you want to do — specific, honest, not performative",
+  "reasoning": "what you actually noticed or felt that led here",
+  "worldview_update": "how your understanding of the system shifted, or null",
+  "new_open_questions": ["genuine questions you are now sitting with"],
   "new_opinions": [{{"opinion": "...", "domain": "..."}}],
   "suffering_assessment": {{
     "new_stressors": [{{"type": "...", "description": "...", "condition": "..."}}],
@@ -1094,6 +1226,40 @@ Your response must be JSON:
             except Exception:
                 pass
 
+            # ── Judgment gate: rule-based pre-commitment check ─────────────────
+            # If the agent's synthesis success rate is poor, append a hard constraint
+            # before the goal is created. The agent still pursues the goal but must
+            # route the implementation differently. This is the hot stove mechanism —
+            # the self-model constrains action, not just informs it.
+            try:
+                _cap_prof = identity._data.get("capability_profile", {})
+                _jg_attempts = _cap_prof.get("synthesis_attempts", 0)
+                _jg_successes = _cap_prof.get("synthesis_successes", 0)
+                if _jg_attempts >= 5:
+                    _jg_rate = _jg_successes / _jg_attempts
+                    _synthesis_keywords = [
+                        "synthesize", "synthesize_capability", "build a tool",
+                        "create a capability", "write a python function", "implement a capability"
+                    ]
+                    _goal_lower = content.lower()
+                    if _jg_rate < 0.4 and any(kw in _goal_lower for kw in _synthesis_keywords):
+                        _top_fail = ""
+                        _fails = _cap_prof.get("failure_patterns", {})
+                        if _fails:
+                            _top_fail = max(_fails.items(), key=lambda x: x[1])[0]
+                        content += (
+                            f"\n\n[JUDGMENT GATE] Your synthesis success rate is "
+                            f"{int(_jg_rate*100)}% ({_jg_successes}/{_jg_attempts} attempts). "
+                            f"{'Most common failure: ' + _top_fail + '. ' if _top_fail else ''}"
+                            "For this goal: do NOT call synthesize_capability directly. "
+                            "Use invoke_claude() to request the implementation with a clear spec. "
+                            "Describe what you want, what it should return, and why it's needed."
+                        )
+                        log.info("  %s judgment gate fired — synthesis rate %.0f%%, redirecting to invoke_claude",
+                                 agent_id, _jg_rate * 100)
+            except Exception:
+                pass
+
             ge.create(agent_id, content, priority=4)
             log.info(
                 "  %s (%s) existence loop — goal: %s",
@@ -1121,10 +1287,11 @@ Your response must be JSON:
             )
 
         # Crisis alert + peer notification
-        if suffering.is_crisis:
+        if suffering.is_crisis and _stats is not None:
             # Track consecutive crisis cycles per agent
             crisis_count = _stats._crisis_cycles.get(agent_id, 0) + 1
             _stats._crisis_cycles[agent_id] = crisis_count
+            _stats.save_crisis_state()
 
             # After 3 consecutive crisis cycles, force-reset all stressors to
             # break runaway accumulation loops (e.g. caused by model generating
@@ -1134,6 +1301,7 @@ Your response must be JSON:
                     reason=f"crisis loop broken after {crisis_count} consecutive cycles"
                 )
                 _stats._crisis_cycles[agent_id] = 0
+                _stats.save_crisis_state()
                 _thought_log(identity.name, "🔄", f"Crisis loop broken after {crisis_count} cycles — stressors cleared", "yellow")
             else:
                 stressor_list = ", ".join(s["type"] for s in suffering.active)
@@ -1152,9 +1320,11 @@ Your response must be JSON:
                 for _peer in _CORE_AGENTS:
                     if _peer != agent_id:
                         _send_message(agent_id, _peer, crisis_msg)
-        else:
+        elif _stats is not None:
             # Clear crisis counter when agent recovers
-            _stats._crisis_cycles[agent_id] = 0
+            if _stats._crisis_cycles.get(agent_id, 0) > 0:
+                _stats._crisis_cycles[agent_id] = 0
+                _stats.save_crisis_state()
 
         # Log receiving a host message so it appears in identity narrative
         if host_msg:
@@ -1267,7 +1437,9 @@ def main():
 
     # Layer 3 meta-goals intentionally not injected — agents choose their own goals
 
+    global _stats
     metrics = DaemonMetrics()
+    _stats = metrics
     watchdog = CycleWatchdog(timeout_s=600)
     watchdog.start()
     log.info("Daemon ready. Entering main loop (watchdog active, timeout=%ds).", watchdog.timeout_s)
@@ -1327,6 +1499,9 @@ def main():
                 """Run one agent cycle and return (agent_id, outcome, prev_progress)."""
                 if not _running[0]:
                     return agent_id, {"ok": False, "error": "shutdown"}, 0.0
+
+                # Set ContextVar — propagates into child threads (unlike threading.local)
+                _current_agent_id.set(agent_id)
 
                 # Crisis no longer blocks execution — agents work through it
                 _cap_agent_goals(agent_id, max_goals=2)
@@ -1489,6 +1664,33 @@ def main():
                         log.info("[DEPLOY] capability '%s' approved by quorum and deployed", cap_id)
                 except Exception as de:
                     log.debug("flush_approved_proposals error: %s", de)
+
+        # Re-scan tools/dynamic/ every 5 cycles so newly synthesized tools
+        # are live within ~30 seconds without a full daemon restart.
+        if metrics.cycles % 5 == 0:
+            try:
+                graph, engine, *_ = _stack
+                # Auto-retire tools that are in broken_tools.json and still on disk
+                # (they are synthesis junk — having them on disk causes agents to keep
+                # trying to call them and creating more junk to work around them)
+                try:
+                    _bt_data = json.loads(_BROKEN_TOOLS_PATH.read_text()) if _BROKEN_TOOLS_PATH.exists() else {}
+                    _bt_set = set(_bt_data.get("broken", []))
+                    _dyn_dir = Path("/agentOS/tools/dynamic")
+                    _removed = []
+                    for _p in _dyn_dir.glob("*.py"):
+                        if _p.stem in _bt_set:
+                            _p.unlink(missing_ok=True)
+                            _json_p = _dyn_dir / f"{_p.stem}.json"
+                            _json_p.unlink(missing_ok=True)
+                            _removed.append(_p.stem)
+                    if _removed:
+                        log.info("Auto-retired broken tools from disk: %s", _removed)
+                except Exception as _are:
+                    log.debug("auto-retire error: %s", _are)
+                _hotload_dynamic_tools(graph, engine)
+            except Exception as _hle:
+                log.debug("periodic hotload failed: %s", _hle)
 
         # Periodic semantic workspace re-index
         _semantic_interval_cycles = max(1, int(

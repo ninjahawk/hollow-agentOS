@@ -40,6 +40,8 @@ def _load_broken_tools() -> list:
 
 
 def _persist_broken_tool(cap_id: str) -> None:
+    if cap_id in _BUILTIN_CAPS:
+        return  # never mark built-ins as broken
     try:
         data = json.loads(_BROKEN_TOOLS_PATH.read_text()) if _BROKEN_TOOLS_PATH.exists() else {"broken": []}
         if cap_id not in data.get("broken", []):
@@ -51,13 +53,30 @@ def _persist_broken_tool(cap_id: str) -> None:
 
 _CROSS_CYCLE_FAIL_THRESHOLD = 5
 
-def _increment_cross_cycle_failures(cap_id: str) -> bool:
+# Built-in capabilities that cannot be broken by usage errors.
+# Never add these to broken_tools.json — they work, agents just call them wrong sometimes.
+_BUILTIN_CAPS = frozenset({
+    "shell_exec", "ollama_chat", "fs_read", "fs_write", "fs_edit",
+    "semantic_search", "memory_set", "memory_get", "agent_message",
+    "propose_change", "test_exec", "shared_log_write", "shared_log_read",
+    "synthesize_capability", "list_proposals", "vote_on_proposal",
+    "invoke_claude", "check_claude_status", "self_evaluate",
+    "broken_tools_list", "git_clone", "wrap_repo",
+})
+
+
+def _increment_cross_cycle_failures(cap_id: str, result=None) -> bool:
     """
-    Track failures across pursue_goal runs. Returns True when cap_id crosses
-    the threshold and is added to the persistent broken list.
-    Fixes the gap where tools that fail once per cycle never reach the
-    within-run threshold of 3 and are never blacklisted.
+    Track null-returning tools across pursue_goal runs.
+    Only fires when result is genuinely None — structured ok:False errors mean
+    the tool works but was called incorrectly. Never blacklists built-in capabilities.
     """
+    # Never blacklist built-ins — they work, usage errors aren't tool failures
+    if cap_id in _BUILTIN_CAPS:
+        return False
+    # Only count genuine null returns, not structured error responses
+    if result is not None:
+        return False
     try:
         data = json.loads(_BROKEN_TOOLS_PATH.read_text()) if _BROKEN_TOOLS_PATH.exists() else {}
         data.setdefault("broken", [])
@@ -91,21 +110,29 @@ def _thought(agent_id: str, msg: str) -> None:
         m = msg.strip()
 
         if m.startswith("RUN:"):
-            parts = m[4:].split("|", 1)
-            cap   = parts[0].strip()
-            prm   = parts[1].replace("params:", "").strip()[:120] if len(parts) > 1 else ""
-            out = f"{ts_s}  {aid_c}  {_C['white']}▶  {cap:<18}{_C['rs']}  {_C['dim']}{prm}{_C['rs']}"
+            cap = m[4:].split("|", 1)[0].strip()
+            out = f"{ts_s}  {aid_c}  {_C['white']}▶  {cap}{_C['rs']}"
         elif m.startswith("OK:"):
-            parts = m[3:].split("|", 1)
-            cap   = parts[0].strip()
-            res   = parts[1].strip()[:160] if len(parts) > 1 else ""
-            out = f"{blank}  {aid_d}  {_C['green']}✓  {cap:<18}{_C['rs']}  {_C['dim']}{res}{_C['rs']}"
+            cap = m[3:].split("|", 1)[0].strip()
+            out = f"{blank}  {aid_d}  {_C['green']}✓  {cap}{_C['rs']}"
         elif m.startswith("FAIL:"):
             parts = m[5:].split("|", 1)
-            cap   = parts[0].strip()
-            err   = parts[1].strip() if len(parts) > 1 else ""
-            # trim to first meaningful line, skip traceback
-            err   = (err.split("\\n")[0] if "\\n" in err else err)[:80]
+            cap = parts[0].strip()
+            err = parts[1].strip() if len(parts) > 1 else ""
+            # Try to extract human-readable message from JSON error objects
+            import re as _re2
+            _em = _re2.search(r'"(?:error|message)":\s*"([^"]{3,})"', err)
+            if _em:
+                err = _em.group(1)[:80]
+            else:
+                # Fall back to first meaningful non-traceback line
+                for eline in err.replace("\\n", "\n").splitlines():
+                    eline = eline.strip()
+                    if eline and not eline.startswith("File ") and "Traceback" not in eline:
+                        err = eline[:80]
+                        break
+                else:
+                    err = err[:80]
             out = f"{blank}  {aid_d}  {_C['red']}✗  {cap:<18}{_C['rs']}  {_C['dim']}{err}{_C['rs']}"
         else:
             out = f"{ts_s}  {_C['dim']}{aid:<15}  {m}{_C['rs']}"
@@ -270,6 +297,17 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
     _PLACEHOLDER_RE = _re.compile(r'\{[a-zA-Z_][a-zA-Z0-9_.]*\}')
     out = {}
     for k, v in params.items():
+        # 'content' is for file writes and may contain Python/JSON with curly braces.
+        # Only forward the full result when the entire value IS the placeholder.
+        # Substituting result_text into multi-line code corrupts it (e.g. ls output
+        # ends up inside Python f-strings or exception messages).
+        if k == "content" and isinstance(v, str):
+            if v.strip() in ("{result}", "{code}", "{output}", "{text}"):
+                out[k] = result_text
+            else:
+                out[k] = v  # keep literal — no substitution in code content
+            continue
+
         if isinstance(v, str) and "{result}" in v:
             substituted = v.replace("{result}", result_text)
             # Guard: path/url params must look like actual paths/URLs after substitution
@@ -314,11 +352,16 @@ def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
             out[k] = result_text
         else:
             out[k] = v
-    # Final pass: replace any remaining {varname} placeholders with result_text
-    # LLMs sometimes invent custom placeholder names instead of using {result}
+    # Final pass: replace any remaining {varname} placeholders with result_text.
+    # LLMs sometimes invent custom placeholder names instead of using {result}.
+    # Skip 'content' — already handled above; and skip when result_text is very
+    # long (e.g. a full ls -la listing) to avoid corrupting code strings.
     final_out = {}
+    _result_short = len(result_text) < 300
     for k, v in out.items():
-        if isinstance(v, str) and _PLACEHOLDER_RE.search(v):
+        if k == "content":
+            final_out[k] = v  # never touch content in final pass
+        elif isinstance(v, str) and _result_short and _PLACEHOLDER_RE.search(v):
             final_out[k] = _PLACEHOLDER_RE.sub(result_text[:500], v)
         else:
             final_out[k] = v
@@ -385,7 +428,18 @@ class AutonomyLoop:
 
         # Execute
         _thought(agent_id, f"  RUN: {cap_id} | params: {json.dumps(params)[:120]}")
+        _exec_start = time.time()
         result, status = self._execution_engine.execute(agent_id, cap_id, params)
+
+        # not_found/disabled are NOT broken tools — don't let them accumulate
+        # as cross_cycle_failures. Give them a structured result so they're
+        # treated as usage errors (wrong name) rather than null-returning stubs.
+        if status == "not_found":
+            result = {"ok": False, "error": f"'{cap_id}' is not a registered capability. Check the capability list.", "status": "not_found"}
+            status = "failed"
+        elif status == "disabled":
+            result = {"ok": False, "error": f"'{cap_id}' is currently disabled.", "status": "disabled"}
+            status = "failed"
 
         # Detect ollama refusals — model said "I'd be happy to help" instead of doing the work
         if cap_id == "ollama_chat" and status == "success" and result:
@@ -475,6 +529,33 @@ class AutonomyLoop:
             step_status="completed" if status == "success" else "failed",
         ))
 
+        # Audit log — every real capability execution recorded here so z-score
+        # anomaly detection has actual behavioral data per agent
+        try:
+            import uuid as _uuid, json as _jaudit
+            from pathlib import Path as _AuditPath
+            _sanitized_params = {
+                k: (f"<{len(str(v))}chars>" if k in ("content", "implementation", "prompt") else str(v)[:80])
+                for k, v in (params or {}).items()
+            }
+            _audit_entry = {
+                "entry_id": str(_uuid.uuid4())[:8],
+                "agent_id": agent_id,
+                "operation": cap_id or "unknown",
+                "params": _sanitized_params,
+                "result_code": "ok" if status == "success" else "error",
+                "tokens_charged": 0,
+                "duration_ms": round((time.time() - _exec_start) * 1000, 1),
+                "timestamp": time.time(),
+                "caused_by_task_id": None,
+                "parent_txn_id": (params or {}).get("txn_id"),
+                "call_depth": 0,
+            }
+            with _AuditPath("/agentOS/memory/audit.log").open("a", encoding="utf-8") as _af:
+                _af.write(_jaudit.dumps(_audit_entry) + "\n")
+        except Exception:
+            pass
+
         return (goal_id, status == "success", result)
 
     def pursue_goal(
@@ -525,6 +606,32 @@ class AutonomyLoop:
         consecutive_failures: int = 0  # reset on any success
         blacklisted: list = _load_broken_tools()  # pre-load persistently known broken tools
 
+        # Begin transaction — all fs_write calls during this goal are staged
+        # until commit. If goal fails, rollback keeps workspace clean.
+        _txn_id: str = ""
+        _TRANSACTIONABLE = {"fs_write", "memory_set"}
+        try:
+            _txn_result, _txn_status = self._execution_engine.execute(agent_id, "txn_begin", {})
+            if _txn_status == "success" and _txn_result:
+                _txn_id = _txn_result.get("txn_id", "")
+        except Exception:
+            pass
+
+        def _txn_commit_goal():
+            if _txn_id:
+                try:
+                    self._execution_engine.execute(agent_id, "txn_commit", {"txn_id": _txn_id})
+                except Exception:
+                    pass
+
+        def _txn_rollback_goal(reason: str = "goal_failed"):
+            if _txn_id:
+                try:
+                    self._execution_engine.execute(agent_id, "txn_rollback",
+                                                   {"txn_id": _txn_id, "reason": reason})
+                except Exception:
+                    pass
+
         while steps_executed < max_steps:
             if plan_index < len(plan):
                 step_def = plan[plan_index]
@@ -552,11 +659,17 @@ class AutonomyLoop:
                     consecutive_failures += 1
                     continue
 
+            # Inject txn_id into write operations so they stage instead of applying
+            _step_params = params
+            if _txn_id and cap_id in _TRANSACTIONABLE:
+                _step_params = dict(params)
+                _step_params["txn_id"] = _txn_id
+
             goal_id_out, success, result = self.execute_step(
                 agent_id,
                 context=context,
                 planned_cap=cap_id,
-                planned_params=params,
+                planned_params=_step_params,
             )
 
             if goal_id_out is None:
@@ -581,9 +694,9 @@ class AutonomyLoop:
                 consecutive_failures += 1
                 if cap_id:
                     failure_counts[cap_id] = failure_counts.get(cap_id, 0) + 1
-                    # Cross-cycle tracking: blacklist tools that fail repeatedly
-                    # across separate goal runs (fixes single-failure-per-cycle gap)
-                    if _increment_cross_cycle_failures(cap_id) and cap_id not in blacklisted:
+                    # Cross-cycle tracking: only blacklist tools that return null,
+                    # not tools that return structured errors (usage errors, not broken tools)
+                    if _increment_cross_cycle_failures(cap_id, result) and cap_id not in blacklisted:
                         blacklisted.append(cap_id)
 
                 fail_count = failure_counts.get(cap_id, 1) if cap_id else 1
@@ -604,6 +717,7 @@ class AutonomyLoop:
                         self._goal_engine.update_progress(agent_id, goal_id, metrics)
                         self._goal_engine.abandon(agent_id, goal_id)
                     _thought(agent_id, f"  FAIL: abandon | {explanation[:120]}")
+                    _txn_rollback_goal("consecutive_failures")
                     return (goal_id, 0.0, steps_executed)
 
                 elif fail_count >= 3 and cap_id and cap_id not in blacklisted:
@@ -660,6 +774,7 @@ class AutonomyLoop:
                 validation = self.validate_goal_artifact(agent_id, goal_id)
                 if validation.get("validated"):
                     _thought(agent_id, f"  artifact ok | {validation.get('artifact_type','')} {validation.get('artifact_value','')[:60]}")
+                    _txn_commit_goal()
                     self._goal_engine.complete(agent_id, goal_id)
                     self._synthesize_completion(agent_id, goal.objective, steps_executed)
                     return (goal_id, 1.0, steps_executed)
@@ -680,6 +795,7 @@ class AutonomyLoop:
                         if self._semantic_memory:
                             self._semantic_memory.store(agent_id, f"FAILED: {explanation}")
                         _thought(agent_id, f"  FAIL: abandon | {explanation[:120]}")
+                        _txn_rollback_goal("artifact_validation_failed")
                         return (goal_id, 0.0, steps_executed)
                     metrics["progress"] = 0.85
                     metrics["has_output"] = False  # force re-earning output gate
@@ -691,6 +807,9 @@ class AutonomyLoop:
         # (progress reached 1.0 via the completion check above). Partial runs are
         # not stored as "successes" — that contaminates semantic memory with
         # incomplete or failed work.
+        # Partial completion — roll back staged writes, goal didn't fully land
+        if progress < 1.0:
+            _txn_rollback_goal("incomplete")
         return (goal_id, progress, steps_executed)
 
     # ── Introspection ──────────────────────────────────────────────────────

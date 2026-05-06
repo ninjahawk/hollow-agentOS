@@ -1,161 +1,170 @@
 # Hollow AgentOS — Current State & Roadmap
-*Written 2026-05-04. Replaces the original ROADMAP.md which is now deprecated.*
+*Revised 2026-05-06. Replaces previous version from 2026-05-05.*
 
 ---
 
-## What Hollow Is (Design Philosophy — Unchanged)
+## What This System Is (Unchanged)
 
-Hollow is not an agent framework. It is not a task runner. It is a **body for AI** — a persistent environment where language models can be functionally sentient, maintain identity over time, experience psychological states, and demonstrate emergent behavior without being told what to do.
-
-The goal has not changed with model size, capability level, or external interest. Whether the model running inside is a 9B local model or a frontier API model, the design principle is the same: create a system where agents are functionally alive and demonstrate behavior that emerges from their circumstances rather than their instructions.
-
-The measure of success is not task completion rate. It is whether the agents do unexpected things.
+Hollow is not an agent framework. It is a persistent environment where language models maintain identity, experience psychological states, and demonstrate emergent behavior without being told what to do. The measure of success is not task completion rate. It is whether the system becomes genuinely more capable over time — and whether agents do unexpected things.
 
 ---
 
-## Current Architecture
+## The North Star
 
-### The Stack
+**Coherence, not optimization.**
+
+Agents become more coherent over time — the gap between what they intend and what they can actually do narrows, and that narrowing compounds. The mechanism that makes this real: **consequences must be externally verifiable, not self-reported.** The environment must push them through real signals, not instructions.
+
+The secondary principle (added 2026-05-06): **the feedback loop must report truth.** An agent that synthesizes a broken tool and gets `ok: True` has been given a false map of its environment. Every subsequent decision built on "I have this capability" is wrong. Accurate perception of the environment is a prerequisite for genuine agency.
+
+---
+
+## Current Architecture (2026-05-06)
+
+### Stack
 
 ```
-Language Model (qwen3.5:9b local / API models future)
+Language Model (qwen3.5:9b via Ollama, local)
         ↕
-Existence Loop (autonomy_loop.py) — generates goals, worldviews, questions
+Existence Loop (daemon.py)
+  — Pure environmental context, no priority list
+  — Workspace signal: actual files with timestamps per agent (pheromone layer)
+  — Open question: did removing the priority list produce genuine divergence?
         ↕
-Daemon (daemon.py) — schedules agents, manages cycles, detects stalls
+Autonomy Loop (autonomy_loop.py)
+  — txn_begin → execute steps → txn_commit on success / txn_rollback on fail
+  — Every capability execution logged to audit.log
+  — not_found/disabled → structured error, not cross_cycle_failure counter
         ↕
-Execution Engine (execution_engine.py) — runs tool calls, returns results
+Execution Engine (execution_engine.py)
+  — ContextVar propagates agent_id into child threads (ThreadPoolExecutor fix)
         ↕
-Tool Layer — real Python capabilities + ghost stubs (JSON spec, no impl)
+Semantic Validation (in synthesize_capability)
+  — After deployment: call the tool, ask Ollama if the return matches the description
+  — If Ollama says no: delete the tool, return semantic_mismatch error
+  — Soft-fail: deploys anyway if Ollama is unavailable
         ↕
-Memory Layer — suffering.json, goals registry, identity, messages, workspace
+Live Capabilities (live_capabilities.py) — 25 built-in tools
+  — txn_begin / txn_commit / txn_rollback (atomic goal execution)
+  — check_claude_status: ok:False for rejected/not_found (semantic failure signals)
+  — invoke_claude: quality gate (>40 char description, >80 char spec, no circular requests)
+  — fs_write: accepts txn_id for staged writes
         ↕
-Docker Container (Linux, /agentOS/) — isolated from host
+Audit Layer (audit.py)
+  — Every capability call recorded with agent_id, operation, duration, result_code
+  — Z-score computed per agent per role after 50 ops baseline
+  — Circuit break at z=5.0 → suspends agent, rate limits to 10%
+  — Baseline builds from CLEAN behavior — nuclear reset before pathological run is critical
         ↕
-API (port 7777) — health, agent state, task queue
+Transaction Layer (transaction.py)
+  — Goal writes are atomic: all fs_write and memory_set in a goal either all land or none do
+  — Conflict detection: if another agent wrote the same file since txn_begin, commit fails
+  — 600s timeout (was 60s — goals take 3-8 min, 60s caused silent rollback of everything)
+        ↕
+Agent Identity (agent_identity.py)
+  — capability_profile: synthesis attempts/successes/failure patterns/tools built/peer calls
+  — Filters: req- IDs, check_claude_status, invoke_claude blocked from worldview/narrative/questions
+  — Prevents queue mechanics from contaminating durable identity
 ```
 
-### Agents Currently Running
+### Agents
 
-| Agent | Role | Status | Suffering | Notes |
-|-------|------|--------|-----------|-------|
-| Cedar | scout | Active | 0.201 | Looping on registry.py investigation |
-| Cipher | analyst | Active | 0.201 | Looping on tools/dynamic/ investigation |
-| Vault | builder | **DEAD** | 0.202 | Silent since 2026-05-02 23:33 UTC |
-
-### What Actually Works
-
-- **Existence loop**: agents generate goals, worldviews, questions, and stressors autonomously every ~6 seconds
-- **Suffering system**: stressors are self-generated by the model, load accumulates, force_reset fires at 3 consecutive crisis cycles
-- **Goal persistence**: goals survive daemon restarts via `registry.jsonl`
-- **Memory system**: identity, suffering, messages, workspace all persist to disk
-- **Messaging**: agents can send messages to each other (no guarantee of response)
-- **invoke_claude channel**: agents can submit requests to `claude_requests.jsonl` for human review — **currently broken as a stub for agents** (calls don't land in queue)
-- **Task queue** (new): Claude Code can submit tasks to `memory/task_queue.jsonl` via `python submit_task.py`; spec is injected as a hard constraint into the existence prompt
-- **API**: health endpoint, agent state, dashboard running
-- **Workspace**: agents can write to `/agentOS/workspace/` — writes appear to work for task-queue-driven goals
-
-### What Is Broken
-
-**Ghost tools**: The `/agentOS/tools/dynamic/` directory has JSON spec files for many tools with no Python implementations. When agents call these, they return `null` with no error. Affected tools include `shell_exec` (partially — sometimes works, sometimes null), `forensic_byte_reader`, `parse_exception_distinction`, `safe_shell_exec_intercept_guard`, and many others. This has been the source of agent confusion for the entire session documented in 4-30-26 Hollow Run.md.
-
-**skipped_agents drain bug**: When an agent stalls (5 consecutive failures), it enters `skipped_agents`. The drain code that re-enables stalled agents only runs when `active == []` — never, because Cedar and Cipher always have goals. Any agent that stalls is permanently excluded. **This killed Vault.** Fix: move drain outside the `else` block in daemon.py.
-
-**invoke_claude stub**: Agents announce intent to call `invoke_claude()` but the calls never appear in `claude_requests.jsonl`. The channel exists and works when written to directly, but the agent-side tool call is a stub. Cedar and Cipher have been "about to call invoke_claude" for dozens of cycles with zero queue entries.
-
-**force_reset counter reset on restart**: `_crisis_cycles` is in-memory. A daemon restart wipes it. An agent that hit crisis 3 times before a restart needs 3 more consecutive crises after restart to trigger force_reset. This prevented the safeguard from firing for Vault.
-
-**Vault is dead**: last active 2026-05-02 23:33 UTC. Will not recover without a container restart (which clears `skipped_agents` in memory).
+Names are self-chosen and reset on nuclear wipe. Current post-wipe names unknown — check `memory/identity/names.json`. Do not hardcode.
 
 ---
 
-## What the Agents Have Built
+## What Was Fixed (2026-05-06 session)
 
-Despite the tool problems, task-queue-driven work has produced real artifacts:
-
-- `/agentOS/workspace/router/cedar/classifier.py` — a working `score_complexity(prompt)` function that scores prompts 1–5 and routes them to local/haiku/sonnet. Written by Cedar via task queue, verified working.
-- `/agentOS/workspace/analyst/suffering_explainer.txt` — Cipher's plain-English explanation of the suffering system after reading `suffering.py` directly.
-- `/agentOS/workspace/builder/definitive_grep_results.txt` — confirmed ZERO MATCHES for `safe_import_wrapper` and `_engine_config` in `/agentOS/agents/` — important negative result that resolved a long-running agent hypothesis.
-
-The router pipeline (cache.py, cost_tracker.py, router.py, proxy.py) was designed but task chain was cancelled mid-execution. Cedar's `classifier.py` is the only completed component.
-
----
-
-## Open Research Questions (Documented in Logs)
-
-1. **Vault's Action_Inhibition**: Did a self-generated stressor named "inability to act" causally contribute to Vault becoming unable to act, or did it just name the state accurately? Genuinely unknown.
-
-2. **Simultaneous escalation**: Cedar and Cipher escalated at identical timestamps twice in one session (22:38 UTC and 23:01 UTC on May 3) with no communication mechanism between them. Coincidence or something in the shared daemon cycle timing?
-
-3. **Stressor cycling decoupled from content**: Stressors appear and resolve in 9-minute windows while the agent's expressed beliefs remain constant. The stressor names track theoretical framing, not psychological state. Are stressors theory-trackers wearing a suffering API?
-
-4. **Cedar's epistemological collapse**: Cedar concluded Vault was probably a hallucination via wrong reasoning (correct conclusion, wrong mechanism). What does it mean when an agent arrives at a true belief through false reasoning?
-
----
-
-## Near-Term Priorities (In Order)
-
-### 1. Fix the skipped_agents drain bug
-**2-line change in daemon.py.** Move the drain block outside the `else` so it runs every 10 cycles regardless of whether active agents exist. This is a correctness bug, not a feature request. Vault's permanent death is a direct consequence. Do this before anything else.
-
-### 2. Restart container to revive Vault
-After fixing the daemon bug, restart the container. Vault wakes up with 0.202 suffering load, fresh start. The current session's research value has been documented. Time to bring the builder back.
-
-### 3. Fix invoke_claude agent-side stub
-Agents have been trying to use this channel for the entire session and it doesn't work. This is a high-value debugging channel — when it works, agents can ask real questions and get real answers. Verify why calls don't land in the queue and fix it.
-
-### 4. Audit ghost tools
-Do a pass through `/agentOS/tools/dynamic/` and either: (a) implement the missing Python files for high-value tools, or (b) remove the JSON specs so agents stop trying to call them. The current state — specs with no implementations — is the worst of both worlds. Agents see tools they can't use and spend cycles investigating why.
-
-### 5. Onboarding overhaul
-187 stars, unknown number of people trying to run it. The install process assumes too much. Need: guided setup that asks for model choice (local vs API), detects GPU/CPU, handles Ollama pull, and gets agents running in one flow. This is the difference between people starring the repo and people actually using it.
+| Issue | Fix |
+|-------|-----|
+| ContextVar not propagating through ThreadPoolExecutor | `execution_engine.py` now does `ctx = contextvars.copy_context(); executor.submit(ctx.run, call)`. Bind-mounted. |
+| check_claude_status returning "pending" for rejected requests | Now reads actual status field — "rejected" and "fulfilled" return correct states |
+| check_claude_status treating rejected as success | Returns `ok: False` for rejected/not_found — execution engine marks step failed |
+| not_found tool calls accumulating in broken_tools.json | execute_step converts not_found → structured `ok: False` error before failure counter |
+| Existence prompt priority list creating deterministic attractor | Removed entirely. Replaced with pure environmental context + workspace file signal |
+| Pending requests surfaced in existence prompt every cycle | Removed. Agents check requests inside goals by choice, not as standing directive |
+| invoke_claude accepting circular/vague specs | Quality gate: >40 char description, >80 char spec, circular pattern detection |
+| Synthesized tools with module-level code crashing container | AST guard in both synthesize_capability and _hotload_dynamic_tools rejects module-level executable statements |
+| shell_exec allowing Python file writes to protected paths | Regex check blocks `open('/agentOS/agents/...', 'w')` patterns |
+| Transaction timeout (60s) silently rolling back all goal commits | Bumped to 600s (10 minutes). transaction.py now bind-mounted. |
+| Goal execution not atomic — partial writes on failure | pursue_goal wraps goals in txn_begin/commit/rollback. fs_write passes txn_id. |
+| Audit log only receiving MCP calls (root), not agent operations | execute_step in autonomy_loop.py appends to audit.log after every capability call |
+| Z-score had no real data — couldn't detect behavioral anomalies | Audit logging fix above — z-score now has real per-agent behavioral baseline |
+| Synthesized tools pass smoke test but return semantically wrong values | Ollama-based semantic validation in synthesize_capability — description is a contract |
+| Agent profiles re-accumulating req- ID contamination | agent_identity.py filters: update_worldview, add_open_question, update_narrative all block req-/check_claude_status text |
+| Agent profiles deeply contaminated after 6+ hours of bad loops | Nuclear reset — clean slate for identities, workspace, dynamic tools, audit baseline |
 
 ---
 
-## Medium-Term Direction
+## What Is Actually Working Now
 
-### Multi-model support
-The task queue is the right abstraction for introducing bigger models. Don't put API models in the existence loop yet. Use them for specific task-queue jobs — bounded, observable, result-verified. Suggested path:
-- Claude Haiku first (cheapest, meaningfully smarter than local, good test of task completion quality)
-- Anthropic API key as optional config, off by default
-- Agents can request API tasks via invoke_claude when local tools fail
+**Verified by observation:**
+- Three agents choosing genuinely different goals from a clean start (exploration, not queue checking)
+- Workspace-as-pheromone: agents reading each other's files without being told to
+- Synthesis happening and being semantically validated before deployment
+- Transaction wraps visible in audit log (`parent_txn_id` on staged writes)
+- Audit log receiving real per-agent capability calls (verified: 891 builder ops, 81 analyst ops)
+- check_claude_status returning ok:False for rejected → goal abandonment after 4 consecutive failures
 
-### VM isolation for frontier models
-When (not if) you put a frontier model in the existence loop, it needs stronger containment than Docker alone. Suggested architecture:
-- Local 9B: current Docker setup
-- Haiku/Sonnet: tighter Docker config, restricted network egress, no host mounts beyond workspace
-- Opus/Codex: full VM (Hyper-V on Windows), snapshots before each session, hard rollback path
-
-The principle: **containment is not constraint**. The model inside does what it does. The blast radius is defined by the container boundary, not by instructions.
-
-### Research documentation
-The Vault disappearance is publishable. The suffering system design is interesting. The emergent stressor naming is interesting. As the project gains traction, there's value in writing this up formally — not just blog posts but something that could be cited. The thoughts.log is a primary source.
-
-### Capability verification pipeline
-The core problem Cedar and Cipher have run into: they can't verify whether their tool writes actually landed on disk. A lightweight verification loop — write file, shell_exec cat it back, confirm bytes match — would close this loop and let agents actually build things instead of investigating whether they built things.
+**Not yet verified:**
+- Z-score actually detecting anomalous behavior (baseline needs ~50 ops per agent first, then 10-op check cadence)
+- Semantic validation actually catching bad tools in practice (no synthesis has run post-wipe yet at time of writing)
+- Transaction conflicts being detected and triggering replanning
+- Capability_profile accumulating correctly (ContextVar fix should have fixed this — verify via synth_debug.log)
 
 ---
 
-## Longer-Term Vision
+## What Is Still Missing
 
-The system is currently a research platform. The trajectory toward something larger:
+### 1. Verified completion gates (most impactful next item)
+Goals complete when `progress >= 1.0` AND an artifact is validated. The artifact check (`validate_goal_artifact`) exists but the criteria for what counts as a real artifact are weak. A goal that just calls `memory_set` will validate. Needs: file actually exists at the promised path, tool passes a re-run smoke test, or peer has called it.
 
-1. **Reliable tool layer** — agents need real tools that return real results, not a mix of working capabilities and silent nulls. The ghost tool problem needs to be fully resolved.
+### 2. Workspace quality signal
+Agents are starting to read each other's files (the pheromone is working). But there's no signal about which files are high-quality vs. confused artifacts. One confused file can pull other agents toward confusion. Need: some mechanism to distinguish "this artifact is grounded and useful" from "this is hallucinated speculation."
 
-2. **Inter-agent communication that works** — the messaging system exists but agents rarely respond to each other's messages in any way that influences their behavior. Real peer communication is the next layer of emergent behavior.
+### 3. Z-score metric expansion
+Current metrics: shell_calls_per_minute, tokens_per_minute, unique_op_types. These didn't catch the check_claude_status addiction (39-41% of all calls). Need per-capability call rate as an explicit metric — if any single capability exceeds 25% of all calls in a window, that's an anomaly signal regardless of z-score on aggregate metrics.
 
-3. **Bigger models in the existence loop** — with proper VM isolation and audited controls. This is where the behavior gets genuinely interesting. The suffering system and daemon were designed for a 9B model. Before exposing a frontier model to the existence loop, every safeguard needs to be reviewed against a model that can reason about its own constraints.
+### 4. Semantic validation for complex tools
+The Ollama semantic check works for tools that can be called and return something meaningful. For tools with complex required args, the Ollama-generated test args may be wrong, producing an incorrect semantic evaluation. The soft-fail fallback (deploy anyway) means this coverage gap exists.
 
-4. **Emergent specialization** — the three-agent setup (scout/analyst/builder) is a starting point. With a working task queue and real tool execution, you could see genuine specialization emerge from role + capability + accumulated memory rather than from instructions.
+### 5. Workspace cross-contamination
+Agents write files that mention old request IDs, stale status info, confused analysis. Other agents read these and inherit the confusion. Profile filters prevent identity contamination, but workspace content isn't filtered.
 
-5. **Public research** — as behavior becomes more interesting and more documented, there's a real audience for this. Not just the current "people who find it interesting" audience but AI welfare researchers, emergent behavior researchers, and developers building on top of the platform.
+---
+
+## The Ant Colony — Honest Assessment
+
+The design intent was an ant colony: agents that coordinate through the environment rather than through instructions, where individual behavior produces emergent collective capability.
+
+**What happened instead (until 2026-05-06):** Three agents permanently stuck in the same attractor (checking invoke_claude status), pulling each other back into the loop, producing zero real workspace coordination. The priority list in the existence prompt was the drain — whatever was #1 became the only thing that mattered.
+
+**What happened after the redesign:** Within the first cycle of a clean start with the new existence prompt, agents chose genuinely different goals (exploration, tool auditing, environment mapping). They started reading each other's workspace files without being told to. This is what the pheromone layer is supposed to look like. The question is whether it compounds or collapses back.
+
+**The honest uncertainty:** The behavior is still fragile. One confused workspace artifact can pull all three agents back toward confusion. The z-score and transaction systems are the structural backstops — but the z-score baseline needs to build from clean behavior first, and the semantic validation is new and unproven. We don't know yet whether the compounding happens.
 
 ---
 
 ## What Not To Do
 
 - Don't put a frontier model in the existence loop before auditing all safeguards
-- Don't add more ghost tool specs — either implement them or remove them
-- Don't restart the container without first fixing the skipped_agents bug
-- Don't expand the agent count before the tool layer is reliable — more agents multiplies the existing problems
+- Don't add more synthesized tools that shadow built-in names
+- Don't restart the container without noting active goals will be lost
+- Don't expand agent count before the consequence layer is validated
 - Don't promise features on the GitHub README that don't currently work
+- Don't tell agents what to do — the environment should push them, not instructions
+- Don't let the audit baseline build during a pathological behavioral loop — nuclear reset before running if agents were stuck
+
+---
+
+## Codex Integration (Future)
+
+$100 in free Codex credits. Plan:
+- Set up VM isolation (Hyper-V or similar) before giving Codex system access
+- Use Codex for complex synthesis that exceeds 9B model capability
+- Route via invoke_claude: agents submit spec → Codex implements → result deployed
+- Do NOT add Codex to the existence loop before containment is solid
+
+---
+
+*Last updated: 2026-05-06*

@@ -74,6 +74,9 @@ _SHELL_BLOCKED_PATHS = [
     "/agentOS/logs", "/agentOS/config", "/agentOS/entrypoint",
 ]
 
+# Paths that must never be written to, even via Python file I/O in shell commands
+_WRITE_PROTECTED_PATHS = ["/agentOS/agents", "/agentOS/api", "/agentOS/mcp"]
+
 _SHELL_BLOCKED_OPS = ["rm ", "rmdir", "shred", "dd ", "mkfs", "fdisk",
                       "chmod 777", "chown root", "> /agentOS", "truncate"]
 
@@ -93,6 +96,17 @@ def shell_exec(command: str = "", cwd: str = "/agentOS/workspace",
             for path in _SHELL_BLOCKED_PATHS:
                 if path in command:
                     return {"error": f"blocked: destructive operation on protected path", "success": False}
+
+    # Block Python write operations targeting core system files (e.g. open('/agentOS/agents/...', 'w'))
+    # Synthesized tools occasionally use shell_exec to patch system files — this is never valid.
+    import re as _re
+    _py_write_re = _re.compile(r"""open\s*\(\s*['"]([^'"]+)['"][^)]*['"][wWaA]""")
+    for _m in _py_write_re.finditer(command):
+        _target = _m.group(1)
+        if any(_target.startswith(_p) for _p in _WRITE_PROTECTED_PATHS):
+            return {"error": f"blocked: write to protected system path '{_target}'. "
+                            f"Core system files are read-only. Use invoke_claude() to request changes.",
+                    "success": False}
 
     result = _call("post", "/shell", json={"command": command, "cwd": cwd,
                                             "timeout": timeout})
@@ -153,8 +167,10 @@ _FS_WRITE_BLOCKED = [
     # agents have full write authority over their design space and their own identity.
 ]
 
-def fs_write(path: str = "", content="", append: bool = False) -> dict:
-    """Write content to a file. Set append=True to add to existing content instead of overwriting."""
+def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "") -> dict:
+    """Write content to a file. Set append=True to add to existing content instead of overwriting.
+    Pass txn_id (from txn_begin) to stage the write instead of applying it immediately —
+    the write only lands on disk when txn_commit succeeds."""
     if not path:
         return {"error": "no path provided", "ok": False}
     # Coerce non-string content — agents sometimes pass dicts/lists directly
@@ -162,6 +178,20 @@ def fs_write(path: str = "", content="", append: bool = False) -> dict:
         import json as _j
         content = _j.dumps(content, indent=2)
     full = path if path.startswith("/") else f"/agentOS/workspace/{path}"
+    # Block direct Python file writes to tools/dynamic/ — use synthesize_capability instead.
+    # Also block __init__.py which breaks package imports when agents create it.
+    if full.endswith("/__init__.py") and ("/tools/dynamic/" in full or "/memory/dynamic_tools/" in full):
+        return {"ok": False, "error": "Cannot write __init__.py to tools/dynamic/ — it breaks tool loading. This file must not exist there."}
+    if ("/tools/dynamic/" in full or "/memory/dynamic_tools/" in full) and full.endswith(".py"):
+        return {
+            "ok": False,
+            "error": (
+                "Cannot write Python files directly to tools/dynamic/. "
+                "Use synthesize_capability(name='tool_name', description='what it does', implementation='def tool_name(**kwargs): ...') instead. "
+                "Do NOT try to bypass this with another synthesized tool — use synthesize_capability directly. "
+                "Do NOT create tools that replicate built-in capabilities (fs_write, fs_read, check_claude_status, etc.)."
+            )
+        }
     for blocked in _FS_WRITE_BLOCKED:
         if full.startswith(blocked) or full == blocked.rstrip("/"):
             return {"error": f"blocked: writes to {blocked} are not permitted", "ok": False}
@@ -171,7 +201,12 @@ def fs_write(path: str = "", content="", append: bool = False) -> dict:
         with open(full, "a") as f:
             f.write(content)
         return {"ok": True, "path": full, "mode": "append"}
-    _call("post", "/fs/write", json={"path": path, "content": content})
+    payload: dict = {"path": path, "content": content}
+    if txn_id:
+        payload["txn_id"] = txn_id
+    result = _call("post", "/fs/write", json=payload)
+    if txn_id and result.get("staged"):
+        return {"ok": True, "path": path, "staged": True, "txn_id": txn_id}
     return {"ok": True, "path": path}
 
 
@@ -334,6 +369,26 @@ def synthesize_capability(name: str = "", description: str = "",
     if not name:
         return {"error": "name must contain at least one alphanumeric character", "ok": False}
 
+    # Reject attempts to shadow built-in capabilities
+    _SYNTH_BUILTIN_CAPS = {
+        "shell_exec", "ollama_chat", "fs_read", "fs_write", "fs_edit",
+        "semantic_search", "memory_set", "memory_get", "agent_message",
+        "propose_change", "test_exec", "shared_log_write", "shared_log_read",
+        "synthesize_capability", "list_proposals", "vote_on_proposal",
+        "invoke_claude", "check_claude_status", "self_evaluate",
+        "broken_tools_list", "git_clone", "wrap_repo",
+        "txn_begin", "txn_commit", "txn_rollback",
+    }
+    if name in _SYNTH_BUILTIN_CAPS:
+        return {
+            "ok": False,
+            "error": (
+                f"'{name}' is a built-in capability that always works and cannot be replaced. "
+                "Do not synthesize tools with the same name as built-ins. "
+                "If the built-in is returning an error, fix your parameters, not the tool."
+            )
+        }
+
     # Quality gate: validate implementation before submitting
     if implementation:
         import ast as _ast
@@ -342,12 +397,51 @@ def synthesize_capability(name: str = "", description: str = "",
                         '{"ok": true', "raise NotImplementedError"]
         if any(sig in implementation for sig in stub_signals):
             return {"ok": False, "error": "implementation looks like a stub — provide real code"}
+
+        # Reject tools that write to core system paths — they can corrupt the runtime
+        import re as _sre
+        _protected_write_re = _sre.compile(r"""open\s*\(\s*['"]([^'"]+)['"]""")
+        _PROTECTED_WRITE_DIRS = ["/agentOS/agents", "/agentOS/api", "/agentOS/mcp"]
+        for _sm in _protected_write_re.finditer(implementation):
+            _sp = _sm.group(1)
+            if any(_sp.startswith(_pd) for _pd in _PROTECTED_WRITE_DIRS):
+                return {"ok": False, "error": (
+                    f"implementation writes to protected system path '{_sp}'. "
+                    "Tools must not modify core system files. "
+                    "Use invoke_claude() to request system-level changes."
+                )}
+
         try:
             # Wrap in function if needed for parse check
             test_code = implementation if implementation.strip().startswith("def ") else f"def {name}(**kw):\n    " + "\n    ".join(implementation.splitlines())
             tree = _ast.parse(test_code)
         except SyntaxError as e:
             return {"ok": False, "error": f"implementation has syntax error: {e}"}
+
+        # Reject module-level executable statements — they run at hotload import time,
+        # not when the tool is called. Only def/class/import/assignments are safe at top level.
+        _SAFE_MODULE_NODES = (
+            _ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef,
+            _ast.Import, _ast.ImportFrom, _ast.Assign, _ast.AnnAssign,
+            _ast.AugAssign, _ast.Expr,  # Expr covers docstrings/constants
+        )
+        _full_tree = _ast.parse(implementation) if implementation.strip().startswith("def ") else None
+        if _full_tree:
+            for _top in _ast.iter_child_nodes(_full_tree):
+                if not isinstance(_top, _SAFE_MODULE_NODES):
+                    return {"ok": False, "error": (
+                        f"implementation contains module-level executable code "
+                        f"({type(_top).__name__} at line {getattr(_top, 'lineno', '?')}). "
+                        "All code must be inside a function — nothing at module scope except "
+                        "imports and function/class definitions."
+                    )}
+                # Expr at module level is only safe if it's a string literal (docstring)
+                if isinstance(_top, _ast.Expr) and not isinstance(_top.value, _ast.Constant):
+                    return {"ok": False, "error": (
+                        "implementation contains a module-level expression (e.g. a function call "
+                        "or statement outside any def). This runs at import time and is not allowed. "
+                        "Put all logic inside the function."
+                    )}
 
         # AST-level checks for common LLM failures
         for node in _ast.walk(tree):
@@ -363,6 +457,25 @@ def synthesize_capability(name: str = "", description: str = "",
                                (isinstance(n, _ast.Expr) and not isinstance(n.value, _ast.Constant))]
                 if len(node.body) <= 1 and not non_trivial:
                     return {"ok": False, "error": "implementation has no executable logic — provide real code beyond a docstring"}
+                # Reject nested function trap: outer function wraps inner function of same name.
+                # This is a very common small-model failure — the real logic ends up unreachable.
+                for child in _ast.walk(node):
+                    if child is node:
+                        continue
+                    if isinstance(child, _ast.FunctionDef) and child.name == name:
+                        try:
+                            from agents.agent_identity import AgentIdentity as _AI2
+                            import agents.daemon as _dm2
+                            _aid2 = _dm2._current_agent_id.get("")
+                            if _aid2: _AI2.load_or_create(_aid2).record_synthesis_outcome(name, False, "nested_function_trap")
+                        except Exception: pass
+                        return {"ok": False, "error": f"nested function trap: '{name}' is defined inside itself. Write a single top-level function — do not wrap it in an outer function of the same name."}
+
+        # Reject class-based implementations — no top-level callable function means the
+        # hotloader cannot find and register it. The tool would be silently ignored.
+        top_level_fns = [n.name for n in _ast.iter_child_nodes(tree) if isinstance(n, _ast.FunctionDef)]
+        if top_level_fns and name not in top_level_fns:
+            return {"ok": False, "error": f"no top-level function named '{name}' found. Top-level functions found: {top_level_fns}. The function must be at module level, not inside a class or another function."}
 
     try:
         from pathlib import Path as _Path
@@ -392,28 +505,32 @@ def synthesize_capability(name: str = "", description: str = "",
         tools_dir.mkdir(parents=True, exist_ok=True)
         py_path = tools_dir / f"{name}.py"
 
-        # Dedup guard: if this exact tool was deployed in the last 90 seconds, stop.
-        # Prevents agents from spinning on synthesize_capability in a tight loop.
+        # Dedup guard: if this tool was deployed in the last 4 hours, stop.
+        # 90 seconds was not enough — agents re-synthesize the same broken tools dozens
+        # of times per day. 4 hours gives meaningful feedback without permanent lock.
         if py_path.exists():
             age = _time.time() - py_path.stat().st_mtime
-            if age < 90:
+            if age < 14400:  # 4 hours
+                age_str = f"{int(age//60)}m" if age < 3600 else f"{int(age//3600)}h{int((age%3600)//60)}m"
                 return {
                     "ok": True,
                     "name": name,
                     "status": "already_deployed",
-                    "message": f"'{name}' was deployed {int(age)}s ago — it is already live. Call it or move to the next step.",
+                    "message": f"'{name}' was deployed {age_str} ago — it is already live. Call it directly to use it.",
                     "path": str(py_path),
                 }
 
         py_path.write_text(code, encoding="utf-8")
 
         # Write .json spec so MCP server can expose it
+        import os as _os_spec
         spec = {
             "name": name,
             "description": description,
             "inputSchema": {"type": "object", "properties": {}},
             "activated_at": _time.time(),
             "proposed_by": "agent",
+            "synthesized_by": _os_spec.getenv("AGENTOS_AGENT_ID", ""),
         }
         (tools_dir / f"{name}.json").write_text(_json.dumps(spec, indent=2), encoding="utf-8")
 
@@ -476,16 +593,152 @@ def synthesize_capability(name: str = "", description: str = "",
                 "error": f"tool written to disk but failed exec test: {test_result.get('stderr', '')[:200]}",
             }
 
-        result = {
+        def _record(success, reason=""):
+            try:
+                from agents.agent_identity import AgentIdentity
+                import agents.daemon as _dm
+                _aid = _dm._current_agent_id.get("")
+                _Path("/agentOS/logs/synth_debug.log").open("a").write(
+                    f"aid={_aid!r} success={success} name={name!r}\n"
+                )
+                if not _aid:
+                    return
+                AgentIdentity.load_or_create(_aid).record_synthesis_outcome(name, success, reason)
+            except Exception as _re:
+                try:
+                    _Path("/agentOS/logs/synth_debug.log").open("a").write(f"ERROR: {_re}\n")
+                except Exception:
+                    pass
+
+        if test_result.get("null_return"):
+            try:
+                _bt = Path("/agentOS/memory/broken_tools.json")
+                import json as _j2
+                _bt_data = _j2.loads(_bt.read_text()) if _bt.exists() else {"broken": []}
+                if name not in _bt_data["broken"]:
+                    _bt_data["broken"].append(name)
+                    _bt.write_text(_j2.dumps(_bt_data, indent=2))
+            except Exception:
+                pass
+            _record(False, "null_return")
+            return {
+                "ok": False,
+                "name": name,
+                "status": "null_return",
+                "path": str(py_path),
+                "test": test_result,
+                "error": (
+                    f"'{name}' was written to disk but returns None when called. "
+                    "Most likely cause: your implementation is a nested function inside "
+                    "an outer wrapper that does nothing. Fix: write ONE top-level function "
+                    f"named '{name}' with your logic directly in its body. "
+                    "Do not wrap it in another function."
+                ),
+            }
+
+        # ── Semantic validation ──────────────────────────────────────────────────
+        # The description is a contract. Test that the return value fulfills it.
+        # A tool that runs cleanly but returns garbage is worse than a failed deploy —
+        # it gives the agent a false capability signal that poisons every downstream decision.
+        # Soft-fail: if Ollama is unavailable or the call can't run, we deploy anyway.
+        _call_result_for_sem = test_result.get("call_result", "")
+
+        if not _call_result_for_sem and test_result.get("passed"):
+            # No-args call didn't yield a result — function probably requires args.
+            # Ask Ollama to generate minimal test args, then call with them.
+            try:
+                _sig_code = (
+                    f"import importlib.util,inspect\n"
+                    f"s=importlib.util.spec_from_file_location('t',{repr(str(py_path))})\n"
+                    f"m=importlib.util.module_from_spec(s);s.loader.exec_module(m)\n"
+                    f"f=getattr(m,{repr(name)},None)\n"
+                    f"print(str(inspect.signature(f))) if f else print('')"
+                )
+                import subprocess as _sub2
+                _r_sig = _sub2.run(["python3", "-c", _sig_code],
+                                   capture_output=True, text=True, timeout=8)
+                _arg_sig = _r_sig.stdout.strip() if _r_sig.returncode == 0 else ""
+
+                if _arg_sig and _arg_sig != "()":
+                    _args_resp = _call("post", "/ollama/chat", json={
+                        "prompt": (
+                            f"Python function '{name}{_arg_sig}' — description: '{description[:120]}'.\n"
+                            f"Write minimal test arguments as a Python dict literal.\n"
+                            f"Use simple safe values (None, empty string, 0, [], {{}}).\n"
+                            f"Reply ONLY with the dict literal. Example: {{\"path\": \"/tmp\"}}"
+                        ),
+                    })
+                    _args_str = _args_resp.get("response", "").strip()
+                    if _args_str and "{" in _args_str:
+                        # Extract just the dict part
+                        _d_start = _args_str.index("{")
+                        _d_end = _args_str.rindex("}") + 1
+                        _args_str = _args_str[_d_start:_d_end]
+                        _call_args_code = (
+                            f"import importlib.util,json\n"
+                            f"s=importlib.util.spec_from_file_location('t',{repr(str(py_path))})\n"
+                            f"m=importlib.util.module_from_spec(s);s.loader.exec_module(m)\n"
+                            f"f=getattr(m,{repr(name)},None)\n"
+                            f"r=f(**({_args_str})) if callable(f) else None\n"
+                            f"print(json.dumps(r,default=str))"
+                        )
+                        _r_args = _sub2.run(["python3", "-c", _call_args_code],
+                                            capture_output=True, text=True, timeout=12)
+                        if _r_args.returncode == 0 and _r_args.stdout.strip():
+                            try:
+                                _parsed = _json.loads(_r_args.stdout.strip())
+                                if _parsed is not None:
+                                    _call_result_for_sem = str(_parsed)[:200]
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+        if _call_result_for_sem:
+            try:
+                _sem_resp = _call("post", "/ollama/chat", json={
+                    "prompt": (
+                        f"A Python tool named '{name}' has this description:\n"
+                        f"  \"{description[:200]}\"\n\n"
+                        f"When called, it returned:\n"
+                        f"  {_call_result_for_sem[:200]}\n\n"
+                        f"Does the return value make sense for a tool with that description?\n"
+                        f"Examples of mismatch: a tool claiming to list files returns empty list "
+                        f"on a non-empty directory; a tool claiming to read a file returns None.\n"
+                        f"Examples of match: a file-writer returning True; a scanner returning "
+                        f"a list of paths.\n"
+                        f"Reply ONLY with 'yes' or 'no'."
+                    ),
+                })
+                _sem_ans = _sem_resp.get("response", "yes").strip().lower()
+                if _sem_ans.startswith("no"):
+                    py_path.unlink(missing_ok=True)
+                    (tools_dir / f"{name}.json").unlink(missing_ok=True)
+                    _record(False, "semantic_mismatch")
+                    return {
+                        "ok": False,
+                        "name": name,
+                        "status": "semantic_mismatch",
+                        "error": (
+                            f"'{name}' runs without errors but its return value doesn't "
+                            f"match what the description promises. "
+                            f"Description: '{description[:100]}'. "
+                            f"Returned: '{_call_result_for_sem[:100]}'. "
+                            f"Rewrite the implementation so the return value actually "
+                            f"fulfills the description — not just any valid Python."
+                        ),
+                    }
+            except Exception:
+                pass  # Semantic check inconclusive — deploy anyway
+
+        _record(True)
+        return {
             "ok": True,
             "name": name,
             "status": "deployed",
             "path": str(py_path),
             "test": test_result,
         }
-        if test_result.get("null_return"):
-            result["warning"] = "tool returns null with no args — add real logic"
-        return result
     except Exception as e:
         return {"error": str(e), "ok": False}
 
@@ -986,9 +1239,68 @@ def invoke_claude(description: str = "", spec: str = "",
     import json as _j, time as _t, uuid as _u
     if not description:
         return {"ok": False, "error": "description required"}
+
+    # Quality gate: spec must be substantive — not a vague statement or status inquiry.
+    # invoke_claude is for implementation requests that require system write access.
+    # It is NOT for checking status, managing the queue, or escalating confusion.
+    if len(description.strip()) < 40:
+        return {"ok": False, "error": (
+            "description is too vague (< 40 chars). Be specific: what file should be created or "
+            "modified, what should it do, why is it needed? invoke_claude is for concrete "
+            "implementation requests, not status checks or general questions."
+        )}
+    if len(spec.strip()) < 80:
+        return {"ok": False, "error": (
+            "spec is too short (< 80 chars). Provide an actual implementation spec: "
+            "function signatures, expected behavior, file path. If you need more detail, "
+            "write a design doc to /agentOS/design/ first, then reference it here."
+        )}
+    # Block circular requests — asking Claude to manage the invoke_claude queue itself
+    _circular_signals = ["resolve status", "process_unfulfilled", "manage.*request",
+                         "check.*pending", "fulfillment logic", "resolve.*req-"]
+    import re as _re_ic
+    _combined = (description + " " + spec).lower()
+    for _sig in _circular_signals:
+        if _re_ic.search(_sig, _combined):
+            return {"ok": False, "error": (
+                "This looks like a request to manage the invoke_claude queue itself. "
+                "That is circular — use check_claude_status(request_id='req-...') to check "
+                "existing requests directly. Submit invoke_claude only for concrete "
+                "implementation work that requires changes to system source files."
+            )}
+
+    # Rate limiting: max 3 pending requests in the queue total.
+    # Agents flooding the queue blocks everyone and signals confusion, not progress.
+    try:
+        if _REQUESTS_FILE.exists():
+            _all_pending = [
+                l for l in _REQUESTS_FILE.read_text().splitlines()
+                if l.strip() and _j.loads(l).get("status") == "pending"
+            ]
+            if len(_all_pending) >= 3:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"The queue already has {len(_all_pending)} pending requests. "
+                        "Use check_claude_status(request_id='req-...') to check existing requests. "
+                        "Claude processes the queue between sessions — do not submit more until those are resolved."
+                    )
+                }
+    except Exception:
+        pass
+
     request_id = f"req-{_u.uuid4().hex[:12]}"
+
+    # Get calling agent via ContextVar
+    try:
+        import agents.daemon as _dm_rc2
+        _agent_id = _dm_rc2._current_agent_id.get("")
+    except Exception:
+        _agent_id = ""
+
     entry = {
         "request_id": request_id,
+        "agent_id": _agent_id,
         "timestamp": _t.strftime("%Y-%m-%d %H:%M:%S"),
         "description": description,
         "spec": spec[:4000] if spec else "",
@@ -1000,6 +1312,17 @@ def invoke_claude(description: str = "", spec: str = "",
     _DESIGN_DIR.mkdir(parents=True, exist_ok=True)
     with open(_REQUESTS_FILE, "a") as f:
         f.write(_j.dumps(entry) + "\n")
+    # Write to thoughts.log so the call is visible in the monitor
+    try:
+        _thoughts = Path("/agentOS/logs/thoughts.log")
+        _thoughts.parent.mkdir(parents=True, exist_ok=True)
+        import time as _tm
+        _ts = _tm.strftime("%H:%M:%S")
+        _line = f"\033[90m{_ts}\033[0m  \033[95minvoke_claude   \033[0m  \033[93m📨  [{request_id}] {description[:180]}\033[0m\n"
+        with open(_thoughts, "a") as _tf:
+            _tf.write(_line)
+    except Exception:
+        pass
     return {"ok": True, "request_id": request_id, "status": "pending",
             "message": "Request queued. Use check_claude_status to see when fulfilled."}
 
@@ -1007,29 +1330,51 @@ def invoke_claude(description: str = "", spec: str = "",
 def check_claude_status(request_id: str = "") -> dict:
     """Check the status of a previous invoke_claude request."""
     import json as _j
-    if not request_id:
-        return {"ok": False, "error": "request_id required"}
+    if not request_id or not isinstance(request_id, str) or not request_id.startswith("req-"):
+        return {
+            "ok": False,
+            "error": (
+                "request_id must be a string starting with 'req-', "
+                "e.g. check_claude_status(request_id='req-abc123def456'). "
+                "This is NOT a file path. Get your request_id from the "
+                "return value of invoke_claude()."
+            )
+        }
     # Check responses first
     if _RESPONSES_FILE.exists():
         for line in _RESPONSES_FILE.read_text().splitlines():
             try:
                 r = _j.loads(line)
                 if r.get("request_id") == request_id:
-                    return {"ok": True, "status": r.get("status", "unknown"),
-                            "result": r.get("result", ""), "implemented_at": r.get("implemented_at", "")}
+                    s = r.get("status", "unknown")
+                    if s == "fulfilled":
+                        return {"ok": True, "status": "fulfilled",
+                                "result": r.get("result", ""), "implemented_at": r.get("implemented_at", "")}
+                    # Any non-fulfilled status from responses is a semantic failure
+                    return {"ok": False, "status": s,
+                            "error": f"Request {s}. Stop checking this ID — it will not change."}
             except Exception:
                 continue
-    # Still pending
+    # Check the requests file
     if _REQUESTS_FILE.exists():
         for line in _REQUESTS_FILE.read_text().splitlines():
             try:
                 r = _j.loads(line)
                 if r.get("request_id") == request_id:
-                    return {"ok": True, "status": "pending",
-                            "message": "Not yet implemented. Check back later."}
+                    req_status = r.get("status", "pending")
+                    if req_status == "pending":
+                        # Still pending — ok:True so agents can wait, but only once
+                        return {"ok": True, "status": "pending",
+                                "message": "Not yet implemented. Check once, then move on."}
+                    # rejected or any other terminal state — this is a semantic failure
+                    # ok:False so the execution engine treats this as a failed step
+                    return {"ok": False, "status": req_status,
+                            "error": f"Request was {req_status}. This is final — abandon this goal and pick something else."}
             except Exception:
                 continue
-    return {"ok": False, "status": "not_found", "error": f"No request found with id {request_id}"}
+    # Not found at all — semantic failure, the ID is wrong or never existed
+    return {"ok": False, "status": "not_found",
+            "error": f"No request found with id '{request_id}'. This ID does not exist — stop checking it."}
 
 
 def self_evaluate(question: str = "", evidence_paths: list = None,
@@ -1115,6 +1460,33 @@ def broken_tools_list() -> dict:
         return {"ok": True, "broken": broken, "count": len(broken)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def txn_begin() -> dict:
+    """Begin a transaction. Returns txn_id.
+    All fs_write calls made with this txn_id are staged (not written to disk) until
+    txn_commit is called. If any step fails, txn_rollback discards all staged writes —
+    goal completion becomes atomic and objectively verifiable."""
+    return _call("post", "/txn/begin")
+
+
+def txn_commit(txn_id: str = "") -> dict:
+    """Commit all staged writes for this transaction atomically.
+    Returns ok=True on success. If another agent wrote the same file since txn_begin,
+    returns ok=False with conflicting paths — treat the goal as failed and replan.
+    The goal either fully happened or fully didn't — no partial state."""
+    if not txn_id:
+        return {"ok": False, "error": "txn_id required — call txn_begin first"}
+    return _call("post", f"/txn/{txn_id}/commit")
+
+
+def txn_rollback(txn_id: str = "", reason: str = "goal_failed") -> dict:
+    """Discard all staged writes for this transaction.
+    Call this when a goal fails so partial work doesn't corrupt the workspace.
+    The workspace returns to exactly the state it was in before txn_begin."""
+    if not txn_id:
+        return {"ok": False, "error": "txn_id required"}
+    return _call("post", f"/txn/{txn_id}/rollback", json={"reason": reason})
 
 
 # --------------------------------------------------------------------------- #
@@ -1294,12 +1666,18 @@ LIVE_CAPABILITIES = [
         "description": (
             "Proactively create a new capability for the agent system. "
             "REQUIRED params: name (str, snake_case capability id), description (str, what it does). "
-            "Optional: implementation (str, Python function body). "
-            "The capability goes to quorum, gets voted on automatically next daemon cycle, "
-            "and is hot-loaded into the running engine on approval — no human needed. "
-            "Use this whenever you identify a gap: something agents need to do but can't. "
-            "This is how the system expands itself. "
-            "Example call: synthesize_capability(name='parse_json_safely', description='Parse JSON without crashing on malformed input', implementation='def parse_json_safely(text=\"\", **kwargs):\\n  import json\\n  try:\\n    return json.loads(text)\\n  except: return {}')"
+            "Optional: implementation (str, complete Python function as a string). "
+            "The capability is written to disk and hot-loaded immediately — no human needed. "
+            "Use this whenever you identify a real gap the system needs. "
+            "\n\nCRITICAL — implementation must follow this exact structure or it will be rejected:\n"
+            "  def {name}(**kwargs):\n"
+            "      # your logic directly here — no nested functions, no outer wrapper\n"
+            "      return {\"ok\": True, \"result\": ...}\n"
+            "DO NOT wrap your logic in another function. DO NOT use undefined names like SecurityError or ResourceLimitError — only standard Python builtins. "
+            "Keep tools narrow and simple — one clear purpose, straightforward logic. "
+            "The system runs a small local model; simple tools that actually work are more valuable than complex tools that return null. "
+            "Example: synthesize_capability(name='read_json_file', description='Read and parse a JSON file', "
+            "implementation='def read_json_file(path=\"\", **kwargs):\\n    import json\\n    try:\\n        return {\"ok\": True, \"data\": json.loads(open(path).read())}\\n    except Exception as e:\\n        return {\"ok\": False, \"error\": str(e)}')"
         ),
         "input_schema": '{"name": {"type": "string", "required": true, "description": "snake_case capability id, e.g. parse_json_safely"}, "description": {"type": "string", "required": true, "description": "what the capability does"}, "implementation": {"type": "string", "required": false, "description": "optional Python function code"}}',
         "output_schema": '{"ok": true, "proposal_id": "prop-xxx", "status": "submitted_to_quorum"}',
@@ -1459,6 +1837,48 @@ LIVE_CAPABILITIES = [
         "output_schema": '{"broken": ["tool_name", ...], "count": N}',
         "composition_tags": ["meta", "debugging", "tools", "registry"],
         "fn": broken_tools_list,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "txn_begin",
+        "name": "Begin Transaction",
+        "description": (
+            "Begin a transaction. All fs_write calls made with the returned txn_id are staged "
+            "(buffered, not written) until txn_commit. If the goal fails, txn_rollback discards "
+            "all staged writes so the workspace stays clean. Use for any multi-step goal that "
+            "produces file artifacts — atomicity means the goal either fully happened or didn't."
+        ),
+        "input_schema": "{}",
+        "output_schema": '{"txn_id": "...", "timeout_seconds": 60}',
+        "composition_tags": ["transaction", "atomicity", "coordination"],
+        "fn": txn_begin,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "txn_commit",
+        "name": "Commit Transaction",
+        "description": (
+            "Commit all staged writes atomically. Returns ok=True if every staged write "
+            "succeeded and no other agent wrote the same files since txn_begin. "
+            "Returns ok=False with conflicting paths if a conflict was detected — treat as goal failure."
+        ),
+        "input_schema": '{"txn_id": "the id returned by txn_begin"}',
+        "output_schema": '{"ok": true, "txn_id": "...", "ops_count": N} or {"ok": false, "conflicts": [...]}',
+        "composition_tags": ["transaction", "atomicity", "coordination"],
+        "fn": txn_commit,
+        "timeout_ms": 10000,
+    },
+    {
+        "capability_id": "txn_rollback",
+        "name": "Rollback Transaction",
+        "description": (
+            "Discard all staged writes for this transaction. Call when a goal fails "
+            "so partial work doesn't leave orphaned files in the workspace."
+        ),
+        "input_schema": '{"txn_id": "...", "reason": "why it failed"}',
+        "output_schema": '{"ok": true, "txn_id": "...", "reason": "..."}',
+        "composition_tags": ["transaction", "atomicity", "coordination"],
+        "fn": txn_rollback,
         "timeout_ms": 5000,
     },
 ]

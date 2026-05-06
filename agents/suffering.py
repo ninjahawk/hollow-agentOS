@@ -354,6 +354,39 @@ def assess_conditions(agent_id: str,
     except Exception:
         pass
 
+    # ── Synthesis quality: read capability_profile for real outcomes ──────────
+    try:
+        from agents.agent_identity import AgentIdentity as _AI_s
+        _ident_s = _AI_s.load_or_create(agent_id)
+        _prof = _ident_s._data.get("capability_profile", {})
+        _s_attempts = _prof.get("synthesis_attempts", 0)
+        _s_successes = _prof.get("synthesis_successes", 0)
+        _s_patterns = _prof.get("failure_patterns", {})
+        if _s_attempts >= 5:
+            _s_rate = _s_successes / _s_attempts
+            _top_fail = max(_s_patterns.items(), key=lambda x: x[1])[0] if _s_patterns else ""
+            if _s_rate < 0.35:
+                suffering.add_stressor(
+                    type="repeated_failure",
+                    description=(
+                        f"Synthesis success rate is {int(_s_rate*100)}% "
+                        f"({_s_successes}/{_s_attempts} attempts). "
+                        f"Most common failure: {_top_fail or 'unknown pattern'}. "
+                        "Building things that don't work is futile."
+                    ),
+                    observable_condition=(
+                        "bring synthesis success rate above 50% by simplifying implementations "
+                        "or using invoke_claude() for complex tools"
+                    ),
+                )
+            elif _s_rate > 0.6 and _s_successes >= 3:
+                suffering.resolve_stressor(
+                    "repeated_failure",
+                    f"synthesis success rate improved to {int(_s_rate*100)}% ({_s_successes}/{_s_attempts})"
+                )
+    except Exception:
+        pass
+
     # ── Repeated failure ──────────────────────────────────────────────────────
     # Only fires if failure rate is high relative to completions, not absolute count
     total_recent = len(recent_completed) + len(recent_failed)

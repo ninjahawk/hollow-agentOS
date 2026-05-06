@@ -11,6 +11,9 @@ design/*
 # Runtime data directories (bind-mounted from host at runtime, never committed)
 memory/*
 !memory/.gitkeep
+# Source files that live in memory/ — must survive nuclear wipes
+!memory/manager.py
+!memory/heap.py
 workspace/*
 !workspace/.gitkeep
 logs/*

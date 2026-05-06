@@ -172,9 +172,11 @@ class ExecutionEngine:
         else:
             call = func
 
+        import contextvars
+        ctx = contextvars.copy_context()
         timeout_sec = timeout_ms / 1000.0
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(call)
+            future = executor.submit(ctx.run, call)
             try:
                 return future.result(timeout=timeout_sec)
             except _FuturesTimeout:

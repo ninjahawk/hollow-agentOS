@@ -39,6 +39,10 @@ services:
       - ./agents/autonomy_loop.py:/agentOS/agents/autonomy_loop.py:ro
       - ./agents/suffering.py:/agentOS/agents/suffering.py:ro
       - ./agents/task_queue.py:/agentOS/agents/task_queue.py:ro
+      - ./agents/agent_identity.py:/agentOS/agents/agent_identity.py:ro
+      - ./agents/reasoning_layer.py:/agentOS/agents/reasoning_layer.py:ro
+      - ./agents/execution_engine.py:/agentOS/agents/execution_engine.py:ro
+      - ./agents/transaction.py:/agentOS/agents/transaction.py:ro
       - ./design:/agentOS/design
       # Store data mounted so repair_wrappers.py can write directly (bypasses SHA dedup)
       - ./store/data:/agentOS/store/data
