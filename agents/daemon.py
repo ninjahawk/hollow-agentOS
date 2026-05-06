@@ -328,10 +328,17 @@ _CORE_AGENTS = {"scout", "analyst", "builder"}
 def _agents_with_goals() -> list[str]:
     """Return agent IDs that have at least one active goal.
     Only core agents (scout, analyst, builder) are managed — no dynamic agents.
+    Suspended agents are skipped entirely — no processing, no new goals.
     """
     with_goals = []
     for agent_id in sorted(_CORE_AGENTS):
         try:
+            # Respect agent suspension — don't assign or pursue goals for suspended agents
+            agent_rec = _get(f"/agents/{agent_id}")
+            if agent_rec.get("status") == "suspended":
+                log.debug("Skipping %s — suspended", agent_id)
+                continue
+
             result = _get(f"/goals/{agent_id}")
             if result.get("count", 0) > 0:
                 with_goals.append(agent_id)
