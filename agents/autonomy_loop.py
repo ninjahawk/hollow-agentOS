@@ -721,10 +721,13 @@ class AutonomyLoop:
                     return (goal_id, 0.0, steps_executed)
 
                 elif fail_count >= 3 and cap_id and cap_id not in blacklisted:
-                    # IMPOSSIBLE capability: blacklist it, force replan without it
+                    # IMPOSSIBLE capability: blacklist it, force replan without it.
+                    # Never disable built-ins — repeated failures mean wrong parameters,
+                    # not a broken tool. Disabling fs_read because a file didn't exist
+                    # breaks the entire agent for the rest of the session.
                     blacklisted.append(cap_id)
                     _persist_broken_tool(cap_id)
-                    if self._execution_engine:
+                    if self._execution_engine and cap_id not in _BUILTIN_CAPS:
                         self._execution_engine.disable_capability(cap_id)
                     blocked_msg = (
                         f"{goal.objective} "
