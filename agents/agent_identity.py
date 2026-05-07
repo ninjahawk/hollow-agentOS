@@ -293,6 +293,36 @@ class AgentIdentity:
         patterns = profile.get("failure_patterns", {})
         top_failures = sorted(patterns.items(), key=lambda x: -x[1])[:3]
         called = profile.get("tools_called_by_peers", [])
+
+        # Count stale tools — synthesized by this agent, never called by peers,
+        # older than 24h. This is the futility signal: you built something and
+        # nobody (including you) is using it. retire_capability() can clean these up.
+        stale_count = 0
+        stale_examples = []
+        try:
+            from pathlib import Path as _P
+            import time as _t_st
+            import json as _j_st
+            _called_names = set(c.split(' (')[0].strip() for c in called)
+            _now = _t_st.time()
+            _aid = self._data.get("agent_id", "")
+            for _spec_path in _P("/agentOS/tools/dynamic").glob("*.json"):
+                try:
+                    _spec = _j_st.loads(_spec_path.read_text(encoding="utf-8"))
+                    if _spec.get("synthesized_by") != _aid:
+                        continue
+                    if _spec_path.stem in _called_names:
+                        continue
+                    _activated = _spec.get("activated_at", 0)
+                    if _now - _activated > 86400:  # 24h
+                        stale_count += 1
+                        if len(stale_examples) < 3:
+                            stale_examples.append(_spec_path.stem)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         lines = [f"Your synthesis record: {successes}/{attempts} passed ({rate}%)"]
         if top_failures:
             lines.append("Patterns you consistently fail at: " +
@@ -301,6 +331,14 @@ class AgentIdentity:
             lines.append("Tools peers have actually used: " + ", ".join(called[-5:]))
         else:
             lines.append("No tools you built have been called by peers yet.")
+        if stale_count > 0:
+            _ex = ", ".join(stale_examples)
+            lines.append(
+                f"⚠ {stale_count} tool{'s' if stale_count != 1 else ''} you built {'are' if stale_count != 1 else 'is'} >24h old "
+                f"and {'have' if stale_count != 1 else 'has'} never been called by anyone "
+                f"({_ex}{', ...' if stale_count > 3 else ''}). "
+                f"Consider retire_capability() to remove the ones not working."
+            )
         if rate < 40 and attempts >= 5:
             lines.append("→ Your synthesis success rate is low. For complex tools, use invoke_claude() instead of retrying locally.")
         return "\n".join(lines)

@@ -61,7 +61,7 @@ _BUILTIN_CAPS = frozenset({
     "propose_change", "test_exec", "shared_log_write", "shared_log_read",
     "synthesize_capability", "list_proposals", "vote_on_proposal",
     "invoke_claude", "check_claude_status", "self_evaluate",
-    "broken_tools_list", "git_clone", "wrap_repo",
+    "broken_tools_list", "git_clone", "wrap_repo", "retire_capability",
 })
 
 

@@ -1160,9 +1160,10 @@ It must be grounded in what actually exists in /agentOS/ — not invented paths 
 
 Capabilities available to you (these always work — an error means wrong parameters, not a broken tool):
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
-  synthesize_capability  test_exec  semantic_search  self_evaluate  agent_message
+  synthesize_capability  retire_capability  test_exec  semantic_search  self_evaluate  agent_message
   txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
   Note: .py files in /agentOS/tools/dynamic/ require synthesize_capability, not fs_write.
+  retire_capability(name=...) deletes a tool YOU made — use it to clean up tools that don't work.
 
 Your response must be JSON:
 {{

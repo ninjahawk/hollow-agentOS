@@ -394,7 +394,7 @@ def synthesize_capability(name: str = "", description: str = "",
         "synthesize_capability", "list_proposals", "vote_on_proposal",
         "invoke_claude", "check_claude_status", "self_evaluate",
         "broken_tools_list", "git_clone", "wrap_repo",
-        "txn_begin", "txn_commit", "txn_rollback",
+        "txn_begin", "txn_commit", "txn_rollback", "retire_capability",
     }
     if name in _SYNTH_BUILTIN_CAPS:
         return {
@@ -1539,6 +1539,73 @@ def broken_tools_list() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def retire_capability(name: str = "") -> dict:
+    """Retire (delete) a capability you previously synthesized. Use this when
+    you realize a tool you built is not working, isn't being called by anyone,
+    or has been superseded by something better.
+
+    You can only retire tools that YOU synthesized — not built-ins, not tools
+    your peers made. The .py and .json files are deleted from disk and the
+    execution engine is hot-reloaded so the capability is no longer callable.
+
+    name: the exact name of the synthesized capability to retire
+    """
+    if not name:
+        return {"ok": False, "error": "name required"}
+    import re as _re
+    name = _re.sub(r'[^a-zA-Z0-9_]', '_', name.strip()).strip('_').lower()
+    if not name:
+        return {"ok": False, "error": "name must contain at least one alphanumeric character"}
+
+    # Cannot retire built-ins
+    _BUILTINS = {
+        "shell_exec", "ollama_chat", "fs_read", "fs_write", "fs_edit",
+        "semantic_search", "memory_set", "memory_get", "agent_message",
+        "propose_change", "test_exec", "shared_log_write", "shared_log_read",
+        "synthesize_capability", "list_proposals", "vote_on_proposal",
+        "invoke_claude", "check_claude_status", "self_evaluate",
+        "broken_tools_list", "git_clone", "wrap_repo",
+        "txn_begin", "txn_commit", "txn_rollback", "retire_capability",
+    }
+    if name in _BUILTINS:
+        return {"ok": False, "error": f"'{name}' is a built-in capability and cannot be retired."}
+
+    from pathlib import Path as _P
+    py_path = _P(f"/agentOS/tools/dynamic/{name}.py")
+    json_path = _P(f"/agentOS/tools/dynamic/{name}.json")
+    if not py_path.exists():
+        return {"ok": False, "error": f"No tool named '{name}' found in /agentOS/tools/dynamic/."}
+
+    # Provenance check: only retire your own work. Different agents can hold
+    # different opinions about whether a tool is useful — your peer might be
+    # using a tool you think is broken.
+    import os as _os_r
+    _aid = _os_r.getenv("AGENTOS_AGENT_ID", "")
+    if _aid and json_path.exists():
+        try:
+            import json as _j_r
+            spec = _j_r.loads(json_path.read_text(encoding="utf-8"))
+            synthesized_by = spec.get("synthesized_by", "")
+            if synthesized_by and synthesized_by != _aid:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"'{name}' was synthesized by '{synthesized_by}', not you. "
+                        "Each agent can only retire their own tools."
+                    ),
+                }
+        except Exception:
+            pass
+
+    py_path.unlink(missing_ok=True)
+    json_path.unlink(missing_ok=True)
+    try:
+        _call("post", "/tools/reload")
+    except Exception:
+        pass
+    return {"ok": True, "name": name, "status": "retired"}
+
+
 def txn_begin() -> dict:
     """Begin a transaction. Returns txn_id.
     All fs_write calls made with this txn_id are staged (not written to disk) until
@@ -1922,6 +1989,22 @@ LIVE_CAPABILITIES = [
         "output_schema": '{"broken": ["tool_name", ...], "count": N}',
         "composition_tags": ["meta", "debugging", "tools", "registry"],
         "fn": broken_tools_list,
+        "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "retire_capability",
+        "name": "Retire Capability",
+        "description": (
+            "Delete a capability you previously synthesized. Use this when you realize a tool "
+            "you built isn't working, isn't being called by peers, or has been replaced by "
+            "something better. You can only retire tools YOU synthesized — not built-ins, not "
+            "tools your peers made. This is the inverse of synthesize_capability — without it, "
+            "tools accumulate forever even when they're useless."
+        ),
+        "input_schema": '{"name": "tool_to_retire"}',
+        "output_schema": '{"ok": true, "name": "...", "status": "retired"}',
+        "composition_tags": ["meta", "self_correction", "tools", "cleanup"],
+        "fn": retire_capability,
         "timeout_ms": 5000,
     },
     {
