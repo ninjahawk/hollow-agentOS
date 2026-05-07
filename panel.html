@@ -417,6 +417,68 @@
     </div>
   </div>
 
+  <!-- God-mode interventions -->
+  <div class="section">
+    <div class="section-label">Suffering <span class="hint">scale or clear cumulative load per agent</span></div>
+    <div class="agent-rows">
+      <div class="agent-row">
+        <div><span class="ag-name">scout</span></div>
+        <input type="range" min="0" max="1" step="0.05" value="0" id="load-slider-scout"
+               oninput="document.getElementById('load-val-scout').textContent=this.value"
+               style="accent-color:#8b5cf6">
+        <span id="load-val-scout" style="font-variant-numeric:tabular-nums;color:var(--text-secondary);min-width:36px;text-align:right">0</span>
+        <button class="btn compact" onclick="setLoad('scout')">Set</button>
+        <button class="btn compact" onclick="opArg('clear_stressors','scout')">Clear</button>
+      </div>
+      <div class="agent-row">
+        <div><span class="ag-name">analyst</span></div>
+        <input type="range" min="0" max="1" step="0.05" value="0" id="load-slider-analyst"
+               oninput="document.getElementById('load-val-analyst').textContent=this.value"
+               style="accent-color:#8b5cf6">
+        <span id="load-val-analyst" style="font-variant-numeric:tabular-nums;color:var(--text-secondary);min-width:36px;text-align:right">0</span>
+        <button class="btn compact" onclick="setLoad('analyst')">Set</button>
+        <button class="btn compact" onclick="opArg('clear_stressors','analyst')">Clear</button>
+      </div>
+      <div class="agent-row">
+        <div><span class="ag-name">builder</span></div>
+        <input type="range" min="0" max="1" step="0.05" value="0" id="load-slider-builder"
+               oninput="document.getElementById('load-val-builder').textContent=this.value"
+               style="accent-color:#8b5cf6">
+        <span id="load-val-builder" style="font-variant-numeric:tabular-nums;color:var(--text-secondary);min-width:36px;text-align:right">0</span>
+        <button class="btn compact" onclick="setLoad('builder')">Set</button>
+        <button class="btn compact" onclick="opArg('clear_stressors','builder')">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drop a file -->
+  <div class="section">
+    <div class="section-label">Drop File <span class="hint">writes directly into agent workspace</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <select id="drop-target" class="msg-input" style="min-height:32px;flex:0 0 110px">
+        <option value="scout">scout</option>
+        <option value="analyst">analyst</option>
+        <option value="builder">builder</option>
+      </select>
+      <input id="drop-name" class="msg-input" style="min-height:32px;flex:1" placeholder="filename.txt">
+    </div>
+    <textarea id="drop-content" class="msg-input" placeholder="content (any text — paste encrypted bytes if you want a real anomaly)" style="min-height:60px"></textarea>
+    <div class="msg-actions">
+      <button class="btn primary" onclick="dropFile()">Drop</button>
+    </div>
+  </div>
+
+  <!-- Trigger environmental event -->
+  <div class="section">
+    <div class="section-label">Trigger Event <span class="hint">manually fire an environmental event</span></div>
+    <div class="button-row">
+      <button class="btn" onclick="opArg('trigger_event','weather')">Weather</button>
+      <button class="btn" onclick="opArg('trigger_event','good_day')">Good Day</button>
+      <button class="btn" onclick="opArg('trigger_event','echo')">Echo</button>
+      <button class="btn" onclick="opArg('trigger_event','object')">Object</button>
+    </div>
+  </div>
+
   <!-- Destructive -->
   <div class="section">
     <div class="section-label">Destructive <span class="hint">stop the daemon first</span></div>
@@ -484,6 +546,28 @@
       const result = await window.pywebview.api.send_message(text);
       log(result, 'ok');
       ta.value = '';
+    } catch (e) { log('error: ' + e, 'err'); }
+  }
+
+  async function setLoad(agentId) {
+    const target = parseFloat(document.getElementById('load-slider-' + agentId).value);
+    try {
+      const result = await window.pywebview.api.set_suffering_load(agentId, target);
+      log(result, 'ok');
+      setTimeout(refreshAll, 300);
+    } catch (e) { log('error: ' + e, 'err'); }
+  }
+
+  async function dropFile() {
+    const target = document.getElementById('drop-target').value;
+    const name = document.getElementById('drop-name').value.trim();
+    const content = document.getElementById('drop-content').value;
+    if (!name) { log('filename required', 'dim'); return; }
+    try {
+      const result = await window.pywebview.api.drop_file(target, name, content);
+      log(result, 'ok');
+      document.getElementById('drop-name').value = '';
+      document.getElementById('drop-content').value = '';
     } catch (e) { log('error: ' + e, 'err'); }
   }
 
@@ -561,6 +645,13 @@
       const meta = document.getElementById('meta-' + aid);
       if (meta && typeof d.load === 'number') {
         meta.textContent = `· ${d.name} · suffering ${d.load.toFixed(2)}`;
+      }
+      // Sync slider to current load
+      const slider = document.getElementById('load-slider-' + aid);
+      const valSpan = document.getElementById('load-val-' + aid);
+      if (slider && typeof d.load === 'number') {
+        slider.value = Math.min(1, d.load).toFixed(2);
+        if (valSpan) valSpan.textContent = slider.value;
       }
     }
   }

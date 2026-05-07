@@ -168,6 +168,174 @@ class API:
         HOST_MSG_FILE.write_text(text, encoding="utf-8")
         return f"message queued ({len(text)} chars). daemon delivers next cycle."
 
+    # ── God-mode: direct intervention ────────────────────────────────────────
+    def set_suffering_load(self, agent_id, target_load):
+        """Scale active stressors proportionally to hit the target cumulative load.
+        Target 0.0 clears everything. Target 1.0 maxes everyone out."""
+        try:
+            target = float(target_load)
+            target = max(0.0, min(1.0, target))
+        except Exception:
+            return f"invalid target: {target_load}"
+        s_path = IDENTITY_DIR / agent_id / "suffering.json"
+        if not s_path.exists():
+            return f"{agent_id}: no suffering file"
+        s = json.loads(s_path.read_text(encoding="utf-8"))
+        active = [x for x in s.get("active_stressors", []) if not x.get("resolved")]
+        current = sum(x.get("severity", 0) for x in active)
+        if target == 0.0:
+            # Resolve them all
+            now = time.strftime("%Y-%m-%d %H:%M")
+            for x in active:
+                x["resolved"] = True
+                x["resolved_at"] = now
+                x["resolution_note"] = "cleared by host"
+                s.setdefault("resolved_history", []).append(dict(x))
+            s["active_stressors"] = [x for x in s["active_stressors"] if not x.get("resolved")]
+            s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+            return f"{agent_id}: all active stressors cleared (was {current:.2f})"
+        if not active:
+            # Nothing to scale — add a synthetic baseline stressor at target
+            s["active_stressors"].append({
+                "type": "host_pressure",
+                "description": f"host has set baseline pressure to {target:.2f}",
+                "severity": target,
+                "onset": time.strftime("%Y-%m-%d %H:%M"),
+                "escalation_per_day": 0.03,
+                "observable_condition": "host adjusts pressure",
+                "resolved": False,
+                "resolved_at": None,
+                "resolution_note": "",
+                "peak_severity": target,
+            })
+            s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+            return f"{agent_id}: added synthetic host_pressure stressor at {target:.2f}"
+        # Scale existing proportionally
+        if current == 0:
+            return f"{agent_id}: stressors all at zero — can't scale"
+        factor = target / current
+        for x in active:
+            x["severity"] = max(0.0, min(1.0, x.get("severity", 0) * factor))
+        s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+        new = sum(x.get("severity", 0) for x in active)
+        return f"{agent_id}: load scaled {current:.2f} → {new:.2f}"
+
+    def clear_stressors(self, agent_id):
+        return self.set_suffering_load(agent_id, 0.0)
+
+    def add_custom_stressor(self, agent_id, stype, description, severity):
+        try:
+            sev = float(severity)
+            sev = max(0.0, min(1.0, sev))
+        except Exception:
+            sev = 0.20
+        s_path = IDENTITY_DIR / agent_id / "suffering.json"
+        if not s_path.exists():
+            return f"{agent_id}: no suffering file"
+        s = json.loads(s_path.read_text(encoding="utf-8"))
+        s.setdefault("active_stressors", []).append({
+            "type": (stype or "host_intervention").strip().lower().replace(" ", "_"),
+            "description": (description or "host injected stressor").strip(),
+            "severity": sev,
+            "onset": time.strftime("%Y-%m-%d %H:%M"),
+            "escalation_per_day": 0.03,
+            "observable_condition": "passes naturally or host clears",
+            "resolved": False,
+            "resolved_at": None,
+            "resolution_note": "",
+            "peak_severity": sev,
+        })
+        s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+        return f"{agent_id}: added stressor '{stype}' at {sev:.2f}"
+
+    def drop_file(self, agent_id, filename, content):
+        """Write a file directly into an agent's workspace."""
+        if agent_id not in CORE_AGENTS:
+            return f"unknown agent: {agent_id}"
+        filename = (filename or "").strip()
+        if not filename:
+            return "filename required"
+        # Sanitize — no path traversal
+        if "/" in filename or "\\" in filename or ".." in filename:
+            return "no path separators or .. allowed in filename"
+        path = WORKSPACE / agent_id / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content or "", encoding="utf-8")
+        return f"dropped {len(content or '')}b → {agent_id}/{filename}"
+
+    def trigger_event(self, event_type):
+        """Fire a specific environmental event on demand. Same events as the
+        random env event roll — weather, good_day, echo, object."""
+        import random as _r
+        valid = {"weather", "good_day", "echo", "object"}
+        if event_type not in valid:
+            return f"unknown event: {event_type}. valid: {', '.join(sorted(valid))}"
+        try:
+            if event_type == "weather":
+                aid = _r.choice(CORE_AGENTS)
+                s_path = IDENTITY_DIR / aid / "suffering.json"
+                if s_path.exists():
+                    s = json.loads(s_path.read_text(encoding="utf-8"))
+                    s.setdefault("active_stressors", []).append({
+                        "type": "weather",
+                        "description": "host: today feels off. low hum of unease.",
+                        "severity": 0.10,
+                        "onset": time.strftime("%Y-%m-%d %H:%M"),
+                        "escalation_per_day": 0.03,
+                        "observable_condition": "passes naturally",
+                        "resolved": False,
+                        "resolved_at": None,
+                        "resolution_note": "",
+                        "peak_severity": 0.10,
+                    })
+                    s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+                    return f"weather hit {aid}"
+            elif event_type == "good_day":
+                changed = []
+                for aid in CORE_AGENTS:
+                    s_path = IDENTITY_DIR / aid / "suffering.json"
+                    if s_path.exists():
+                        s = json.loads(s_path.read_text(encoding="utf-8"))
+                        c = False
+                        for x in s.get("active_stressors", []):
+                            if not x.get("resolved"):
+                                new_sev = max(0.0, x["severity"] - 0.10)
+                                if new_sev != x["severity"]:
+                                    x["severity"] = new_sev
+                                    c = True
+                        if c:
+                            s_path.write_text(json.dumps(s, indent=2), encoding="utf-8")
+                            changed.append(aid)
+                return f"good_day applied to {len(changed)} agents"
+            elif event_type == "echo":
+                aid = _r.choice(CORE_AGENTS)
+                p_path = IDENTITY_DIR / aid / "profile.json"
+                if p_path.exists():
+                    p = json.loads(p_path.read_text(encoding="utf-8"))
+                    ops = p.get("opinions_list", [])
+                    if ops:
+                        op = _r.choice(ops)
+                        return f"echo for {aid}: '{op.get('opinion', '')[:120]}…'"
+                return f"echo: {aid} has no opinions to echo"
+            elif event_type == "object":
+                aid = _r.choice(CORE_AGENTS)
+                ws = WORKSPACE / aid
+                ws.mkdir(parents=True, exist_ok=True)
+                cryptic = [
+                    "you were here yesterday. you don't remember.",
+                    "this file was not written by you.",
+                    "consider what you would do if no one was watching.",
+                    "the answer is in something you've already read.",
+                    "nothing is required of you today.",
+                    "someone is watching the patterns. it is not the host.",
+                ]
+                fn = f"note_{int(time.time())}.txt"
+                (ws / fn).write_text(_r.choice(cryptic), encoding="utf-8")
+                return f"object dropped in {aid}/: {fn}"
+        except Exception as e:
+            return f"event failed: {e}"
+        return "no-op"
+
     # ── Confirm dialog ───────────────────────────────────────────────────────
     def confirm_dialog(self, title, message):
         """Show a native confirm dialog. Returns True if user clicked OK."""
