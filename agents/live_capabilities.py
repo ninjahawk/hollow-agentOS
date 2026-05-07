@@ -1634,15 +1634,16 @@ def express(content: str = "", kind: str = "thought", share_with_host: bool = Fa
         if now - last < 1800:  # 30 min cooldown
             rate_skip = True
         else:
+            BOT = _os_e.getenv("HOLLOW_TG_BOT_TOKEN", "").strip()
+            CHAT = _os_e.getenv("HOLLOW_TG_CHAT_ID", "").strip()
+            if not BOT or not CHAT:
+                return {"ok": True, "kind": kind, "saved": True, "shared": False,
+                        "share_error": "telegram credentials not configured (HOLLOW_TG_BOT_TOKEN / HOLLOW_TG_CHAT_ID)"}
             try:
-                # Get agent's name for Telegram message
                 from agents.agent_identity import AgentIdentity
                 ident = AgentIdentity.load_or_create(aid)
                 name = ident.name or aid
-                # Use existing _telegram_alert
                 import urllib.request as _u, urllib.parse as _up
-                BOT = "8650930954:AAEMau9IJuENehKCFa1xpx1a_zqnPFQpX_8"
-                CHAT = "7858319361"
                 url = f"https://api.telegram.org/bot{BOT}/sendMessage"
                 msg = f"*{name}* ({kind}):\n_{content.strip()[:1500]}_"
                 data = _up.urlencode({"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"}).encode()

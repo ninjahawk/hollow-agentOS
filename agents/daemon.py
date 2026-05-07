@@ -605,11 +605,16 @@ def _generate_existence_response(prompt: str, ollama_host: str, model: str) -> s
 
 
 def _telegram_alert(text: str) -> None:
-    """Send a direct alert to Telegram. Fire-and-forget."""
+    """Send a direct alert to Telegram. Fire-and-forget.
+    Reads credentials from env: HOLLOW_TG_BOT_TOKEN, HOLLOW_TG_CHAT_ID.
+    If either is unset, silently skips. NEVER hardcode credentials here —
+    this file is in a public repo."""
+    BOT_TOKEN = os.getenv("HOLLOW_TG_BOT_TOKEN", "").strip()
+    CHAT_ID   = os.getenv("HOLLOW_TG_CHAT_ID", "").strip()
+    if not BOT_TOKEN or not CHAT_ID:
+        return
     try:
-        import urllib.request, urllib.parse, json as _j
-        BOT_TOKEN = "8650930954:AAEMau9IJuENehKCFa1xpx1a_zqnPFQpX_8"
-        CHAT_ID   = "7858319361"
+        import urllib.request, urllib.parse
         url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         data = urllib.parse.urlencode({
             "chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"

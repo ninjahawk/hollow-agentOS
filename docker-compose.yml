@@ -59,6 +59,9 @@ services:
       - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
       - HOLLOW_STORE_URL=http://host.docker.internal:7779
       - HOLLOW_STORE_DATA=/agentOS/store/data
+      # Telegram credentials — set in .env. NEVER commit values to git.
+      - HOLLOW_TG_BOT_TOKEN=${HOLLOW_TG_BOT_TOKEN:-}
+      - HOLLOW_TG_CHAT_ID=${HOLLOW_TG_CHAT_ID:-}
     # GPU acceleration — remove this block if you don't have an NVIDIA GPU.
     # Planning calls drop from ~40s to ~6s with GPU. Works without it.
     deploy:
