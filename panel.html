@@ -5,467 +5,399 @@
 <title>Hollow AgentOS</title>
 <style>
   :root {
-    /* Deep navy/indigo palette inspired by premium SaaS dashboards */
-    --bg-base: #14162b;
-    --bg-elevated: #1c1f3b;
-    --card-bg: linear-gradient(180deg, #262a4d 0%, #1e2240 100%);
-    --card-border: rgba(255, 255, 255, 0.04);
-    --card-highlight: rgba(255, 255, 255, 0.06);
+    --bg: #0e0e10;
+    --surface: #18181b;
+    --surface-soft: #131316;
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.12);
 
-    --text: #f1f3fb;
-    --text-secondary: #9da3c8;
-    --text-tertiary: #6b7299;
+    --text: rgba(255, 255, 255, 0.96);
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-tertiary: rgba(255, 255, 255, 0.38);
 
     --accent: #8b5cf6;
-    --accent-glow: rgba(139, 92, 246, 0.35);
-    --accent-soft: rgba(139, 92, 246, 0.12);
     --accent-hover: #a78bfa;
 
-    --success: #34d399;
-    --success-soft: rgba(52, 211, 153, 0.12);
-    --success-glow: rgba(52, 211, 153, 0.4);
-
-    --danger: #f43f5e;
-    --danger-soft: rgba(244, 63, 94, 0.12);
-    --danger-glow: rgba(244, 63, 94, 0.35);
-
+    --success: #4ade80;
     --warning: #fbbf24;
-    --neutral-btn: #2c3056;
-    --neutral-btn-hover: #353a66;
+    --danger: #f87171;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
     height: 100%;
-    background: radial-gradient(ellipse at top left, #1a1d3d 0%, var(--bg-base) 50%);
+    background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-                 "Inter", "Segoe UI Variable", "Segoe UI", "Helvetica Neue",
-                 system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                 "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     user-select: none;
+    letter-spacing: -0.005em;
   }
 
   .app {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 22px;
-    gap: 14px;
+    padding: 28px 32px;
+    gap: 24px;
+    max-width: 760px;
+    margin: 0 auto;
   }
 
   /* ─────── Header ─────── */
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: 0 4px;
   }
   .title-block h1 {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.025em;
-    margin-bottom: 2px;
+    letter-spacing: -0.02em;
   }
   .title-block .subtitle {
     font-size: 11px;
     color: var(--text-tertiary);
-    font-weight: 500;
-    letter-spacing: 0.02em;
+    margin-top: 2px;
+    letter-spacing: 0.01em;
   }
   .status {
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 7px 14px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--card-border);
-    border-radius: 100px;
+    gap: 8px;
     font-size: 12px;
     color: var(--text-secondary);
-    font-weight: 500;
+    padding-top: 4px;
   }
   .status .dot {
-    width: 8px; height: 8px;
+    width: 6px; height: 6px;
     border-radius: 50%;
     background: var(--text-tertiary);
-    transition: all 250ms ease;
   }
-  .status.up .dot {
-    background: var(--success);
-    box-shadow: 0 0 0 3px var(--success-soft), 0 0 12px var(--success-glow);
-  }
-  .status.down .dot {
-    background: var(--danger);
-    box-shadow: 0 0 0 3px var(--danger-soft);
-  }
+  .status.up .dot { background: var(--success); }
+  .status.down .dot { background: var(--danger); }
 
-  /* ─────── Cards ─────── */
-  .card {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 14px;
-    padding: 16px 18px;
-    box-shadow: inset 0 1px 0 var(--card-highlight),
-                0 1px 2px rgba(0, 0, 0, 0.2);
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .card h2 {
-    font-size: 10.5px;
-    font-weight: 600;
+  /* ─────── Section ─────── */
+  .section { display: flex; flex-direction: column; gap: 10px; }
+  .section-label {
+    font-size: 11px;
+    font-weight: 500;
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  .card-hint {
-    font-size: 10.5px;
+  .section-label .hint {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
     color: var(--text-tertiary);
-    letter-spacing: 0.02em;
+    margin-left: 8px;
   }
 
-  /* ─────── Agent stat cards (top row) ─────── */
+  /* ─────── Agent stat row ─────── */
   .agent-stats {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: 16px;
+    padding: 16px 0 12px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
-  .stat-card {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 14px;
-    padding: 14px 16px;
-    box-shadow: inset 0 1px 0 var(--card-highlight),
-                0 1px 2px rgba(0, 0, 0, 0.2);
-    position: relative;
-    overflow: hidden;
-  }
-  .stat-card::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg,
-      transparent 0%,
-      var(--card-highlight) 50%,
-      transparent 100%);
-  }
-  .stat-header {
+  .stat {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
+    flex-direction: column;
+    gap: 4px;
   }
-  .stat-label {
+  .stat-id {
     font-size: 10px;
     color: var(--text-tertiary);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-  }
-  .stat-name {
-    font-size: 12px;
-    color: var(--text-secondary);
+    letter-spacing: 0.1em;
     font-weight: 500;
   }
+  .stat-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
   .stat-value {
-    font-size: 28px;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-    line-height: 1.1;
-    margin-bottom: 6px;
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-top: 2px;
     font-variant-numeric: tabular-nums;
   }
-  .stat-value.suffering-low { color: var(--success); }
-  .stat-value.suffering-mid { color: var(--warning); }
-  .stat-value.suffering-high { color: var(--danger); }
+  .stat-value.low { color: var(--text); }
+  .stat-value.mid { color: var(--warning); }
+  .stat-value.high { color: var(--danger); }
   .stat-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 10.5px;
-    color: var(--text-tertiary);
-    font-weight: 500;
-  }
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 100px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  .pill.active {
-    background: var(--success-soft);
-    color: var(--success);
-  }
-  .pill.suspended {
-    background: var(--danger-soft);
-    color: var(--danger);
-  }
-  .pill.unknown {
-    background: rgba(255,255,255,0.05);
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
     color: var(--text-tertiary);
   }
+  .stat-meta .pill-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+  }
+  .stat-meta .pill-dot.active { background: var(--success); }
+  .stat-meta .pill-dot.suspended { background: var(--danger); }
 
-  /* ─────── Buttons ─────── */
+  /* ─────── Buttons (flat, crisp) ─────── */
   .btn {
-    padding: 7px 14px;
-    background: var(--neutral-btn);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
+    padding: 7px 13px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 6px;
     color: var(--text);
     font-family: inherit;
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 150ms ease;
+    transition: background 100ms ease, border-color 100ms ease;
     user-select: none;
-    box-shadow: inset 0 1px 0 var(--card-highlight);
+    letter-spacing: -0.005em;
   }
   .btn:hover {
-    background: var(--neutral-btn-hover);
-    border-color: rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-strong);
   }
-  .btn:active { transform: translateY(0.5px); }
+  .btn:active { background: rgba(255, 255, 255, 0.04); }
+
   .btn.primary {
     background: var(--accent);
     border-color: var(--accent);
     color: white;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.2),
-                0 0 12px var(--accent-glow);
   }
   .btn.primary:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
   }
+
   .btn.danger {
     background: transparent;
-    border-color: var(--danger);
+    border-color: rgba(248, 113, 113, 0.4);
     color: var(--danger);
-    font-weight: 600;
   }
   .btn.danger:hover {
+    background: rgba(248, 113, 113, 0.08);
+    border-color: var(--danger);
+  }
+  .btn.danger.armed {
     background: var(--danger);
     color: white;
-    box-shadow: 0 0 12px var(--danger-glow);
+    border-color: var(--danger);
   }
+
   .btn.compact { padding: 5px 11px; font-size: 11px; }
 
-  .button-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
+  .button-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
   /* ─────── Message section ─────── */
   .msg-input {
     width: 100%;
-    background: rgba(0,0,0,0.25);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
     color: var(--text);
     padding: 10px 12px;
     font-family: inherit;
     font-size: 13px;
-    resize: vertical;
+    resize: none;
     min-height: 64px;
-    margin-bottom: 10px;
     outline: none;
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+    transition: border-color 100ms ease;
+    line-height: 1.5;
+    letter-spacing: -0.005em;
   }
-  .msg-input:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
+  .msg-input:focus { border-color: rgba(139, 92, 246, 0.5); }
   .msg-input::placeholder { color: var(--text-tertiary); }
-  .msg-actions {
+  .msg-row {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .msg-row .hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
   }
 
   /* ─────── Agent control rows ─────── */
-  .agent-grid {
-    display: grid;
-    gap: 8px;
-  }
+  .agent-rows { display: flex; flex-direction: column; gap: 6px; }
   .agent-row {
     display: grid;
     grid-template-columns: 1fr auto auto;
     align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    background: rgba(0,0,0,0.18);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
+    gap: 6px;
+    padding: 7px 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
   }
-  .agent-row .agent-name {
-    font-size: 12px;
+  .agent-row .ag-name {
+    font-size: 12.5px;
     font-weight: 500;
     text-transform: lowercase;
   }
-  .agent-row .agent-meta {
-    font-size: 10.5px;
+  .agent-row .ag-meta {
+    font-size: 11px;
     color: var(--text-tertiary);
     margin-left: 8px;
-    font-weight: 500;
+    font-variant-numeric: tabular-nums;
   }
 
   /* ─────── Output log ─────── */
-  .output-card {
+  .output-section {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    gap: 8px;
   }
   .output-log {
     flex: 1;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
     padding: 12px 14px;
     font-family: "SF Mono", "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
     font-size: 11px;
     line-height: 1.6;
-    color: var(--text);
+    color: var(--text-secondary);
     overflow-y: auto;
     white-space: pre-wrap;
     user-select: text;
   }
-  .output-log .entry { margin-bottom: 8px; }
+  .output-log .entry { margin-bottom: 6px; }
   .output-log .entry .ts {
     color: var(--text-tertiary);
     margin-right: 10px;
-    font-size: 10.5px;
   }
-  .output-log .entry.err { color: #fda4af; }
-  .output-log .entry.dim { color: var(--text-secondary); }
+  .output-log .entry.ok { color: var(--text); }
+  .output-log .entry.err { color: var(--danger); }
+  .output-log .entry.dim { color: var(--text-tertiary); }
 
+  .label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
   .clear-btn {
     background: transparent;
     border: none;
     color: var(--text-tertiary);
     font-size: 10.5px;
     cursor: pointer;
-    padding: 2px 6px;
+    padding: 2px 0;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     font-weight: 500;
-    transition: color 150ms ease;
+    transition: color 100ms ease;
+    font-family: inherit;
   }
   .clear-btn:hover { color: var(--text); }
 
-  /* ─────── Scrollbar ─────── */
-  ::-webkit-scrollbar { width: 8px; }
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 7px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+
+  textarea, input { letter-spacing: -0.005em; }
 </style>
 </head>
 <body>
 <div class="app">
+
   <header>
     <div class="title-block">
       <h1>Hollow AgentOS</h1>
-      <div class="subtitle">CONTROL PANEL</div>
+      <div class="subtitle">Control Panel</div>
     </div>
     <div id="status" class="status">
       <div class="dot"></div>
-      <div class="status-text">checking…</div>
+      <div class="status-text">checking</div>
     </div>
   </header>
 
-  <!-- Agent stat cards -->
+  <!-- Agent stat row (clean data, no card chrome) -->
   <div class="agent-stats">
-    <div class="stat-card" data-agent="scout">
-      <div class="stat-header">
-        <div>
-          <div class="stat-label">scout</div>
-          <div class="stat-name" id="name-scout">—</div>
-        </div>
-        <span class="pill unknown" id="pill-scout">—</span>
+    <div class="stat" data-agent="scout">
+      <div class="stat-id">SCOUT</div>
+      <div class="stat-name" id="name-scout">—</div>
+      <div class="stat-value low" id="load-scout">—</div>
+      <div class="stat-meta">
+        <span class="pill-dot" id="dot-scout"></span>
+        <span id="info-scout">—</span>
       </div>
-      <div class="stat-value suffering-low" id="load-scout">—</div>
-      <div class="stat-meta" id="info-scout">suffering load</div>
     </div>
-    <div class="stat-card" data-agent="analyst">
-      <div class="stat-header">
-        <div>
-          <div class="stat-label">analyst</div>
-          <div class="stat-name" id="name-analyst">—</div>
-        </div>
-        <span class="pill unknown" id="pill-analyst">—</span>
+    <div class="stat" data-agent="analyst">
+      <div class="stat-id">ANALYST</div>
+      <div class="stat-name" id="name-analyst">—</div>
+      <div class="stat-value low" id="load-analyst">—</div>
+      <div class="stat-meta">
+        <span class="pill-dot" id="dot-analyst"></span>
+        <span id="info-analyst">—</span>
       </div>
-      <div class="stat-value suffering-low" id="load-analyst">—</div>
-      <div class="stat-meta" id="info-analyst">suffering load</div>
     </div>
-    <div class="stat-card" data-agent="builder">
-      <div class="stat-header">
-        <div>
-          <div class="stat-label">builder</div>
-          <div class="stat-name" id="name-builder">—</div>
-        </div>
-        <span class="pill unknown" id="pill-builder">—</span>
+    <div class="stat" data-agent="builder">
+      <div class="stat-id">BUILDER</div>
+      <div class="stat-name" id="name-builder">—</div>
+      <div class="stat-value low" id="load-builder">—</div>
+      <div class="stat-meta">
+        <span class="pill-dot" id="dot-builder"></span>
+        <span id="info-builder">—</span>
       </div>
-      <div class="stat-value suffering-low" id="load-builder">—</div>
-      <div class="stat-meta" id="info-builder">suffering load</div>
     </div>
   </div>
 
-  <!-- System control -->
-  <div class="card">
-    <div class="card-header">
-      <h2>System</h2>
-    </div>
+  <!-- System -->
+  <div class="section">
+    <div class="section-label">System</div>
     <div class="button-row">
       <button class="btn" onclick="op('start')">Start</button>
       <button class="btn" onclick="op('stop')">Stop</button>
       <button class="btn" onclick="refreshAll()">Refresh</button>
-      <button class="btn" onclick="op('open_monitor')">Open Monitor</button>
+      <button class="btn" onclick="op('open_monitor')">Monitor</button>
       <button class="btn" onclick="op('open_workspace')">Workspace</button>
     </div>
   </div>
 
-  <!-- Send message -->
-  <div class="card">
-    <div class="card-header">
-      <h2>Send Message</h2>
-      <span class="card-hint">delivered next cycle</span>
-    </div>
+  <!-- Send Message -->
+  <div class="section">
+    <div class="section-label">Send Message</div>
     <textarea id="msg" class="msg-input" placeholder="Type a host message…"></textarea>
-    <div class="msg-actions">
+    <div class="msg-row">
+      <span class="hint">Delivered to all agents on the next cycle.</span>
       <button class="btn primary" onclick="sendMessage()">Send</button>
     </div>
   </div>
 
-  <!-- Per-agent control -->
-  <div class="card">
-    <div class="card-header">
-      <h2>Agent Control</h2>
-    </div>
-    <div class="agent-grid">
+  <!-- Agent Control -->
+  <div class="section">
+    <div class="section-label">Agent Control</div>
+    <div class="agent-rows">
       <div class="agent-row">
-        <div><span class="agent-name">scout</span><span class="agent-meta" id="meta-scout"></span></div>
+        <div><span class="ag-name">scout</span><span class="ag-meta" id="meta-scout"></span></div>
         <button class="btn compact" onclick="opArg('suspend','scout')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','scout')">Resume</button>
       </div>
       <div class="agent-row">
-        <div><span class="agent-name">analyst</span><span class="agent-meta" id="meta-analyst"></span></div>
+        <div><span class="ag-name">analyst</span><span class="ag-meta" id="meta-analyst"></span></div>
         <button class="btn compact" onclick="opArg('suspend','analyst')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','analyst')">Resume</button>
       </div>
       <div class="agent-row">
-        <div><span class="agent-name">builder</span><span class="agent-meta" id="meta-builder"></span></div>
+        <div><span class="ag-name">builder</span><span class="ag-meta" id="meta-builder"></span></div>
         <button class="btn compact" onclick="opArg('suspend','builder')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','builder')">Resume</button>
       </div>
@@ -473,24 +405,22 @@
   </div>
 
   <!-- Destructive -->
-  <div class="card">
-    <div class="card-header">
-      <h2>Destructive</h2>
-      <span class="card-hint">stop the daemon first</span>
-    </div>
+  <div class="section">
+    <div class="section-label">Destructive <span class="hint">stop the daemon first</span></div>
     <div class="button-row">
-      <button class="btn danger" onclick="confirmNuke()">Nuclear Reset</button>
+      <button id="nuke-btn" class="btn danger" onclick="confirmNuke()">Nuclear Reset</button>
     </div>
   </div>
 
   <!-- Output log -->
-  <div class="card output-card">
-    <div class="card-header">
-      <h2>Output</h2>
+  <div class="section output-section">
+    <div class="label-row">
+      <div class="section-label">Output</div>
       <button class="clear-btn" onclick="clearOutput()">CLEAR</button>
     </div>
     <div id="output" class="output-log"></div>
   </div>
+
 </div>
 
 <script>
@@ -499,9 +429,7 @@
   const statusText = statusEl.querySelector('.status-text');
   const AGENTS = ['scout', 'analyst', 'builder'];
 
-  function ts() {
-    return new Date().toLocaleTimeString('en-US', { hour12: false });
-  }
+  function ts() { return new Date().toLocaleTimeString('en-US', { hour12: false }); }
 
   function log(text, cls = 'ok') {
     const e = document.createElement('div');
@@ -524,19 +452,15 @@
       const result = await window.pywebview.api[name]();
       log(result, 'ok');
       if (name === 'status') updateStatsFromText(result);
-    } catch (e) {
-      log('error: ' + e, 'err');
-    }
+    } catch (e) { log('error: ' + e, 'err'); }
   }
 
   async function opArg(name, arg) {
     try {
       const result = await window.pywebview.api[name](arg);
       log(result, 'ok');
-      setTimeout(refreshAll, 500);
-    } catch (e) {
-      log('error: ' + e, 'err');
-    }
+      setTimeout(refreshAll, 400);
+    } catch (e) { log('error: ' + e, 'err'); }
   }
 
   async function sendMessage() {
@@ -547,31 +471,40 @@
       const result = await window.pywebview.api.send_message(text);
       log(result, 'ok');
       ta.value = '';
-    } catch (e) {
-      log('error: ' + e, 'err');
-    }
+    } catch (e) { log('error: ' + e, 'err'); }
   }
 
-  async function confirmNuke() {
-    log('confirm: nuclear reset will wipe workspace, tools, profiles, suffering, and goals (names preserved). click again within 5s to confirm.', 'dim');
-    if (window._nukeArmed) {
-      window._nukeArmed = false;
+  // Two-stage destructive confirmation, themed in-app
+  let nukeArmed = false;
+  let nukeTimer = null;
+  function confirmNuke() {
+    const btn = document.getElementById('nuke-btn');
+    if (nukeArmed) {
+      nukeArmed = false;
+      clearTimeout(nukeTimer);
+      btn.classList.remove('armed');
+      btn.textContent = 'Nuclear Reset';
       log('running nuclear reset…', 'dim');
-      try {
-        const result = await window.pywebview.api.nuke();
-        log(result, 'ok');
-        setTimeout(refreshAll, 800);
-      } catch (e) { log('error: ' + e, 'err'); }
+      window.pywebview.api.nuke().then(r => {
+        log(r, 'ok');
+        setTimeout(refreshAll, 600);
+      }).catch(e => log('error: ' + e, 'err'));
       return;
     }
-    window._nukeArmed = true;
-    setTimeout(() => { window._nukeArmed = false; }, 5000);
+    nukeArmed = true;
+    btn.classList.add('armed');
+    btn.textContent = 'Click again to confirm';
+    nukeTimer = setTimeout(() => {
+      nukeArmed = false;
+      btn.classList.remove('armed');
+      btn.textContent = 'Nuclear Reset';
+    }, 4000);
   }
 
   function classifyLoad(load) {
-    if (load < 0.35) return 'suffering-low';
-    if (load < 0.75) return 'suffering-mid';
-    return 'suffering-high';
+    if (load < 0.35) return 'low';
+    if (load < 0.75) return 'mid';
+    return 'high';
   }
 
   function updateStatsFromText(text) {
@@ -580,11 +513,7 @@
     const data = {};
     for (const line of lines) {
       const m1 = line.match(/^(scout|analyst|builder)\s*\(([^)]+)\):/);
-      if (m1) {
-        current = m1[1];
-        data[current] = { name: m1[2] };
-        continue;
-      }
+      if (m1) { current = m1[1]; data[current] = { name: m1[2] }; continue; }
       if (current) {
         const m2 = line.match(/status=(\S+)\s*\|\s*suffering=([\d.]+)\s*\|\s*ops=(\d+)\s*\|\s*questions=(\d+)/);
         if (m2) {
@@ -594,36 +523,31 @@
           data[current].qs = parseInt(m2[4]);
         }
         const m3 = line.match(/^\s*stressors:\s*(.+)/);
-        if (m3) {
-          data[current].stressors = m3[1].trim();
-        }
+        if (m3) data[current].stressors = m3[1].trim();
       }
     }
 
     for (const aid of AGENTS) {
       const d = data[aid];
       if (!d) continue;
-      // Stat card
       document.getElementById('name-' + aid).textContent = d.name || '—';
       const loadEl = document.getElementById('load-' + aid);
       if (typeof d.load === 'number') {
         loadEl.textContent = d.load.toFixed(2);
         loadEl.className = 'stat-value ' + classifyLoad(d.load);
       }
-      const info = document.getElementById('info-' + aid);
-      const parts = [`${d.ops || 0} opinions`, `${d.qs || 0} questions`];
-      if (d.stressors) parts.unshift(d.stressors.split(',')[0].trim());
-      info.textContent = parts.join(' · ');
-      // Pill
-      const pill = document.getElementById('pill-' + aid);
       const status = d.status || '?';
-      pill.textContent = status;
-      pill.className = 'pill ' + (status === 'active' ? 'active' :
-                                  status === 'suspended' ? 'suspended' : 'unknown');
-      // Meta line in agent control
+      const dot = document.getElementById('dot-' + aid);
+      dot.className = 'pill-dot ' + (status === 'active' ? 'active'
+                                  : status === 'suspended' ? 'suspended' : '');
+      const info = document.getElementById('info-' + aid);
+      const parts = [status];
+      if (typeof d.ops === 'number') parts.push(`${d.ops} opinions`);
+      if (typeof d.qs === 'number') parts.push(`${d.qs} questions`);
+      info.textContent = parts.join(' · ');
       const meta = document.getElementById('meta-' + aid);
       if (meta && typeof d.load === 'number') {
-        meta.textContent = `· suffering ${d.load.toFixed(2)} · ${d.name}`;
+        meta.textContent = `· ${d.name} · suffering ${d.load.toFixed(2)}`;
       }
     }
   }
@@ -633,23 +557,23 @@
       const up = await window.pywebview.api.check_health();
       statusEl.classList.toggle('up', up);
       statusEl.classList.toggle('down', !up);
-      statusText.textContent = up ? 'daemon running' : 'daemon stopped';
+      statusText.textContent = up ? 'Daemon running' : 'Daemon stopped';
     } catch (e) {
       statusEl.classList.add('down');
-      statusText.textContent = 'unreachable';
+      statusText.textContent = 'Unreachable';
     }
   }
 
   async function refreshAll() {
     await pollHealth();
     try {
-      const result = await window.pywebview.api.status();
-      updateStatsFromText(result);
+      const r = await window.pywebview.api.status();
+      updateStatsFromText(r);
     } catch (e) {}
   }
 
   window.addEventListener('pywebviewready', () => {
-    log('panel ready', 'dim');
+    log('Panel ready.', 'dim');
     refreshAll();
     setInterval(refreshAll, 5000);
   });
