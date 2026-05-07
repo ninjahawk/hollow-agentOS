@@ -196,8 +196,12 @@ def record_candidate(agent_id: str, category: str, text: str,
             })
         _write_json(candidates_json_path(agent_id), candidates)
 
-        # Check for promotion
+        # Check for promotion or already-promoted dedup.
+        # Also prune candidates that have a similar entry already promoted to
+        # lessons.json (avoids unbounded candidate growth when the same general
+        # rule keeps being re-extracted).
         promoted = False
+        already_in_lessons = False
         # Re-read after write for clean state
         candidates = _read_json(candidates_json_path(agent_id))
         bucket = candidates["categories"][category]
@@ -205,21 +209,34 @@ def record_candidate(agent_id: str, category: str, text: str,
         if idx is not None:
             entry = bucket[idx]
             ev_count = entry.get("evidence_count", 0)
-            # High-confidence single-shot CAN bypass the 2-occurrence rule, but
-            # only for the constraint and environment categories where the model
-            # is reasoning about mechanical facts that don't need empirical
-            # repetition. Patterns category always requires >=2 observations.
-            can_bypass = (entry.get("confidence") == "high"
-                          and category in ("environment", "constraints"))
-            if ev_count >= PROMOTION_THRESHOLD or can_bypass:
-                promoted = _promote_candidate(agent_id, category, entry)
-                if promoted:
-                    # Remove from candidates
-                    bucket.pop(idx)
-                    _write_json(candidates_json_path(agent_id), candidates)
+            # Check if this rule is already in lessons — if so, drop the candidate.
+            existing_lessons = _read_json(lessons_json_path(agent_id))
+            if _find_similar(existing_lessons["categories"][category], text) is not None:
+                already_in_lessons = True
+                bucket.pop(idx)
+                _write_json(candidates_json_path(agent_id), candidates)
+            else:
+                # High-confidence single-shot CAN bypass the 2-occurrence rule,
+                # but only for the constraint and environment categories where
+                # the model is reasoning about mechanical facts that don't need
+                # empirical repetition. Patterns category always requires >=2
+                # observations.
+                can_bypass = (entry.get("confidence") == "high"
+                              and category in ("environment", "constraints"))
+                if ev_count >= PROMOTION_THRESHOLD or can_bypass:
+                    promoted = _promote_candidate(agent_id, category, entry)
+                    if promoted:
+                        # Remove from candidates
+                        bucket.pop(idx)
+                        _write_json(candidates_json_path(agent_id), candidates)
 
-        return {"recorded": True, "promoted": promoted,
-                "reason": "promoted to lessons" if promoted else "candidate added"}
+        if already_in_lessons:
+            reason = "already recorded in lessons"
+        elif promoted:
+            reason = "promoted to lessons"
+        else:
+            reason = "candidate added"
+        return {"recorded": True, "promoted": promoted, "reason": reason}
 
 
 def _promote_candidate(agent_id: str, category: str, candidate: dict) -> bool:
