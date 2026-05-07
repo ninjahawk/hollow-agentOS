@@ -305,28 +305,62 @@ def op_nuclear_reset():
 
 # ── GUI ──────────────────────────────────────────────────────────────────────
 
+# Dark theme palette (VS Code dark-inspired)
+BG_DARK    = "#1e1e1e"   # window background
+BG_PANEL   = "#252526"   # subtle section bg (unused but kept for future)
+BG_INPUT   = "#2d2d30"   # text input background
+FG_TEXT    = "#d4d4d4"   # primary text
+FG_DIM     = "#858585"   # dim/secondary text
+BORDER     = "#3e3e42"   # separators, borders
+BTN_BG     = "#3a3d41"   # button background
+BTN_HOVER  = "#4d5054"   # button hover/active
+BTN_FG     = "#e8e8e8"   # button text
+DANGER     = "#a13030"   # nuke button bg
+DANGER_HOV = "#b94040"   # nuke button hover
+DOT_GREEN  = "#4ade80"   # API up
+DOT_RED    = "#f87171"   # API down
+DOT_GRAY   = "#6b6b6b"   # API checking
+
+
 class Panel(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Hollow AgentOS Control")
         self.geometry("700x720")
-        self.configure(padx=12, pady=12)
+        self.configure(padx=12, pady=12, bg=BG_DARK)
+
+        # ── Apply dark theme to ttk widgets via 'clam' (respects custom colors) ─
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure('TButton',
+                        background=BTN_BG, foreground=BTN_FG,
+                        bordercolor=BORDER, lightcolor=BTN_BG, darkcolor=BTN_BG,
+                        focuscolor=BTN_BG, focusthickness=0,
+                        padding=(8, 4))
+        style.map('TButton',
+                  background=[('active', BTN_HOVER), ('pressed', BTN_HOVER)],
+                  foreground=[('active', BTN_FG)])
+        style.configure('TSeparator', background=BORDER)
+        style.configure('TFrame', background=BG_DARK)
 
         # Status bar at top — colored dot + text
-        top = tk.Frame(self)
+        top = tk.Frame(self, bg=BG_DARK)
         top.pack(fill=tk.X)
-        self.status_dot = tk.Label(top, text="●", font=("Segoe UI", 16), fg="gray")
+        self.status_dot = tk.Label(top, text="●", font=("Segoe UI", 16),
+                                   fg=DOT_GRAY, bg=BG_DARK)
         self.status_dot.pack(side=tk.LEFT)
-        self.status_text = tk.Label(top, text="checking…", font=("Segoe UI", 10))
+        self.status_text = tk.Label(top, text="checking…", font=("Segoe UI", 10),
+                                    fg=FG_TEXT, bg=BG_DARK)
         self.status_text.pack(side=tk.LEFT, padx=6)
         self._refresh_health_async()
 
         ttk.Separator(self).pack(fill=tk.X, pady=8)
 
         # System control row
-        row = tk.Frame(self)
+        row = tk.Frame(self, bg=BG_DARK)
         row.pack(fill=tk.X, pady=4)
-        tk.Label(row, text="System:", width=12, anchor="w").pack(side=tk.LEFT)
+        tk.Label(row, text="System:", width=12, anchor="w",
+                 fg=FG_TEXT, bg=BG_DARK).pack(side=tk.LEFT)
         ttk.Button(row, text="Start", command=self._do(op_start, refresh_after=True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(row, text="Stop", command=self._do(op_stop, refresh_after=True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(row, text="Status", command=self._do(op_status)).pack(side=tk.LEFT, padx=2)
@@ -335,22 +369,31 @@ class Panel(tk.Tk):
 
         # Send message
         ttk.Separator(self).pack(fill=tk.X, pady=8)
-        msg_frame = tk.Frame(self)
+        msg_frame = tk.Frame(self, bg=BG_DARK)
         msg_frame.pack(fill=tk.X, pady=4)
-        tk.Label(msg_frame, text="Send host message to all agents:", anchor="w").pack(fill=tk.X)
-        self.msg_entry = scrolledtext.ScrolledText(msg_frame, height=4, font=("Segoe UI", 10))
+        tk.Label(msg_frame, text="Send host message to all agents:", anchor="w",
+                 fg=FG_TEXT, bg=BG_DARK).pack(fill=tk.X)
+        self.msg_entry = scrolledtext.ScrolledText(
+            msg_frame, height=4, font=("Segoe UI", 10),
+            bg=BG_INPUT, fg=FG_TEXT, insertbackground=FG_TEXT,
+            selectbackground=BTN_HOVER, selectforeground=FG_TEXT,
+            relief=tk.FLAT, borderwidth=1, highlightthickness=1,
+            highlightcolor=BORDER, highlightbackground=BORDER,
+        )
         self.msg_entry.pack(fill=tk.X, pady=4)
         ttk.Button(msg_frame, text="Send Message", command=self._send_msg).pack(anchor="e")
 
         # Per-agent control
         ttk.Separator(self).pack(fill=tk.X, pady=8)
-        agent_frame = tk.Frame(self)
+        agent_frame = tk.Frame(self, bg=BG_DARK)
         agent_frame.pack(fill=tk.X, pady=4)
-        tk.Label(agent_frame, text="Per-agent control:", anchor="w").pack(fill=tk.X)
+        tk.Label(agent_frame, text="Per-agent control:", anchor="w",
+                 fg=FG_TEXT, bg=BG_DARK).pack(fill=tk.X)
         for aid in CORE_AGENTS:
-            row = tk.Frame(agent_frame)
+            row = tk.Frame(agent_frame, bg=BG_DARK)
             row.pack(fill=tk.X, pady=2)
-            tk.Label(row, text=aid, width=12, anchor="w").pack(side=tk.LEFT)
+            tk.Label(row, text=aid, width=12, anchor="w",
+                     fg=FG_TEXT, bg=BG_DARK).pack(side=tk.LEFT)
             ttk.Button(row, text="Suspend",
                        command=self._do_with_arg(op_suspend_agent, aid)).pack(side=tk.LEFT, padx=2)
             ttk.Button(row, text="Resume",
@@ -358,24 +401,34 @@ class Panel(tk.Tk):
 
         # Destructive operation
         ttk.Separator(self).pack(fill=tk.X, pady=8)
-        nuke_frame = tk.Frame(self)
+        nuke_frame = tk.Frame(self, bg=BG_DARK)
         nuke_frame.pack(fill=tk.X, pady=4)
-        tk.Label(nuke_frame, text="Destructive:", width=12, anchor="w").pack(side=tk.LEFT)
+        tk.Label(nuke_frame, text="Destructive:", width=12, anchor="w",
+                 fg=FG_TEXT, bg=BG_DARK).pack(side=tk.LEFT)
         nuke_btn = tk.Button(
             nuke_frame, text="NUCLEAR RESET",
-            bg="#cc3333", fg="white", font=("Segoe UI", 9, "bold"),
+            bg=DANGER, fg="white", font=("Segoe UI", 9, "bold"),
+            activebackground=DANGER_HOV, activeforeground="white",
+            relief=tk.FLAT, borderwidth=0, padx=12, pady=4,
             command=self._nuke,
         )
         nuke_btn.pack(side=tk.LEFT, padx=2)
         tk.Label(
             nuke_frame, text="(wipes workspace, tools, profiles, suffering, goals — keeps names)",
-            font=("Segoe UI", 8), fg="gray",
+            font=("Segoe UI", 8), fg=FG_DIM, bg=BG_DARK,
         ).pack(side=tk.LEFT, padx=8)
 
         # Output log
         ttk.Separator(self).pack(fill=tk.X, pady=8)
-        tk.Label(self, text="Output:", anchor="w").pack(fill=tk.X)
-        self.output = scrolledtext.ScrolledText(self, height=18, font=("Consolas", 9), wrap=tk.WORD)
+        tk.Label(self, text="Output:", anchor="w",
+                 fg=FG_TEXT, bg=BG_DARK).pack(fill=tk.X)
+        self.output = scrolledtext.ScrolledText(
+            self, height=18, font=("Consolas", 9), wrap=tk.WORD,
+            bg=BG_INPUT, fg=FG_TEXT, insertbackground=FG_TEXT,
+            selectbackground=BTN_HOVER, selectforeground=FG_TEXT,
+            relief=tk.FLAT, borderwidth=1, highlightthickness=1,
+            highlightcolor=BORDER, highlightbackground=BORDER,
+        )
         self.output.pack(fill=tk.BOTH, expand=True)
         self._log("Panel ready.")
 
@@ -446,10 +499,10 @@ class Panel(tk.Tk):
 
     def _set_health(self, up):
         if up:
-            self.status_dot.config(fg="#2da44e")
+            self.status_dot.config(fg=DOT_GREEN)
             self.status_text.config(text="API reachable — daemon running")
         else:
-            self.status_dot.config(fg="#cc3333")
+            self.status_dot.config(fg=DOT_RED)
             self.status_text.config(text="API unreachable — daemon stopped")
 
 
