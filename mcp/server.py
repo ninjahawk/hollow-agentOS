@@ -441,8 +441,8 @@ async def list_tools() -> list[Tool]:
             name="task_submit",
             description=(
                 "Submit a task to the VRAM-aware scheduler. Complexity routes to the right local model "
-                "with cache affinity (v0.9.0): 1-2 → mistral-nemo:12b, 3-4 → qwen2.5:14b, "
-                "5 → qwen3.5-35b-moe. Priority: 0=URGENT (preempts BACKGROUND), 1=NORMAL, 2=BACKGROUND. "
+                "with cache affinity (v0.9.0): all tiers → qwen3.6:35b-a3b (MoE, 3B active). "
+                "Priority: 0=URGENT (preempts BACKGROUND), 1=NORMAL, 2=BACKGROUND. "
                 "Returns result synchronously with token usage and latency."
             ),
             inputSchema={
@@ -919,7 +919,7 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="memory_compress",
             description=(
-                "Compress a memory object via Ollama summarization (mistral-nemo:12b). "
+                "Compress a memory object via Ollama summarization on the configured default_model. "
                 "Original content saved to disk; compressed summary replaces it in heap. "
                 "Returns original_tokens, compressed_tokens, ratio. Requires ollama capability."
             ),

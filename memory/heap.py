@@ -6,7 +6,7 @@ An LLM's context window is RAM. This module manages it:
 - read: retrieve content, raising KeyError if freed/expired/not found
 - free: release a slot and its tokens
 - gc: collect expired (TTL) objects and emit memory.gc_complete
-- compress: summarize via mistral-nemo:12b; original to disk, summary in heap
+- compress: summarize via the configured default_model; original to disk, summary in heap
 - swap_out / swap_in: serialize object to disk, free active heap slot
 - heap_stats: token counts, object counts, fragmentation score
 
@@ -175,7 +175,7 @@ class WorkingMemoryHeap:
 
     def compress(self, key: str) -> dict:
         """
-        Compress object content via mistral-nemo:12b summarization.
+        Compress object content via summarization on the configured default_model.
         Original content saved to disk. Summary replaces in-heap content.
         Returns {original_tokens, compressed_tokens, ratio}.
         """
@@ -396,8 +396,8 @@ class WorkingMemoryHeap:
 
     def _summarize(self, content: str) -> str:
         """
-        Summarize content via the API's Ollama endpoint.
-        Falls back to truncation if Ollama unavailable.
+        Summarize content via the API's Ollama endpoint using the configured
+        default_model. Falls back to truncation if Ollama unavailable.
         """
         prompt = (
             "Summarize the following content concisely, preserving all key facts, "
@@ -405,8 +405,11 @@ class WorkingMemoryHeap:
             + content[:8000]  # cap input to avoid OOM
         )
         try:
+            cfg_path = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+            cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
             body = json.dumps({
-                "model": "mistral-nemo:12b",
+                "model": model,
                 "messages": [{"role": "user", "content": prompt}],
             }).encode()
             req = urllib.request.Request(

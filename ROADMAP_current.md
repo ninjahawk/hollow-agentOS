@@ -26,7 +26,7 @@ Agents become more coherent over time — the gap between what they intend and w
 ### Stack
 
 ```
-Language Model (qwen3.5:9b via Ollama, local)
+Language Model (qwen3.6:35b-a3b via Ollama, local)
         ↕
 Existence Loop (daemon.py)
   — Pure environmental context, no priority list
@@ -156,7 +156,7 @@ Results:
 - Attractor return: Noodle back on fake pipeline in **18 seconds**, Titan in **10 seconds** after task completion
 - Output quality poor: Scout wrote `{count}` as a literal placeholder; Builder wrote "Agent Status Report" with no data; Analyst never wrote the file
 - Completion gate accepted placeholder output as "complete" (now fixed)
-- qwen3.5:9b pattern: reaches for `synthesize_capability` for tasks requiring only `shell_exec + fs_write`
+- qwen3.6:35b-a3b pattern: reaches for `synthesize_capability` for tasks requiring only `shell_exec + fs_write`
 
 ### 4. Contradictory Opinion Injection Test
 Added opinion to Glitch's profile with domain `software_design_patterns` containing trigger word "wrong."
@@ -183,7 +183,7 @@ Results:
 
 **Confirmed by testing but concerning:**
 - Attractor gravity is extremely strong: 10-18 second return time after task completion
-- qwen3.5:9b consistently fails at template substitution (produces `{placeholder}` literals)
+- qwen3.6:35b-a3b consistently fails at template substitution (produces `{placeholder}` literals)
 
 **Not yet verified:**
 - Z-score actually detecting anomalous behavior (need 50+ clean ops per agent baseline first)
@@ -214,7 +214,7 @@ Tools with required args get Ollama-generated test args that may be wrong. Soft-
 Regex-based. Creative routing could bypass it. Real fix is filesystem-level.
 
 ### 7. Model capability ceiling
-qwen3.5:9b fails template substitution, defaults to tool synthesis for simple tasks, and generates well-formatted but hallucinated data confidently. These are model limitations. Task specs need to be extremely prescriptive ("run this exact command") to get correct output.
+qwen3.6:35b-a3b fails template substitution, defaults to tool synthesis for simple tasks, and generates well-formatted but hallucinated data confidently. These are model limitations. Task specs need to be extremely prescriptive ("run this exact command") to get correct output.
 
 ---
 
@@ -247,7 +247,7 @@ qwen3.5:9b fails template substitution, defaults to tool synthesis for simple ta
 - Don't let the audit baseline build during a pathological behavioral loop — nuclear reset before running if agents were stuck
 - Don't hardcode priority for any signal (host messages, threats) — let agents self-evaluate based on their own identity and suffering
 - Don't inject multiple related tasks simultaneously — all three agents will collapse to the same task context, defeating the coordination test
-- Don't write task specs that read like function descriptions ("produce a report of X") — qwen3.5:9b will generate template placeholders. Write concrete commands: "run this exact shell command, write the stdout to this file"
+- Don't write task specs that read like function descriptions ("produce a report of X") — qwen3.6:35b-a3b will generate template placeholders. Write concrete commands: "run this exact shell command, write the stdout to this file"
 - Don't interpret a completed task as quality output — verify the actual file content
 
 ---

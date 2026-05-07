@@ -146,7 +146,7 @@ class RegisterRequest(BaseModel):
     capabilities: Optional[list[str]] = None
     budget: Optional[dict] = None
     metadata: Optional[dict] = None
-    model_policies: Optional[dict] = None  # e.g. {"qwen2.5:14b": ["fs_read"], "*": ["fs_read", "fs_write"]}
+    model_policies: Optional[dict] = None  # e.g. {"qwen3.6:35b-a3b": ["fs_read"], "*": ["fs_read", "fs_write"]}
     group_id: Optional[str] = None         # v0.8.0: process group membership
     parent_id: Optional[str] = None        # v1.3.0: explicit parent override (admin only)
 

@@ -339,7 +339,7 @@ Per tick (every 6 seconds), for each agent with no active goal:
 2. `assess_conditions()` — escalate all stressors, check observables, add/resolve automatically
 3. Check task queue for `status="assigned"` tasks for this agent
 4. Assemble existence prompt from all identity/state fields
-5. Submit to Ollama (qwen3.5:9b); wait for response
+5. Submit to Ollama (qwen3.6:35b-a3b); wait for response
 6. Parse JSON response
 7. Apply `worldview_update`, `new_open_questions`, `new_opinions` to identity
 8. Apply `suffering_assessment` fields via `suffering.add_stressor()` / `suffering.resolve_stressor()`

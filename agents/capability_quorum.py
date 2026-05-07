@@ -171,7 +171,7 @@ class CapabilityQuorum:
             import httpx
 
             cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
-            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
 
             role_name, role_instructions = self._VOTER_ROLES.get(
                 agent_id, ("BALANCED", self._VOTER_ROLES["scout"][1])
@@ -202,7 +202,8 @@ class CapabilityQuorum:
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={"model": model, "prompt": prompt,
-                      "stream": False, "format": "json", "think": False},
+                      "stream": False, "format": "json", "think": False,
+                      "options": {"num_ctx": 32768}},
                 timeout=OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()

@@ -108,23 +108,23 @@ def _require_ollama():
             detail=(
                 "Ollama is not available. Core features (state, filesystem, memory, shell, "
                 "standards, handoffs) work without Ollama. To enable model routing and semantic "
-                "search, install Ollama and pull: nomic-embed-text, qwen3.5:9b-gpu"
+                "search, install Ollama and pull: nomic-embed-text, qwen3.6:35b-a3b"
             )
         )
 
 
 # ── Ollama model routing ─────────────────────────────────────────────────────
 MODEL_ROUTES = {
-    "code":            "qwen2.5:14b",
-    "code-fast":       "qwen3.5:9b",
-    "general":         "qwen3.5:9b-gpu",
-    "general-large":   "qwen3.5:27b",
-    "reasoning":       "qwen3.5-35b-moe:latest",
+    "code":            "qwen3.6:35b-a3b",
+    "code-fast":       "qwen3.6:35b-a3b",
+    "general":         "qwen3.6:35b-a3b",
+    "general-large":   "qwen3.6:35b-a3b",
+    "reasoning":       "qwen3.6:35b-a3b",
     "reasoning-large": "nous-hermes2:34b",
     "uncensored":      "dolphin3:latest",
     "custom":          "emmi:latest",
 }
-DEFAULT_MODEL = "qwen3.5:9b-gpu"
+DEFAULT_MODEL = "qwen3.6:35b-a3b"
 
 # ── In-memory state cache (used by /state and /state/diff) ───────────────────
 _STATE_CACHE_TTL = 5.0  # seconds — serve from cache within this window
@@ -1042,7 +1042,7 @@ async def ollama_chat(req: OllamaChatRequest, authorization: Optional[str] = Hea
                     headers={"Retry-After": str(_math.ceil(rl.wait_ms / 1000))},
                 )
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "messages": req.messages, "stream": False, "think": False, "options": {"num_ctx": 8192}}
+    payload: dict = {"model": model, "messages": req.messages, "stream": False, "think": False, "options": {"num_ctx": 32768}}
     if req.temperature is not None:
         payload["options"]["temperature"] = req.temperature
     if req.max_tokens is not None:
@@ -1085,7 +1085,7 @@ async def ollama_generate(req: OllamaGenerateRequest, authorization: Optional[st
     _verify_any_token(authorization)
     _require_ollama()
     model = req.model or MODEL_ROUTES.get(req.role or "", DEFAULT_MODEL)
-    payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False, "options": {"num_ctx": 8192}}
+    payload: dict = {"model": model, "prompt": req.prompt, "stream": False, "think": False, "options": {"num_ctx": 32768}}
     if req.temperature is not None:
         payload["options"]["temperature"] = req.temperature
 
@@ -1156,7 +1156,7 @@ async def ollama_set_model(req: ModelSwitchRequest, authorization: Optional[str]
     - `default`: sets the fallback model for all requests
     - `routing`: dict of role→model entries to merge into the routing table
 
-    Example: PATCH /ollama/models {"default": "qwen2.5:14b"}
+    Example: PATCH /ollama/models {"default": "qwen3.6:35b-a3b"}
     """
     global DEFAULT_MODEL, MODEL_ROUTES
     _verify_any_token(authorization)

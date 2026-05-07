@@ -371,7 +371,7 @@ class SelfModificationCycle:
             import httpx
             cfg_path = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
             cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
             ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
             prompt = (
@@ -388,8 +388,9 @@ class SelfModificationCycle:
 
             resp = httpx.post(
                 f"{ollama_host}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False},
-                timeout=60,
+                json={"model": model, "prompt": prompt, "stream": False,
+                      "options": {"num_ctx": 32768}},
+                timeout=240,
             )
             resp.raise_for_status()
             raw = resp.json().get("response", "").strip()
@@ -620,7 +621,7 @@ class SelfModificationCycle:
                             payload = {"prompt": prompt}
                             if model:
                                 payload["model"] = model
-                            r = _req.post(f"{_api}/ollama/chat", json=payload, timeout=120, headers=_hdrs)
+                            r = _req.post(f"{_api}/ollama/chat", json=payload, timeout=240, headers=_hdrs)
                             return r.json()
                         except Exception as _e:
                             return {"ok": False, "error": str(_e)}

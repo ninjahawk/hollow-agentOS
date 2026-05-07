@@ -51,7 +51,7 @@ if [ ! -f "$DATA_DIR/config.json" ]; then
   },
   "ollama": {
     "host": "http://host.docker.internal:11434",
-    "default_model": "qwen3.5:9b"
+    "default_model": "qwen3.6:35b-a3b"
   }
 }
 EOF

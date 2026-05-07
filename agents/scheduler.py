@@ -48,19 +48,21 @@ PRIORITY_URGENT     = 0
 PRIORITY_NORMAL     = 1
 PRIORITY_BACKGROUND = 2
 
-# Complexity → Ollama role → model (fallback when ModelManager unavailable)
+# Complexity → Ollama role → model. All roles route to qwen3.6:35b-a3b
+# (MoE, 3B active, 35B total). Role distinction preserved for future
+# heterogeneous setups but currently a no-op for model selection.
 COMPLEXITY_ROUTING = {
-    1: "general",          # qwen3.5:9b-gpu — fast, cheap
+    1: "general",
     2: "general",
-    3: "code",             # qwen2.5:14b — better reasoning
+    3: "code",
     4: "code",
-    5: "reasoning",        # qwen3.5-35b-moe — deep reasoning
+    5: "reasoning",
 }
 
 ROLE_MODEL = {
-    "general":   "qwen3.5:9b-gpu",
-    "code":      "qwen2.5:14b",
-    "reasoning": "qwen3.5-35b-moe:latest",
+    "general":   "qwen3.6:35b-a3b",
+    "code":      "qwen3.6:35b-a3b",
+    "reasoning": "qwen3.6:35b-a3b",
 }
 
 # Estimated tokens per complexity level (for budget pre-check)
@@ -366,7 +368,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "qwen3.5:9b-gpu")
+                model_for_role = ROLE_MODEL.get(role, "qwen3.6:35b-a3b")
 
         # Model policy check — does the submitting agent allow this role?
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
@@ -546,7 +548,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "qwen3.5:9b-gpu")
+                model_for_role = ROLE_MODEL.get(role, "qwen3.6:35b-a3b")
 
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"
@@ -592,6 +594,7 @@ class TaskScheduler:
             "model": model_for_role,
             "messages": messages,
             "stream": True,
+            "options": {"num_ctx": 32768},
         }).encode()
 
         req = urllib.request.Request(

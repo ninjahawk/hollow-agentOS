@@ -132,7 +132,7 @@ Scout (Cedar) had in resolved history:
 - `verification_frustration` — repeated file existence checks finding discrepancies
 - `phantom_reference` — system contains references to files that may not exist
 
-These are real qwen3.5:9b outputs — the model generates the type string, description, and resolution condition itself. The system stores and escalates them like canonical stressors.
+These are real qwen3.6:35b-a3b outputs — the model generates the type string, description, and resolution condition itself. The system stores and escalates them like canonical stressors.
 
 **Important:** Custom types always get a default escalation rate of 0.03/day (the fallback in `ESCALATION_RATES.get(type, 0.03)`).
 
@@ -155,7 +155,7 @@ Current suffering (0.42/1.0):
   Will ease when: bring the failure rate below 30% by completing goals successfully
 ```
 
-The bar `[##########]` scales with severity. It's injected raw into the qwen3.5 context, not framed as a notification — the agent experiences it as part of its own psychological state.
+The bar `[##########]` scales with severity. It's injected raw into the qwen3.6 context, not framed as a notification — the agent experiences it as part of its own psychological state.
 
 ---
 

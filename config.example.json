@@ -24,7 +24,7 @@
   },
   "ollama": {
     "host": "http://host.docker.internal:11434",
-    "default_model": "qwen3.5:9b",
+    "default_model": "qwen3.6:35b-a3b",
     "embed_model": "nomic-embed-text",
     "gpu_layers": -1,
     "context_length": 32768,

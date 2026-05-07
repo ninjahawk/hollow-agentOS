@@ -516,18 +516,18 @@ def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
 
 MODELS = [
     {
-        "id":          "qwen3.5:9b",
-        "name":        "Qwen 3.5  ·  9B",
+        "id":          "qwen3.6:35b-a3b",
+        "name":        "Qwen 3.6  ·  35B (A3B MoE)",
         "badge":       "recommended",
-        "description": "Best quality and reasoning. Needs NVIDIA GPU with 8GB+ VRAM.",
-        "requirements":"NVIDIA GPU · 8GB+ VRAM · ~5.2 GB",
+        "description": "Best quality. MoE with 3B active params — fast inference, deep reasoning.",
+        "requirements":"NVIDIA GPU · 24GB+ VRAM (or partial offload) · ~23 GB",
     },
     {
-        "id":          "qwen3.5:4b",
-        "name":        "Qwen 3.5  ·  4B",
+        "id":          "qwen3.5:9b",
+        "name":        "Qwen 3.5  ·  9B",
         "badge":       "balanced",
-        "description": "Good quality with lower hardware requirements.",
-        "requirements":"4GB+ VRAM or fast CPU · ~2.6 GB",
+        "description": "Lower hardware requirement. Older fallback.",
+        "requirements":"NVIDIA GPU · 8GB+ VRAM · ~5.2 GB",
     },
     {
         "id":          "llama3.2:3b",

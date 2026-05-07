@@ -192,7 +192,7 @@ class SharedGoalEngine:
             from agents.reasoning_layer import CONFIG_PATH
 
             cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
-            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
 
             prompt = (
                 f"Split this goal into exactly {n} independent parallel subtasks.\n"
@@ -205,7 +205,8 @@ class SharedGoalEngine:
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={"model": model, "prompt": prompt,
-                      "stream": False, "format": "json"},
+                      "stream": False, "format": "json",
+                      "options": {"num_ctx": 32768}},
                 timeout=OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()

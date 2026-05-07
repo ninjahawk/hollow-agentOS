@@ -227,9 +227,9 @@ class ReasoningLayer:
         """Read the configured reasoning model from config.json."""
         try:
             cfg = json.loads(CONFIG_PATH.read_text())
-            return cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            return cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
         except Exception:
-            return "mistral-nemo:12b"
+            return "qwen3.6:35b-a3b"
 
     def _claude_generate(self, prompt: str, model: str) -> str:
         """
@@ -296,7 +296,8 @@ class ReasoningLayer:
         resp = httpx.post(
             f"{OLLAMA_HOST}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False,
-                  "format": "json", "think": False},
+                  "format": "json", "think": False,
+                  "options": {"num_ctx": 32768}},
             timeout=OLLAMA_TIMEOUT,
         )
         resp.raise_for_status()

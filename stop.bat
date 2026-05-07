@@ -19,7 +19,7 @@ echo [OK] Containers stopped.
 echo [..] Unloading models from VRAM...
 curl -s -X POST http://localhost:11434/api/generate ^
   -H "Content-Type: application/json" ^
-  -d "{\"model\":\"qwen3.5:9b\",\"keep_alive\":0,\"prompt\":\"\"}" >nul 2>&1
+  -d "{\"model\":\"qwen3.6:35b-a3b\",\"keep_alive\":0,\"prompt\":\"\"}" >nul 2>&1
 curl -s -X POST http://localhost:11434/api/generate ^
   -H "Content-Type: application/json" ^
   -d "{\"model\":\"nomic-embed-text\",\"keep_alive\":0,\"prompt\":\"\"}" >nul 2>&1

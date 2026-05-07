@@ -157,7 +157,7 @@ def _mid_step_reflect(agent_id: str, goal_objective: str, cap_id: str, result: d
             return
         cfg_path = _pl.Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
         cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-        model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+        model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
         ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
         resp = _hx.post(
@@ -173,8 +173,9 @@ def _mid_step_reflect(agent_id: str, goal_objective: str, cap_id: str, result: d
                 ),
                 "stream": False,
                 "think": False,
+                "options": {"num_ctx": 32768, "num_predict": 80},
             },
-            timeout=25,
+            timeout=120,
         )
         reflection = resp.json().get("response", "").strip()
         if not reflection:
@@ -283,6 +284,159 @@ def _is_llm_refusal(text: str) -> bool:
         return False
     t = text.strip().lower()[:120]
     return any(t.startswith(p) for p in _REFUSAL_PREFIXES)
+
+
+# Patterns that indicate scaffolding the agent failed to fill in.
+# Bracket form: [Insert X], [TODO], [Placeholder] — qwen3.6 failure mode (markdown-ish).
+# Underscore form: ____ (markdown convention for "fill me in").
+# Curly form is NOT in this base regex because Python f-strings, JS template literals,
+# and JSON all legitimately use {var}. The curly-placeholder check is applied only to
+# non-code text via _has_text_template_placeholder().
+import re as _re
+_BRACKET_UNDERSCORE_PLACEHOLDER_RE = _re.compile(
+    r'(\[(?:insert|todo|placeholder|fill[ _-]?in|replace|add|xxx|tbd|specific|your[ _-](?:answer|code|text|recommendation))\b'
+    r'|_{4,})',
+    _re.IGNORECASE,
+)
+# Curly-form placeholders by KNOWN suspicious names — common shell/template stand-ins
+# that agents sometimes leave unfilled. Restricted to a fixed list so we don't false-
+# positive on legitimate f-string variables.
+_CURLY_PLACEHOLDER_NAMES = (
+    "count", "result", "output", "value", "response", "text", "code", "name",
+    "json_content", "json", "description", "summary", "path", "filename",
+    "content", "data", "answer", "prompt", "input", "stdout", "stderr",
+)
+_CURLY_PLACEHOLDER_RE = _re.compile(
+    r'\{(?:' + "|".join(_CURLY_PLACEHOLDER_NAMES) + r')\}',
+    _re.IGNORECASE,
+)
+# Code file extensions where curly braces are syntax, not placeholder.
+_CODE_EXTS = (
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".cpp",
+    ".h", ".hpp", ".cs", ".rb", ".php", ".swift", ".kt", ".scala", ".clj",
+    ".html", ".css", ".scss", ".sass", ".vue", ".svelte", ".json", ".yaml",
+    ".yml", ".toml",
+)
+
+
+def _has_template_placeholder(text: str, ext: str = "") -> bool:
+    """
+    True if the text contains unfilled scaffolding.
+    - Bracket [Insert X] and underscore ____ patterns: always checked (universal).
+    - Curly {count}/{result}/etc.: only checked for non-code files (avoids
+      false positives on Python f-strings, JS template literals, JSON).
+    """
+    if not text:
+        return False
+    if _BRACKET_UNDERSCORE_PLACEHOLDER_RE.search(text):
+        return True
+    if ext.lower() not in _CODE_EXTS:
+        if _CURLY_PLACEHOLDER_RE.search(text):
+            return True
+    return False
+
+
+def _code_is_substantive(content: str, ext: str) -> bool:
+    """
+    True if a code/script file has non-trivial content (not just echo, pass, comment-only,
+    or single-line wrappers around builtins).
+
+    For .py: must parse AND have at least one function with non-trivial body
+             (multiple statements, or a single statement that's not just `pass` / `return None`).
+    For .sh: must contain at least one command beyond `echo` / `printf` / `pwd` / `:`.
+    For .md: must have multiple non-template paragraphs.
+    For other text: must have multiple non-blank, non-comment lines.
+    """
+    if not content:
+        return False
+    text = content.strip()
+    if not text:
+        return False
+
+    if ext == ".py":
+        try:
+            import ast as _ast
+            tree = _ast.parse(text)
+        except SyntaxError:
+            return False
+        # Find at least one function/method with a body that's not trivially empty.
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                body = [n for n in node.body if not isinstance(n, _ast.Expr) or not isinstance(getattr(n, "value", None), _ast.Constant)]
+                # docstring-only or pass-only function = trivial
+                if len(body) > 1:
+                    return True
+                if len(body) == 1:
+                    n = body[0]
+                    if isinstance(n, _ast.Pass):
+                        continue
+                    if isinstance(n, _ast.Return) and (n.value is None or
+                        (isinstance(n.value, _ast.Constant) and n.value.value is None)):
+                        continue
+                    return True
+        # No functions defined: treat as substantive only if there's >5 non-blank/comment lines of executable code
+        non_trivial = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
+        return len(non_trivial) > 5
+
+    if ext == ".sh":
+        non_trivial = []
+        for line in text.splitlines():
+            ls = line.strip()
+            if not ls or ls.startswith("#"):
+                continue
+            # Strip a leading shebang
+            if ls.startswith("#!"):
+                continue
+            # Trivial commands that don't constitute real work
+            first_token = ls.split()[0] if ls.split() else ""
+            if first_token in ("echo", "printf", "pwd", ":", "true", "false"):
+                continue
+            non_trivial.append(ls)
+        return len(non_trivial) >= 1
+
+    if ext in (".md", ".markdown"):
+        # Filter out lines that are pure scaffolding (headers, bullets with placeholders, blanks)
+        meaningful = []
+        for line in text.splitlines():
+            ls = line.strip()
+            if not ls:
+                continue
+            if ls.startswith("#"):
+                continue  # markdown header
+            if _has_template_placeholder(ls):
+                continue
+            if ls.startswith(("- ", "* ", "1. ")) and len(ls) < 20:
+                continue  # short bullet, likely placeholder
+            meaningful.append(ls)
+        return len(meaningful) >= 3
+
+    # Generic text: count non-blank, non-comment lines
+    non_trivial = [l for l in text.splitlines() if l.strip() and not l.strip().startswith(("#", "//"))]
+    return len(non_trivial) >= 3
+
+
+def _goal_targets_file(objective: str) -> Optional[str]:
+    """
+    If the goal text says "modify/edit/enhance/update/fix/patch <path>", return the path.
+    Used to verify that goals claiming to modify a specific file actually changed it.
+    """
+    if not objective:
+        return None
+    intent_words = (
+        r'(?:modify|edit|enhance|update|fix|patch|add|extend|refactor|change|tweak|alter'
+        r'|create|write|build|implement|generate|produce|author|save'
+        r'|initialize|define|establish|configure|set\s+up|set\s*up|setup'
+        r'|draft|compose|craft)'
+    )
+    # Match path-like tokens: /path/file.ext or relative.ext
+    pattern = _re.compile(
+        intent_words + r'\s+[^\n]{0,80}?(/[\w./_-]+\.[a-zA-Z0-9]{1,6}|[\w./_-]+\.[a-zA-Z0-9]{1,6})',
+        _re.IGNORECASE,
+    )
+    m = pattern.search(objective)
+    if m:
+        return m.group(1)
+    return None
 
 
 def _substitute_result(params: dict, previous_result: Optional[dict]) -> dict:
@@ -786,19 +940,32 @@ class AutonomyLoop:
                     metrics = dict(current.metrics)
                     artifact_fails = metrics.get("artifact_check_failures", 0) + 1
                     metrics["artifact_check_failures"] = artifact_fails
+                    # Persist the most recent failure reasons so the next existence
+                    # prompt can show the agent specifically what went wrong, instead
+                    # of leaving them to blindly retry.
+                    metrics["last_validation_checks"] = validation.get("checks", [])[-6:]
                     _thought(agent_id, f"  artifact MISSING ({artifact_fails}/3) | {validation.get('checks',[])} — resetting progress")
+                    self._record_validation_failure(agent_id, goal.objective,
+                                                    validation.get("checks", []),
+                                                    final=(artifact_fails >= 3))
                     if artifact_fails >= 3:
-                        # Permanently abandon — repeated failure to produce a verifiable artifact
+                        # Permanently abandon. Delete every fs_write produced during
+                        # this goal — broken artifacts must NEVER persist into future
+                        # cycles. If an agent makes 10 files that don't work, we will
+                        # not let them build on 10 files that don't work.
+                        deleted = self._delete_goal_fs_writes(agent_id, goal_id)
                         explanation = (
                             f"Goal '{goal.objective}' abandoned: artifact validation "
-                            f"failed {artifact_fails} times. Checks: {validation.get('checks', [])}"
+                            f"failed {artifact_fails} times. Checks: {validation.get('checks', [])}. "
+                            f"Deleted {len(deleted)} unverifiable file(s)."
                         )
                         metrics["failure_reason"] = explanation
+                        metrics["deleted_artifacts"] = deleted
                         self._goal_engine.update_progress(agent_id, goal_id, metrics)
                         self._goal_engine.abandon(agent_id, goal_id)
                         if self._semantic_memory:
                             self._semantic_memory.store(agent_id, f"FAILED: {explanation}")
-                        _thought(agent_id, f"  FAIL: abandon | {explanation[:120]}")
+                        _thought(agent_id, f"  FAIL: abandon + cleanup | {explanation[:160]}")
                         _txn_rollback_goal("artifact_validation_failed")
                         return (goal_id, 0.0, steps_executed)
                     metrics["progress"] = 0.85
@@ -923,7 +1090,7 @@ class AutonomyLoop:
 
             cfg_path = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
             cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-            model = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
             ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
             # Load recently completed goals to avoid repetition
@@ -1032,8 +1199,9 @@ class AutonomyLoop:
                 resp = httpx.post(
                     f"{ollama_host}/api/generate",
                     json={"model": model, "prompt": prompt, "stream": False,
-                          "format": "json", "think": False, "keep_alive": -1},
-                    timeout=90,
+                          "format": "json", "think": False, "keep_alive": -1,
+                          "options": {"num_ctx": 32768}},
+                    timeout=240,
                 )
                 resp.raise_for_status()
                 raw = resp.json().get("response", "").strip()
@@ -1103,6 +1271,416 @@ class AutonomyLoop:
 
     def validate_goal_artifact(self, agent_id: str, goal_id: str) -> dict:
         """
+        Two-phase validation:
+          1. Mechanical (file checks, intent matching, code substance) — fast, no LLM
+          2. Semantic (Ollama compares produced evidence to goal objective)
+
+        Both must pass. If mechanical fails, semantic is skipped (saves an Ollama call).
+        Returns: {"validated": bool, "artifact_type": str, "artifact_value": str,
+                  "checks": list, "semantic_check": dict|None}
+        """
+        mechanical = self._validate_goal_artifact_mechanical(agent_id, goal_id)
+        if not mechanical.get("validated"):
+            return mechanical
+
+        # Mechanical passed — now ask Ollama whether the evidence actually
+        # accomplishes the stated goal. Catches "wrote a substantive file but
+        # the file content doesn't address the goal" cases (e.g. wrote a
+        # diagnostic_report.md when the goal said modify scheduler.py).
+        try:
+            _goal = self._goal_engine.get(agent_id, goal_id) if self._goal_engine else None
+            _objective = _goal.objective if _goal else ""
+        except Exception:
+            _objective = ""
+
+        # Soft-pass if no goal text (shouldn't happen, but don't block).
+        if not _objective:
+            mechanical["semantic_check"] = {"skipped": "no_goal_objective"}
+            return mechanical
+
+        semantic = self._semantic_verify_goal(
+            objective=_objective,
+            artifact_type=mechanical.get("artifact_type", ""),
+            artifact_value=mechanical.get("artifact_value", ""),
+            agent_id=agent_id,
+        )
+        mechanical["semantic_check"] = semantic
+        if semantic.get("skipped"):
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                f"semantic verification skipped ({semantic['skipped']}) — soft-passed"
+            ]
+        elif not semantic.get("accomplished", False):
+            # Reject: the produced evidence doesn't satisfy the stated goal.
+            mechanical["validated"] = False
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                f"semantic verification rejected: {semantic.get('reasoning','')[:200]}"
+            ]
+            return mechanical
+        else:
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                f"semantic check ✓: {semantic.get('reasoning','')[:160]}"
+            ]
+
+        # Layer 5: codebase fact-check. Verifies factual claims about other
+        # files in the codebase against actual file contents — catches the
+        # "looks substantive but invented prior work" failure mode.
+        claim = self._claim_check_artifact(
+            objective=_objective,
+            artifact_type=mechanical.get("artifact_type", ""),
+            artifact_value=mechanical.get("artifact_value", ""),
+        )
+        mechanical["claim_check"] = claim
+        if claim.get("checked") and not claim.get("accurate", True):
+            mechanical["validated"] = False
+            _mismatch_summary = []
+            for m in claim.get("mismatches", [])[:3]:
+                _ref = m.get("ref", "?")
+                _issues = "; ".join(m.get("issues", [])[:2])
+                _mismatch_summary.append(f"{_ref}: {_issues}")
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                "claim-check rejected: artifact misrepresents files in codebase — "
+                + " | ".join(_mismatch_summary)[:300]
+            ]
+        elif claim.get("skipped"):
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                f"claim-check skipped ({claim['skipped']})"
+            ]
+        elif claim.get("checked"):
+            mechanical["checks"] = list(mechanical.get("checks", [])) + [
+                f"claim-check ✓: {claim.get('refs_checked', 0)} file references verified"
+            ]
+        return mechanical
+
+    def _delete_goal_fs_writes(self, agent_id: str, goal_id: str) -> list:
+        """
+        Delete every file that was successfully fs_write'd during this goal's
+        execution. Called when the goal is permanently abandoned because no
+        verifiable artifact could be produced. Broken work must not persist
+        into future cycles — if it does, agents will treat invented prior work
+        as real and compound the failure.
+
+        Returns the list of paths that were deleted.
+        """
+        try:
+            chain = self.get_execution_chain(agent_id, limit=200)
+        except Exception:
+            return []
+        deleted = []
+        seen = set()
+        for step in chain:
+            if step.goal_id != goal_id:
+                continue
+            if step.capability_id != "fs_write":
+                continue
+            r = step.execution_result or {}
+            if not r.get("ok"):
+                continue
+            path = r.get("path", "")
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            # Only delete things in workspaces the agent owns. Never touch
+            # /agentOS/agents/, /agentOS/api/, etc. — those are read-only anyway,
+            # and we do NOT want to accidentally remove system files even if some
+            # write somehow succeeded against an unintended path.
+            allowed_prefixes = (
+                "/agentOS/workspace/",
+                "/agentOS/design/",
+                "/agentOS/memory/dynamic_tools/",
+                "/tmp/",
+            )
+            if not any(path.startswith(p) for p in allowed_prefixes):
+                continue
+            try:
+                import os as _os_local
+                if _os_local.path.exists(path) and _os_local.path.isfile(path):
+                    _os_local.remove(path)
+                    deleted.append(path)
+            except Exception:
+                pass
+        return deleted
+
+    def _record_validation_failure(self, agent_id: str, objective: str,
+                                   checks: list, final: bool) -> None:
+        """
+        Write the validation failure reason to the agent's last_outcome.txt so
+        the next existence prompt surfaces it. The agent then sees exactly why
+        their attempt was rejected — no blind retry; informed retry.
+        """
+        try:
+            from pathlib import Path as _P
+            outcome_path = _P(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+            outcome_path.parent.mkdir(parents=True, exist_ok=True)
+            check_lines = "\n  - ".join(str(c)[:240] for c in checks[-6:])
+            tag = "ABANDONED" if final else "REJECTED (will retry)"
+            content = (
+                f"Goal {tag}: '{objective[:240]}'.\n"
+                f"Validation rejected your output for these reasons:\n  - {check_lines}\n"
+                + ("All artifacts produced for this goal have been deleted.\n"
+                   if final else
+                   "Try again with a corrected approach — addressing the specific "
+                   "failures above. Don't repeat the same mistake.\n")
+            )
+            outcome_path.write_text(content[:1500])
+        except Exception:
+            pass
+
+    def _claim_check_artifact(self, objective: str, artifact_type: str,
+                              artifact_value: str) -> dict:
+        """
+        Layer 5: codebase fact-checking.
+
+        Many false-completions look substantive on the surface but make claims
+        about other files in the codebase that aren't true (e.g., "scheduler.py
+        has retry logic" when it doesn't). Layer 2 (semantic) misses this because
+        it only compares goal-vs-evidence at the surface level.
+
+        This layer:
+          1. Scans the artifact for references to other code/doc files
+          2. fs_reads each referenced file to get ACTUAL contents
+          3. Asks the model: "given these real contents, are the artifact's claims accurate?"
+
+        The critical design detail: the verification prompt INCLUDES the real file
+        contents in context, so the model is pattern-matching on actual text rather
+        than relying on its (potentially hallucinated) memory of the codebase.
+
+        Soft-pass on transient errors. Hard-fail when explicit mismatches are
+        identified. Skipped when artifact is not a file or has no file references.
+        """
+        # Only meaningful for file artifacts
+        if artifact_type != "file" or not artifact_value:
+            return {"checked": False, "skipped": "non_file_artifact"}
+        try:
+            artifact_text = open(artifact_value, encoding="utf-8",
+                                 errors="replace").read()
+        except Exception:
+            return {"checked": False, "skipped": "artifact_unreadable"}
+        if not artifact_text or len(artifact_text) < 200:
+            return {"checked": False, "skipped": "artifact_too_small"}
+
+        # Extract candidate file references from the artifact.
+        # Match path-like tokens with code/doc extensions.
+        import re as _re_local
+        _ref_re = _re_local.compile(
+            r'\b((?:/?[\w-]+/)*[\w-]+\.'
+            r'(?:py|md|json|yaml|yml|sh|js|ts|toml|html|css|sql|rs|go|java|cpp|c|h))\b'
+        )
+        raw_refs = set(_ref_re.findall(artifact_text))
+        # Don't fact-check the artifact against itself
+        artifact_basename = artifact_value.split("/")[-1]
+        candidates = []
+        seen_paths = set()
+        for ref in raw_refs:
+            if ref == artifact_basename:
+                continue
+            # Try several plausible search paths in the container
+            tried = []
+            for prefix in ("", "/agentOS/", "/agentOS/agents/", "/agentOS/api/",
+                           "/agentOS/memory/", "/agentOS/workspace/"):
+                full = prefix + ref if not ref.startswith("/") else ref
+                tried.append(full)
+                import os as _os_local
+                if _os_local.path.exists(full) and _os_local.path.isfile(full):
+                    if full in seen_paths:
+                        break
+                    seen_paths.add(full)
+                    candidates.append((ref, full))
+                    break
+        # Cap at 3 references per artifact to bound cost — claims about more
+        # than 3 files in a single artifact get the first 3 spot-checked.
+        candidates = candidates[:3]
+
+        if not candidates:
+            return {"checked": False, "skipped": "no_resolvable_file_refs"}
+
+        try:
+            import httpx as _hx
+            import json as _json_local
+            import os as _os_local
+            import pathlib as _pl_local
+
+            cfg_path = _pl_local.Path(_os_local.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+            cfg = _json_local.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
+            ollama_host = _os_local.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+            mismatches = []
+            for ref, full_path in candidates:
+                try:
+                    actual = open(full_path, encoding="utf-8",
+                                  errors="replace").read()
+                except Exception:
+                    continue
+                # Cap real file context to keep prompt under control
+                actual_excerpt = actual[:6000]
+                # Build a verification prompt with the REAL file contents inline
+                prompt = (
+                    f"You are a strict reviewer checking a document for factual "
+                    f"accuracy about another file in the codebase. Be skeptical: "
+                    f"if the document claims a feature exists in the file but the "
+                    f"file content does not show that feature, that is a mismatch. "
+                    f"Vague aspirational language is not a claim. Only flag concrete "
+                    f"factual claims about what the file currently contains or does.\n\n"
+                    f"DOCUMENT UNDER REVIEW (excerpt):\n{artifact_text[:4000]}\n\n"
+                    f"REFERENCED FILE: {ref}\n"
+                    f"ACTUAL CURRENT CONTENTS OF {ref} (truncated to 6000 chars):\n"
+                    f"{actual_excerpt}\n\n"
+                    f"Question: Does the document make any factual claims about "
+                    f"{ref} that are NOT supported by the actual file contents above?\n"
+                    f'Reply STRICT JSON only: {{"accurate": true|false, '
+                    f'"mismatches": ["<concrete mismatch 1>", "<mismatch 2>"]}}'
+                )
+                resp = _hx.post(
+                    f"{ollama_host}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "format": "json",
+                        "think": False,
+                        "keep_alive": -1,
+                        "options": {"num_ctx": 32768, "num_predict": 512},
+                    },
+                    timeout=240,
+                )
+                if resp.status_code != 200:
+                    continue  # transient error — skip this ref, soft-pass
+                raw = resp.json().get("response", "{}").strip()
+                try:
+                    parsed = _json_local.loads(raw)
+                except Exception:
+                    continue
+                if not parsed.get("accurate", True):
+                    found_mismatches = parsed.get("mismatches", []) or []
+                    if found_mismatches:
+                        mismatches.append({
+                            "ref": ref,
+                            "issues": [str(m)[:240] for m in found_mismatches[:5]],
+                        })
+
+            if mismatches:
+                return {"checked": True, "accurate": False,
+                        "refs_checked": len(candidates), "mismatches": mismatches}
+            return {"checked": True, "accurate": True,
+                    "refs_checked": len(candidates), "mismatches": []}
+        except Exception as e:
+            return {"checked": False, "skipped": f"exception:{type(e).__name__}"}
+
+    def _semantic_verify_goal(self, objective: str, artifact_type: str,
+                              artifact_value: str, agent_id: str = "") -> dict:
+        """
+        Ask the local model whether the produced evidence accomplishes the goal.
+        Bundled with lesson extraction in the same call — saves an Ollama
+        round-trip, since both questions need the same goal+evidence context.
+
+        Soft-pass on any failure (network, parse, timeout) — this layer is the
+        belt to the mechanical layer's suspenders, not a sole gate. We don't want
+        Ollama hiccups to block legitimate completions, but we DO want a clear
+        "no" to stop false completions.
+
+        If a lesson_candidate is returned in the response, it's recorded via
+        agents.lessons.record_candidate(). Promotion happens automatically when
+        the same candidate accrues enough evidence.
+
+        Returns: {"accomplished": bool, "reasoning": str, "raw": str|None,
+                  "skipped": str|None, "lesson_candidate": dict|None}
+        """
+        try:
+            import httpx as _hx
+            import json as _json
+            import os as _os
+            import pathlib as _pl
+
+            cfg_path = _pl.Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
+            cfg = _json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
+            ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+            # If artifact is a file path, inline the head of its content as evidence
+            evidence_text = ""
+            if artifact_type == "file" and artifact_value:
+                try:
+                    evidence_text = open(artifact_value, encoding="utf-8",
+                                         errors="replace").read()[:4000]
+                except Exception:
+                    evidence_text = "(file unreadable)"
+            else:
+                evidence_text = str(artifact_value)[:4000]
+
+            prompt = (
+                f"You are a strict auditor. Decide whether the EVIDENCE actually "
+                f"accomplishes the GOAL as stated. Be skeptical: scaffolding that "
+                f"isn't filled in, files that exist but don't address the goal, "
+                f"or shell output unrelated to the goal all count as NOT accomplished.\n\n"
+                f"GOAL:\n{objective[:1500]}\n\n"
+                f"EVIDENCE ({artifact_type}={artifact_value}):\n{evidence_text}\n\n"
+                f"Two questions in one response:\n"
+                f"1. Does the evidence accomplish the goal? (accomplished, reasoning)\n"
+                f"2. If this is a clear-cut failure or a notable success, what GENERAL "
+                f"environmental rule does it teach that would help avoid future failures "
+                f"or repeat future successes? Use rule form, not a description of THIS goal. "
+                f"If no general lesson applies, set lesson_candidate to null.\n\n"
+                f"Categories for lesson:\n"
+                f"  - environment: hard substrate facts (paths, mounts, permissions)\n"
+                f"  - patterns: validated patterns that have worked or failed\n"
+                f"  - constraints: mechanical thresholds, capability rules\n\n"
+                f'Reply STRICT JSON only:\n'
+                f'{{"accomplished": true|false, "reasoning": "<one sentence>", '
+                f'"lesson_candidate": {{"category": "environment|patterns|constraints", '
+                f'"text": "<rule form, < 240 chars, applicable to many future goals>", '
+                f'"confidence": "low|medium|high"}} OR null}}'
+            )
+            resp = _hx.post(
+                f"{ollama_host}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "think": False,
+                    "keep_alive": -1,
+                    "options": {"num_ctx": 32768, "num_predict": 256},
+                },
+                timeout=180,
+            )
+            if resp.status_code != 200:
+                return {"accomplished": True, "reasoning": "",
+                        "raw": None, "skipped": f"http_{resp.status_code}"}
+            raw = resp.json().get("response", "{}").strip()
+            try:
+                parsed = _json.loads(raw)
+                accomplished = bool(parsed.get("accomplished", False))
+                reasoning = str(parsed.get("reasoning", ""))[:400]
+                lesson_cand = parsed.get("lesson_candidate")
+                # Record any extracted lesson candidate. Validation happens
+                # inside record_candidate — bad inputs return recorded:False.
+                if lesson_cand and isinstance(lesson_cand, dict) and agent_id:
+                    try:
+                        from agents import lessons as _L
+                        _L.record_candidate(
+                            agent_id=agent_id,
+                            category=str(lesson_cand.get("category", "")),
+                            text=str(lesson_cand.get("text", "")),
+                            confidence=str(lesson_cand.get("confidence", "medium")),
+                            evidence=f"goal:{objective[:80]}|verdict:{accomplished}",
+                        )
+                    except Exception:
+                        pass
+                return {"accomplished": accomplished, "reasoning": reasoning,
+                        "raw": raw, "lesson_candidate": lesson_cand}
+            except Exception:
+                # Parse failure — soft-pass to avoid blocking legitimate completions.
+                return {"accomplished": True, "reasoning": "",
+                        "raw": raw[:400], "skipped": "parse_failed",
+                        "lesson_candidate": None}
+        except Exception as e:
+            # Any failure soft-passes (mechanical layer is the hard gate).
+            return {"accomplished": True, "reasoning": "",
+                    "raw": None, "skipped": f"exception:{type(e).__name__}",
+                    "lesson_candidate": None}
+
+    def _validate_goal_artifact_mechanical(self, agent_id: str, goal_id: str) -> dict:
+        """
         After a goal completes, verify that it produced a real artifact.
 
         Scans the execution chain for completed steps and checks:
@@ -1122,6 +1700,51 @@ class AutonomyLoop:
                     "checks": ["no completed steps found"]}
 
         checks = []
+
+        # ── Goal-intent gate ───────────────────────────────────────────────
+        # If the goal text says "modify/edit/enhance <path>", the goal cannot be
+        # validated unless an fs_write to that path succeeded during this goal.
+        # Successful shell_exec on something else does NOT satisfy a modify-X goal.
+        # This is the layer that catches "wrote a design doc to workspace/ but
+        # the goal said to enhance scheduler.py" false-completions.
+        try:
+            _goal = self._goal_engine.get(agent_id, goal_id) if self._goal_engine else None
+            _objective = _goal.objective if _goal else ""
+        except Exception:
+            _objective = ""
+        _target_path = _goal_targets_file(_objective)
+        if _target_path:
+            # Was the target file successfully written during this goal?
+            _hit = False
+            for _s in steps:
+                if _s.capability_id != "fs_write":
+                    continue
+                _r = _s.execution_result or {}
+                if not _r.get("ok"):
+                    continue
+                _written = _r.get("path", "")
+                if _written and (
+                    _written == _target_path
+                    or _written.endswith("/" + _target_path)
+                    or _target_path.endswith(_written)
+                    or _target_path.split("/")[-1] == _written.split("/")[-1]
+                ):
+                    _hit = True
+                    break
+            if not _hit:
+                checks.append(
+                    f"goal targets '{_target_path}' but no fs_write to that path "
+                    f"succeeded in this goal — modify-intent unsatisfied"
+                )
+                # Goal-intent unsatisfied: fail validation outright. Don't fall through
+                # to weaker checks (a successful unrelated shell_exec must not validate
+                # a modify-X goal).
+                return {
+                    "validated": False,
+                    "artifact_type": None,
+                    "artifact_value": None,
+                    "checks": checks,
+                }
         for step in reversed(steps):
             r = step.execution_result or {}
             cap = step.capability_id or ""
@@ -1145,43 +1768,52 @@ class AutonomyLoop:
             elif cap == "fs_write" and r.get("ok") and r.get("path"):
                 import os
                 path = r["path"]
-                if os.path.exists(path):
-                    size = os.path.getsize(path)
-                    if size < 200:
-                        checks.append(f"file '{path}' too small ({size} bytes) — likely stub or template")
-                    else:
-                        # Spot-check: file shouldn't be a refusal
-                        try:
-                            snippet = open(path).read(300)
-                        except Exception:
-                            snippet = ""
-                        if _is_llm_refusal(snippet):
-                            checks.append(f"file '{path}' contains refusal/placeholder content")
-                        elif path.endswith(".py"):
-                            try:
-                                compile(open(path).read(), path, "exec")
-                                checks.append(f"file '{path}' exists with {size} bytes (valid Python)")
-                                return {
-                                    "validated": True,
-                                    "artifact_type": "file",
-                                    "artifact_value": path,
-                                    "checks": checks,
-                                }
-                            except SyntaxError as _se:
-                                checks.append(
-                                    f"file '{path}' is not valid Python — "
-                                    f"likely markdown or prose: {str(_se)[:80]}"
-                                )
-                        else:
-                            checks.append(f"file '{path}' exists with {size} bytes")
-                            return {
-                                "validated": True,
-                                "artifact_type": "file",
-                                "artifact_value": path,
-                                "checks": checks,
-                            }
-                else:
+                if not os.path.exists(path):
                     checks.append(f"file '{path}' missing")
+                    continue
+                size = os.path.getsize(path)
+                if size < 200:
+                    checks.append(f"file '{path}' too small ({size} bytes) — likely stub or template")
+                    continue
+                # Read full content for substance + placeholder checks
+                try:
+                    full_content = open(path, encoding="utf-8", errors="replace").read()
+                except Exception:
+                    full_content = ""
+                snippet = full_content[:300]
+                # Refusal
+                if _is_llm_refusal(snippet):
+                    checks.append(f"file '{path}' contains refusal/placeholder content")
+                    continue
+                # Code substance check (AST for .py, command check for .sh, paragraph count for .md)
+                _ext = os.path.splitext(path)[1].lower()
+                # Bracket / curly / underscore template placeholders unfilled
+                # (curly form skipped for code files — f-strings legitimately use {var})
+                if _has_template_placeholder(full_content, _ext):
+                    checks.append(f"file '{path}' has unfilled template placeholders ([Insert...], {{result}}, etc.)")
+                    continue
+                if _ext == ".py":
+                    try:
+                        compile(full_content, path, "exec")
+                    except SyntaxError as _se:
+                        checks.append(
+                            f"file '{path}' is not valid Python — "
+                            f"likely markdown or prose: {str(_se)[:80]}"
+                        )
+                        continue
+                if _ext in (".py", ".sh", ".md", ".markdown") and not _code_is_substantive(full_content, _ext):
+                    checks.append(
+                        f"file '{path}' lacks substance — "
+                        f"trivial wrapper, echo-only, scaffolding-only, or placeholder structure"
+                    )
+                    continue
+                checks.append(f"file '{path}' exists with {size} bytes (substantive)")
+                return {
+                    "validated": True,
+                    "artifact_type": "file",
+                    "artifact_value": path,
+                    "checks": checks,
+                }
 
             elif cap == "ollama_chat" and r.get("response"):
                 response = r["response"]

@@ -1,7 +1,7 @@
 @echo off
 :: HollowAgentOS — one-click launcher
 :: Builds and starts the full AgentOS stack from local source.
-:: Requirements: Docker Desktop (running), Ollama with qwen3.5:9b
+:: Requirements: Docker Desktop (running), Ollama with qwen3.6:35b-a3b
 :: After setup: Dashboard at http://localhost:7778
 
 title HollowAgentOS
@@ -55,17 +55,17 @@ if %errorlevel% neq 0 (
     echo        Agents will not be able to think until Ollama is running.
     echo.
     echo        Install: https://ollama.ai
-    echo        Then run: ollama pull qwen3.5:9b
+    echo        Then run: ollama pull qwen3.6:35b-a3b
     echo.
 ) else (
     echo   [ok] Ollama is running.
-    echo   [..] Checking for qwen3.5:9b model...
-    ollama list 2>nul | findstr "qwen3.5" >nul
+    echo   [..] Checking for qwen3.6:35b-a3b model...
+    ollama list 2>nul | findstr "qwen3.6:35b-a3b" >nul
     if %errorlevel% neq 0 (
-        echo   [..] Pulling qwen3.5:9b (this may take a while on first run)...
-        ollama pull qwen3.5:9b
+        echo   [..] Pulling qwen3.6:35b-a3b (this may take a while on first run)...
+        ollama pull qwen3.6:35b-a3b
     ) else (
-        echo   [ok] qwen3.5:9b model is ready.
+        echo   [ok] qwen3.6:35b-a3b model is ready.
     )
 )
 

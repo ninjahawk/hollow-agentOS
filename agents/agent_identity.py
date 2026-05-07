@@ -510,7 +510,7 @@ class AgentIdentity:
             ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
             cfg_path    = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
             cfg         = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-            model       = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+            model       = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
 
             recent_str   = "\n".join(f"  - {g}" for g in recent_completed[-8:]) or "  (none yet)"
             failed_str   = "\n".join(f"  - {g}" for g in recent_failed[-5:])    or "  (none)"
@@ -550,8 +550,9 @@ class AgentIdentity:
 
             resp = _httpx.post(
                 f"{ollama_host}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "think": False},
-                timeout=60,
+                json={"model": model, "prompt": prompt, "stream": False, "think": False,
+                      "options": {"num_ctx": 32768}},
+                timeout=180,
             )
             resp.raise_for_status()
             goal = resp.json().get("response", "").strip()

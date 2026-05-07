@@ -29,22 +29,23 @@ OLLAMA_BASE = "http://localhost:11434"
 VRAM_HEADROOM_MB = 512
 
 # Complexity → preferred model name (used for affinity check + fallback)
+# All tiers point to qwen3.6:35b-a3b — MoE with 3B active params, faster than
+# any dense model in the system while being the strongest reasoner. Routing
+# tiers preserved for future heterogeneous setups.
 COMPLEXITY_MODEL = {
-    1: "qwen3.5:9b-gpu",
-    2: "qwen3.5:9b-gpu",
-    3: "qwen2.5:14b",
-    4: "qwen2.5:14b",
-    5: "qwen3.5-35b-moe:latest",
+    1: "qwen3.6:35b-a3b",
+    2: "qwen3.6:35b-a3b",
+    3: "qwen3.6:35b-a3b",
+    4: "qwen3.6:35b-a3b",
+    5: "qwen3.6:35b-a3b",
 }
 
 # Models that are too large to swap in/out frequently — pin them once loaded
-PINNED_MODELS: set[str] = {"qwen3.5-35b-moe:latest"}
+PINNED_MODELS: set[str] = {"qwen3.6:35b-a3b"}
 
 # Approximate VRAM footprint when Ollama's /api/ps doesn't report size (MB)
 MODEL_VRAM_FALLBACK: dict[str, int] = {
-    "qwen3.5:9b-gpu":         8_000,
-    "qwen2.5:14b":             10_000,
-    "qwen3.5-35b-moe:latest":  22_000,
+    "qwen3.6:35b-a3b":         22_000,
 }
 
 
@@ -85,7 +86,7 @@ class ModelManager:
         3. Must evict: evict LRU non-pinned (background first), then load
         4. Fallback: return preferred model name and let Ollama handle it
         """
-        preferred = COMPLEXITY_MODEL.get(complexity, "qwen3.5:9b-gpu")
+        preferred = COMPLEXITY_MODEL.get(complexity, "qwen3.6:35b-a3b")
         self._refresh()
 
         with self._lock:

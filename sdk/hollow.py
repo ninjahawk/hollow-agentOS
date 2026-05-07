@@ -165,10 +165,9 @@ class Hollow:
         """
         Submit a task. The scheduler routes it to the right model.
 
-        complexity 1-5:
-            1-2 → general (mistral-nemo:12b)
-            3-4 → code    (qwen2.5:14b)
-            5   → reasoning (qwen3.5-35b-moe)
+        complexity 1-5: all tiers → qwen3.6:35b-a3b (MoE, 3B active params).
+        Tier numbers preserved for token budget pre-checks and future
+        heterogeneous routing.
         """
         resp = self._req("POST", "/tasks/submit", body={
             "description": description,

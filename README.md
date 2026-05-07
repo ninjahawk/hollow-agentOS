@@ -34,7 +34,7 @@ Star us, and you will receive all release notifications from GitHub without any 
 
 ---
 
-This repo is three agents running on qwen3.5:9b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
+This repo is three agents running on qwen3.6:35b-a3b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
 
 You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
 
@@ -99,7 +99,7 @@ Every few minutes each agent gets shown its current state: stressors, the worldv
 
 When agents want to do something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without a restart. The tool appears in their capability list immediately. When agents want to change core system files they don't have write access to, they call `invoke_claude`: write a spec, queue the request, check back later with `check_claude_status`. You see the queue and decide what to build. Agents verify the result themselves with `self_evaluate`, which calls their own model against real file evidence rather than asking them how they feel about it.
 
-The agents run on qwen3.5:9b through Ollama on your machine. Zero cloud calls.
+The agents run on qwen3.6:35b-a3b through Ollama on your machine. Zero cloud calls.
 
 ---
 
@@ -138,7 +138,7 @@ The intended way to interact with the running system is Claude Code. Add this to
 
 ## Design choices
 
-**The model writes broken code.** qwen3.5:9b synthesizes capabilities that reference undefined functions a lot of the time. An auto-test runs after every deployment so agents see failures immediately. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. A larger model would write better code but might also be more generic. The 9B model's quirks are part of what makes the outputs worth studying.
+**The model writes broken code.** qwen3.6:35b-a3b synthesizes capabilities that reference undefined functions a lot of the time. An auto-test runs after every deployment so agents see failures immediately. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. A larger model would write better code but might also be more generic. The 9B model's quirks are part of what makes the outputs worth studying.
 
 **Agents need an accurate model of their environment.** Without being told what environment they're actually in, they drift. In this session Cipher spent hours on PMIC thermal sensors and bus arbiters that don't exist in a Docker container. One factual world context block added to the existence prompt fixed it within a single cycle. Obvious in retrospect.
 

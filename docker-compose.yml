@@ -43,6 +43,7 @@ services:
       - ./agents/reasoning_layer.py:/agentOS/agents/reasoning_layer.py:ro
       - ./agents/execution_engine.py:/agentOS/agents/execution_engine.py:ro
       - ./agents/transaction.py:/agentOS/agents/transaction.py:ro
+      - ./agents/lessons.py:/agentOS/agents/lessons.py:ro
       - ./design:/agentOS/design
       # Store data mounted so repair_wrappers.py can write directly (bypasses SHA dedup)
       - ./store/data:/agentOS/store/data

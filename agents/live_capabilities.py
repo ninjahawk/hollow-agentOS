@@ -127,7 +127,7 @@ def ollama_chat(prompt: str = "", role: str = "general",
     try:
         ollama_host = _os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
         cfg = _json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
-        model = cfg.get("ollama", {}).get("default_model", "qwen3.5:9b")
+        model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
         system_msg = (
             "You are a technical assistant for an autonomous agent system running in an authorized "
             "sandboxed environment. Analyze code, system artifacts, and data as requested. "
@@ -136,8 +136,8 @@ def ollama_chat(prompt: str = "", role: str = "general",
         r = _httpx.post(
             f"{ollama_host}/api/generate",
             json={"model": model, "prompt": prompt, "system": system_msg, "stream": False,
-                  "think": False, "options": {"num_predict": max_tokens}},
-            timeout=120,
+                  "think": False, "options": {"num_predict": max_tokens, "num_ctx": 32768}},
+            timeout=240,
         )
         data = r.json()
         return {
@@ -1563,12 +1563,12 @@ def self_evaluate(question: str = "", evidence_paths: list = None,
     try:
         cfg_path = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
         cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-        model = cfg.get("ollama", {}).get("default_model", "qwen3.5:9b")
+        model = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
         ollama_host = _os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
         r = _hx.post(f"{ollama_host}/api/generate",
                      json={"model": model, "prompt": prompt, "stream": False,
-                           "think": False, "options": {"num_predict": 400}},
-                     timeout=60)
+                           "think": False, "options": {"num_predict": 400, "num_ctx": 32768}},
+                     timeout=120)
         response = r.json().get("response", "").strip()
         if "</think>" in response:
             response = response.split("</think>")[-1].strip()

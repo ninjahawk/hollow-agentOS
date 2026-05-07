@@ -1,6 +1,9 @@
 # Runtime config — copy config.example.json to config.json
 config.json
 
+# Pre-wipe state backups (large, not source)
+backups/
+
 # Claude Code project memory (never commit — contains session context)
 .claude/
 

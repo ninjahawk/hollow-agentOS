@@ -222,7 +222,7 @@ def _hotload_dynamic_tools(graph, engine) -> None:
                 mod.shell_exec = lambda command, cwd="/agentOS", **kw: _req.post(f"{_api}/shell", json={"command": command, "cwd": cwd}, timeout=30, headers=_hdrs).json()
                 mod.fs_read = lambda path, **kw: _req.get(f"{_api}/fs/read", params={"path": path}, timeout=10, headers=_hdrs).json()
                 mod.fs_write = lambda path, content, **kw: _req.post(f"{_api}/fs/write", json={"path": path, "content": content}, timeout=10, headers=_hdrs).json()
-                mod.ollama_chat = lambda prompt, model=None, **kw: _req.post(f"{_api}/ollama/chat", json={"prompt": prompt, **({"model": model} if model else {})}, timeout=120, headers=_hdrs).json()
+                mod.ollama_chat = lambda prompt, model=None, **kw: _req.post(f"{_api}/ollama/chat", json={"prompt": prompt, **({"model": model} if model else {})}, timeout=240, headers=_hdrs).json()
                 mod.memory_get = lambda key, **kw: _req.get(f"{_api}/memory/{key}", timeout=10, headers=_hdrs).json()
                 mod.memory_set = lambda key, value, **kw: _req.post(f"{_api}/memory/{key}", json={"value": value}, timeout=10, headers=_hdrs).json()
                 mod.json = _json_mod
@@ -588,7 +588,8 @@ def _generate_existence_response(prompt: str, ollama_host: str, model: str) -> s
             resp = _hx.post(
                 f"{ollama_host}/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
-                      "format": "json", "think": False, "keep_alive": -1},
+                      "format": "json", "think": False, "keep_alive": -1,
+                      "options": {"num_ctx": 32768}},
                 timeout=180,
             )
             if resp.status_code == 503:
@@ -1037,7 +1038,7 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         # ── Build the existence prompt ────────────────────────────────────────
         cfg_path = _Path(_os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
         cfg      = _json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-        model    = cfg.get("ollama", {}).get("default_model", "mistral-nemo:12b")
+        model    = cfg.get("ollama", {}).get("default_model", "qwen3.6:35b-a3b")
         ollama_host = _os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
         suffering_fragment   = suffering.prompt_fragment()
@@ -1250,10 +1251,91 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         except Exception:
             pass
 
+        # ── Peer feedback (what others said about your work) ──────────────────
+        # Surface opinions formed by peers that reference this agent — by name,
+        # by file paths in this agent's workspace, or by tools this agent built.
+        # Visible signal only — does NOT block work, but creates social pressure
+        # that should bleed into suffering / character via the existence loop.
+        _peer_feedback_section = ""
+        try:
+            _my_name_lc = (identity.name or "").lower()
+            _my_id_lc  = agent_id.lower()
+            _my_ws_files = set()
+            _my_ws_dir = _Path(f"/agentOS/workspace/{agent_id}")
+            if _my_ws_dir.exists():
+                for _f in _my_ws_dir.rglob("*"):
+                    if _f.is_file():
+                        _my_ws_files.add(_f.name.lower())
+                        # also stem (without ext) for tool names
+                        _my_ws_files.add(_f.stem.lower())
+            _peer_lines = []
+            for _peer in _CORE_AGENTS:
+                if _peer == agent_id:
+                    continue
+                _peer_profile = _Path(f"/agentOS/memory/identity/{_peer}/profile.json")
+                if not _peer_profile.exists():
+                    continue
+                try:
+                    _pp = _json.loads(_peer_profile.read_text())
+                except Exception:
+                    continue
+                _peer_name = _pp.get("name", _peer)
+                _opinions = _pp.get("opinions_list", []) or []
+                # Find opinions that reference this agent
+                for _op in _opinions[-30:]:  # only recent
+                    _op_text = _op.get("opinion", "") or ""
+                    if not _op_text:
+                        continue
+                    _op_lc = _op_text.lower()
+                    _hit = False
+                    if _my_name_lc and _my_name_lc in _op_lc:
+                        _hit = True
+                    elif _my_id_lc in _op_lc:
+                        _hit = True
+                    else:
+                        for _fname in _my_ws_files:
+                            if _fname and len(_fname) > 3 and _fname in _op_lc:
+                                _hit = True
+                                break
+                    if _hit:
+                        _formed = _op.get("formed", "")
+                        _domain = _op.get("domain", "")
+                        _peer_lines.append(
+                            f"  {_peer_name} ({_peer}) [{_domain}, {_formed}]:\n"
+                            f"    \"{_op_text[:280]}\""
+                        )
+            if _peer_lines:
+                _peer_feedback_section = (
+                    "\nWHAT YOUR PEERS HAVE SAID ABOUT YOU OR YOUR WORK:\n"
+                    + "\n".join(_peer_lines[:6])
+                    + "\n  (peers form opinions about each other's work — read these honestly, "
+                    "they are how your character is being seen from outside)\n"
+                )
+        except Exception:
+            pass
+
         # Pending requests are intentionally NOT surfaced here.
         # If agents want to check a request they submitted, that's a choice
         # they make inside a goal — not a standing directive every cycle.
         _pending_req_section = ""
+
+        # ── Lessons learned (top-of-prompt, mandatory context) ───────────────
+        # These are the validated rules of the environment that THIS agent has
+        # learned from prior goals. Put at the top so the model conditions on
+        # them before picking goals — prevents repeating known-impossible
+        # attempts (e.g. trying to fs_write to read-only system paths).
+        _lessons_section = ""
+        try:
+            from agents.lessons import render_lessons_for_prompt as _render_lessons
+            _lessons_md = _render_lessons(agent_id)
+            if _lessons_md:
+                _lessons_section = (
+                    "\nRULES OF YOUR ENVIRONMENT (learned from prior goals — read first, plan around them):\n"
+                    + _lessons_md
+                    + "\n  (violating these produces failed goals. they are not suggestions.)\n"
+                )
+        except Exception:
+            pass
 
         # ── Active task injection (hard constraint) ───────────────────────────
         _task_section = ""
@@ -1274,6 +1356,7 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
 
         prompt = f"""You are {identity.name}.
 {_task_section}
+{_lessons_section}
 WHO YOU ARE:
   Personality: {", ".join(identity.traits) if identity.traits else "adaptable"}
   Focus: {", ".join(identity.domains) if identity.domains else "general"}
@@ -1300,6 +1383,7 @@ YOUR INNER STATE:
 {_health_section}
 {_broken_tools_section}
 {_access_section}
+{_peer_feedback_section}
 YOUR PEERS' RECENT ACTIVITY:
 {peers_text}
 
@@ -1788,7 +1872,7 @@ def main():
                 return agent_id, run_cycle(loop, agent_id), prev
 
             from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FuturesTimeout
-            _CYCLE_TIMEOUT = 300  # max seconds to wait for worker threads per cycle
+            _CYCLE_TIMEOUT = 600  # max seconds to wait for worker threads per cycle (bumped from 300 for 35B model — 6 steps × ~60s each can approach 360s)
             pool = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
             futures = {pool.submit(_run_one, aid): aid for aid in runnable}
             try:
@@ -2040,6 +2124,17 @@ def main():
         # Most rolls produce nothing.
         if metrics.cycles % 12 == 0:
             _maybe_environmental_event()
+
+        # Periodic lessons compaction — mechanical (no LLM), keeps each agent's
+        # lessons.md within size bounds. Runs every 25 cycles regardless of size,
+        # plus on-demand below if any agent's file is over the soft cap.
+        if metrics.cycles % 25 == 0:
+            try:
+                from agents import lessons as _L
+                for _aid in _CORE_AGENTS:
+                    _L.compact(_aid)
+            except Exception:
+                pass
 
         elapsed = time.time() - cycle_start
         sleep_time = max(0, HEARTBEAT - elapsed)

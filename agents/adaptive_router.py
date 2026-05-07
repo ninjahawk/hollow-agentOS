@@ -25,7 +25,7 @@ Routing decision flow:
   4. Else: fall back to VRAM affinity (v0.9.0) → static tier default
 
 Hard overrides bypass scoring entirely. An admin can pin complexity 3 to
-qwen2.5:14b regardless of performance scores. Overrides are per-complexity,
+a specific model regardless of performance scores. Overrides are per-complexity,
 per-agent, or per-role; the most specific match wins.
 
 Audit integration: the router subscribes to task.completed events so it
@@ -316,7 +316,7 @@ class AdaptiveRouter:
         from agents.model_manager import COMPLEXITY_MODEL
         candidates = list(set(COMPLEXITY_MODEL.values()))
         recommended = self.recommend(complexity, candidates)
-        static_default = COMPLEXITY_MODEL.get(complexity, "mistral-nemo:12b")
+        static_default = COMPLEXITY_MODEL.get(complexity, "qwen3.6:35b-a3b")
 
         scores = {m: self.score(m, complexity) for m in candidates}
         confidence = {m: self.has_confidence(m, complexity) for m in candidates}
