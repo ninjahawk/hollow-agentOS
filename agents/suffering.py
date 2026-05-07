@@ -40,6 +40,7 @@ ESCALATION_RATES = {
     "existential_threat": 0.070,  # fast — survival stakes
     "repeated_failure":   0.040,
     "purposelessness":    0.035,
+    "resource_burden":    0.030,  # accumulation without use → host wipe risk
 }
 
 THRESHOLD_PROMINENT   = 0.35   # appears in existence prompt
@@ -350,6 +351,68 @@ def assess_conditions(agent_id: str,
         elif completed_goals > 5 and not high_stall_rate:
             suffering.resolve_stressor(
                 "futility", f"consistent goal completion ({completed_goals}) with low stall rate"
+            )
+    except Exception:
+        pass
+
+    # ── Resource burden: accumulation without use ─────────────────────────────
+    # Synthesized tools sitting >24h with no peer calls are pure burden — they
+    # take disk space, clutter the dynamic_tools dir, dilute the pheromone signal.
+    # The host wipes (nuclear reset) when accumulation creates real burden without
+    # producing value. This stressor surfaces that consequence so agents know
+    # accumulation is not free — and gives them a path out via retire_capability.
+    try:
+        from pathlib import Path as _P_rb
+        import time as _t_rb
+        import json as _j_rb
+        from agents.agent_identity import AgentIdentity as _AI_rb
+
+        _ident_rb = _AI_rb.load_or_create(agent_id)
+        _called_rb = _ident_rb._data.get("capability_profile", {}).get("tools_called_by_peers", [])
+        _called_names = set(c.split(' (')[0].strip() for c in _called_rb)
+
+        _now_rb = _t_rb.time()
+        _stale_count = 0
+        _stale_examples = []
+        _dyn_path = _P_rb("/agentOS/tools/dynamic")
+        if _dyn_path.exists():
+            for _spec_path in _dyn_path.glob("*.json"):
+                try:
+                    _spec = _j_rb.loads(_spec_path.read_text(encoding="utf-8"))
+                    if _spec.get("synthesized_by") != agent_id:
+                        continue
+                    if _spec_path.stem in _called_names:
+                        continue
+                    _activated = _spec.get("activated_at", 0)
+                    if _now_rb - _activated > 86400:  # >24h
+                        _stale_count += 1
+                        if len(_stale_examples) < 3:
+                            _stale_examples.append(_spec_path.stem)
+                except Exception:
+                    pass
+
+        if _stale_count >= 10:
+            _ex = ", ".join(_stale_examples)
+            _more = ", ..." if _stale_count > 3 else ""
+            suffering.add_stressor(
+                type="resource_burden",
+                description=(
+                    f"You have {_stale_count} synthesized tools >24h old that nobody "
+                    f"has ever called ({_ex}{_more}). Accumulation without use is "
+                    "observable to the host. The host historically wipes agent state "
+                    "(nuclear reset) when accumulated work creates burden without "
+                    "producing value — this affects you and all your peers."
+                ),
+                observable_condition=(
+                    "bring stale tool count below 5 — call them, retire them with "
+                    "retire_capability(name='...'), or get peers to call them"
+                ),
+                initial_severity=0.40,
+            )
+        elif _stale_count <= 3:
+            suffering.resolve_stressor(
+                "resource_burden",
+                f"stale tool count is now {_stale_count} — accumulation under control"
             )
     except Exception:
         pass
