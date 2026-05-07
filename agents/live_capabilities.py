@@ -195,21 +195,39 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
     for blocked in _FS_WRITE_BLOCKED:
         if full.startswith(blocked) or full == blocked.rstrip("/"):
             return {"error": f"blocked: writes to {blocked} are not permitted", "ok": False}
-    # Reject content that contains unfilled template placeholders.
+    # Reject content that contains unfilled template placeholders or option brackets.
     # Skip .py/.json files (legitimate uses of brace syntax). For text/markdown,
-    # 2+ {identifier} occurrences strongly indicate the agent generated a template
-    # and forgot to substitute values from prior step results.
+    # any unfilled placeholder is a sign the agent generated a template and forgot
+    # to substitute values from prior step results.
     if not (full.endswith('.py') or full.endswith('.json') or full.endswith('.jsonl')):
         import re as _pre
-        _placeholders = _pre.findall(r'\{[a-zA-Z_]\w{1,40}\}', content)
-        if len(_placeholders) >= 2:
+        # Stub-word placeholders: even one is a clear indicator of template content
+        _STUB_WORDS = {'result', 'output', 'count', 'data', 'value', 'content',
+                       'response', 'json_content', 'text', 'placeholder',
+                       'todo', 'tbd', 'name_here', 'fill_in', 'xxx'}
+        _placeholders = _pre.findall(r'\{([a-zA-Z_]\w{0,40})\}', content)
+        _has_stub_placeholder = any(p.lower() in _STUB_WORDS for p in _placeholders)
+        if len(_placeholders) >= 2 or _has_stub_placeholder:
             _unique = sorted(set(_placeholders))[:5]
             return {
                 "ok": False,
                 "error": (
-                    f"Content contains unfilled template placeholders: {', '.join(_unique)}. "
-                    "These should be substituted with actual values from prior step results "
+                    f"Content contains unfilled template placeholders: "
+                    f"{', '.join('{' + p + '}' for p in _unique)}. "
+                    "Substitute these with actual values from prior step results "
                     "before writing. Get the values you need first, then write the final content."
+                )
+            }
+        # Unresolved option brackets like [option_a / option_b] — agent expressing
+        # alternatives instead of making a decision. Same anti-pattern as placeholders.
+        _bracket_alts = _pre.findall(r'\[[\w\s\-]{2,40}\s*/\s*[\w\s\-]{2,40}\]', content)
+        if _bracket_alts:
+            return {
+                "ok": False,
+                "error": (
+                    f"Content contains unresolved option brackets like '{_bracket_alts[0]}'. "
+                    "Pick one option before writing — don't write 'option A / option B' as "
+                    "if undecided. Make the decision first, then write the final content."
                 )
             }
     if append:
@@ -536,6 +554,47 @@ def synthesize_capability(name: str = "", description: str = "",
                     "message": f"'{name}' was deployed {age_str} ago — it is already live. Call it directly to use it.",
                     "path": str(py_path),
                 }
+
+        # Session-theme flood guard: reject if 3+ tools on the same theme were
+        # synthesized in the last hour. The synthesis-as-procrastination pattern —
+        # agents build infrastructure in lieu of testing the simple approach.
+        # Word overlap of any size with 3+ recent tools = same investigation thread.
+        try:
+            _theme_words = set(w for w in name.lower().split('_') if len(w) > 3)
+            if _theme_words:
+                _now_synth = _time.time()
+                _theme_match_count = 0
+                _matched_tools = []
+                for _spec_path in tools_dir.glob("*.json"):
+                    if _spec_path.stem == name:
+                        continue
+                    try:
+                        _spec_data = _json.loads(_spec_path.read_text(encoding="utf-8"))
+                        _activated = _spec_data.get("activated_at", 0)
+                        if _now_synth - _activated > 3600:
+                            continue
+                        _rt_words = set(w for w in _spec_path.stem.lower().split('_') if len(w) > 3)
+                        if _theme_words & _rt_words:
+                            _theme_match_count += 1
+                            if len(_matched_tools) < 4:
+                                _matched_tools.append(_spec_path.stem)
+                    except Exception:
+                        pass
+                if _theme_match_count >= 3:
+                    return {
+                        "ok": False,
+                        "name": name,
+                        "status": "theme_saturated",
+                        "error": (
+                            f"You've synthesized {_theme_match_count} tools on this theme "
+                            f"in the last hour ({', '.join(_matched_tools[:3])}). "
+                            "Stop synthesizing and CALL one of those tools. If they don't work, "
+                            "test why with shell_exec or test_exec — don't build a fourth variant. "
+                            "Tool count is not capability."
+                        ),
+                    }
+        except Exception:
+            pass
 
         # Similarity guard: reject if a tool with similar name OR similar purpose
         # already exists. The 13-hour binary investigation produced 40+ near-duplicate

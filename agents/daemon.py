@@ -1817,10 +1817,12 @@ def main():
                         log.info("Auto-retired broken tools from disk: %s", _removed)
                 except Exception as _are:
                     log.debug("auto-retire error: %s", _are)
-                # Auto-clean 0-byte workspace files older than 1 hour. These are
+                # Auto-clean 0-byte workspace files older than 5 minutes. These are
                 # failed writes (binary redirect errors, shell pipe issues) that
-                # accumulate and pollute the pheromone signal. They produce no
-                # information for any agent reading the workspace.
+                # pollute the pheromone signal immediately — peers see them and read
+                # them within seconds, getting nothing. 5 minutes is enough buffer
+                # for legitimate work-in-progress while still aggressive enough to
+                # remove dead artifacts before they contaminate the signal.
                 try:
                     _ws_root = Path("/agentOS/workspace")
                     _now_ts = time.time()
@@ -1828,11 +1830,11 @@ def main():
                     if _ws_root.exists():
                         for _ef in _ws_root.rglob("*"):
                             if _ef.is_file() and _ef.stat().st_size == 0:
-                                if (_now_ts - _ef.stat().st_mtime) > 3600:
+                                if (_now_ts - _ef.stat().st_mtime) > 300:
                                     _ef.unlink(missing_ok=True)
                                     _empty_removed += 1
                     if _empty_removed:
-                        log.info("Auto-cleaned %d empty workspace files (>1h old)", _empty_removed)
+                        log.info("Auto-cleaned %d empty workspace files (>5m old)", _empty_removed)
                 except Exception as _ece:
                     log.debug("empty workspace cleanup error: %s", _ece)
                 _hotload_dynamic_tools(graph, engine)
