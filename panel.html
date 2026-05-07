@@ -5,31 +5,44 @@
 <title>Hollow AgentOS</title>
 <style>
   :root {
-    --bg: #1c1c1e;
-    --card: #2c2c2e;
-    --card-hover: #353537;
-    --border: #38383a;
-    --border-strong: #48484a;
-    --text: #ffffff;
-    --text-secondary: #98989d;
-    --text-tertiary: #636366;
-    --accent: #0a84ff;
-    --accent-hover: #0070d8;
-    --success: #30d158;
-    --danger: #ff453a;
-    --danger-hover: #d93b32;
-    --warning: #ff9f0a;
-    --shadow: 0 1px 2px rgba(0,0,0,0.3);
+    /* Deep navy/indigo palette inspired by premium SaaS dashboards */
+    --bg-base: #14162b;
+    --bg-elevated: #1c1f3b;
+    --card-bg: linear-gradient(180deg, #262a4d 0%, #1e2240 100%);
+    --card-border: rgba(255, 255, 255, 0.04);
+    --card-highlight: rgba(255, 255, 255, 0.06);
+
+    --text: #f1f3fb;
+    --text-secondary: #9da3c8;
+    --text-tertiary: #6b7299;
+
+    --accent: #8b5cf6;
+    --accent-glow: rgba(139, 92, 246, 0.35);
+    --accent-soft: rgba(139, 92, 246, 0.12);
+    --accent-hover: #a78bfa;
+
+    --success: #34d399;
+    --success-soft: rgba(52, 211, 153, 0.12);
+    --success-glow: rgba(52, 211, 153, 0.4);
+
+    --danger: #f43f5e;
+    --danger-soft: rgba(244, 63, 94, 0.12);
+    --danger-glow: rgba(244, 63, 94, 0.35);
+
+    --warning: #fbbf24;
+    --neutral-btn: #2c3056;
+    --neutral-btn-hover: #353a66;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
     height: 100%;
-    background: var(--bg);
+    background: radial-gradient(ellipse at top left, #1a1d3d 0%, var(--bg-base) 50%);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-                 "Segoe UI Variable", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+                 "Inter", "Segoe UI Variable", "Segoe UI", "Helvetica Neue",
+                 system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -41,158 +54,274 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 20px;
-    gap: 12px;
+    padding: 22px;
+    gap: 14px;
   }
 
-  /* Header */
+  /* ─────── Header ─────── */
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 4px 8px;
+    padding: 0 4px;
   }
-  header .title-block h1 {
-    font-size: 17px;
+  .title-block h1 {
+    font-size: 18px;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
     margin-bottom: 2px;
   }
-  header .title-block .subtitle {
+  .title-block .subtitle {
     font-size: 11px;
     color: var(--text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0.02em;
   }
-  header .status {
+  .status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    background: var(--card);
-    border: 1px solid var(--border);
+    gap: 9px;
+    padding: 7px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--card-border);
     border-radius: 100px;
     font-size: 12px;
     color: var(--text-secondary);
+    font-weight: 500;
   }
-  header .status .dot {
+  .status .dot {
     width: 8px; height: 8px;
     border-radius: 50%;
     background: var(--text-tertiary);
-    transition: background 200ms ease, box-shadow 200ms ease;
+    transition: all 250ms ease;
   }
-  header .status.up .dot {
+  .status.up .dot {
     background: var(--success);
-    box-shadow: 0 0 6px rgba(48, 209, 88, 0.5);
+    box-shadow: 0 0 0 3px var(--success-soft), 0 0 12px var(--success-glow);
   }
-  header .status.down .dot {
+  .status.down .dot {
     background: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-soft);
   }
 
-  /* Cards */
+  /* ─────── Cards ─────── */
   .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: inset 0 1px 0 var(--card-highlight),
+                0 1px 2px rgba(0, 0, 0, 0.2);
   }
-  .card .card-header {
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .card-hint {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.02em;
+  }
+
+  /* ─────── Agent stat cards (top row) ─────── */
+  .agent-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: inset 0 1px 0 var(--card-highlight),
+                0 1px 2px rgba(0, 0, 0, 0.2);
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--card-highlight) 50%,
+      transparent 100%);
+  }
+  .stat-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 10px;
   }
-  .card h2 {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
+    font-weight: 600;
   }
-  .card .card-hint {
-    font-size: 11px;
+  .stat-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .stat-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-value.suffering-low { color: var(--success); }
+  .stat-value.suffering-mid { color: var(--warning); }
+  .stat-value.suffering-high { color: var(--danger); }
+  .stat-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .pill.active {
+    background: var(--success-soft);
+    color: var(--success);
+  }
+  .pill.suspended {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .pill.unknown {
+    background: rgba(255,255,255,0.05);
     color: var(--text-tertiary);
   }
 
-  /* Buttons */
+  /* ─────── Buttons ─────── */
   .btn {
-    padding: 6px 12px;
-    background: #3a3a3c;
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    padding: 7px 14px;
+    background: var(--neutral-btn);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
     color: var(--text);
     font-family: inherit;
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 100ms ease, border-color 100ms ease;
+    transition: all 150ms ease;
     user-select: none;
+    box-shadow: inset 0 1px 0 var(--card-highlight);
   }
-  .btn:hover { background: #48484a; border-color: #5e5e60; }
-  .btn:active { background: #2c2c2e; transform: translateY(0.5px); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); }
-  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn:hover {
+    background: var(--neutral-btn-hover);
+    border-color: rgba(255,255,255,0.08);
+  }
+  .btn:active { transform: translateY(0.5px); }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.2),
+                0 0 12px var(--accent-glow);
+  }
+  .btn.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
   .btn.danger {
     background: transparent;
     border-color: var(--danger);
     color: var(--danger);
     font-weight: 600;
   }
-  .btn.danger:hover { background: var(--danger); color: white; }
-  .btn.compact { padding: 4px 10px; font-size: 11px; }
+  .btn.danger:hover {
+    background: var(--danger);
+    color: white;
+    box-shadow: 0 0 12px var(--danger-glow);
+  }
+  .btn.compact { padding: 5px 11px; font-size: 11px; }
 
   .button-row {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
-  /* Message section */
+  /* ─────── Message section ─────── */
   .msg-input {
     width: 100%;
-    background: #1c1c1e;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
     color: var(--text);
-    padding: 8px 10px;
+    padding: 10px 12px;
     font-family: inherit;
     font-size: 13px;
     resize: vertical;
-    min-height: 60px;
-    margin-bottom: 8px;
+    min-height: 64px;
+    margin-bottom: 10px;
     outline: none;
-    transition: border-color 100ms ease;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
   }
-  .msg-input:focus { border-color: var(--accent); }
+  .msg-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .msg-input::placeholder { color: var(--text-tertiary); }
   .msg-actions {
     display: flex;
     justify-content: flex-end;
   }
 
-  /* Agent rows */
+  /* ─────── Agent control rows ─────── */
   .agent-grid {
     display: grid;
-    gap: 6px;
+    gap: 8px;
   }
   .agent-row {
     display: grid;
     grid-template-columns: 1fr auto auto;
     align-items: center;
     gap: 8px;
-    padding: 8px 10px;
-    background: #1c1c1e;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    padding: 9px 12px;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
   }
   .agent-row .agent-name {
     font-size: 12px;
     font-weight: 500;
+    text-transform: lowercase;
   }
   .agent-row .agent-meta {
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-tertiary);
-    margin-left: 6px;
+    margin-left: 8px;
+    font-weight: 500;
   }
 
-  /* Output log */
+  /* ─────── Output log ─────── */
   .output-card {
     flex: 1;
     display: flex;
@@ -201,39 +330,46 @@
   }
   .output-log {
     flex: 1;
-    background: #1c1c1e;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 12px 14px;
     font-family: "SF Mono", "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
-    font-size: 11.5px;
-    line-height: 1.55;
+    font-size: 11px;
+    line-height: 1.6;
     color: var(--text);
     overflow-y: auto;
     white-space: pre-wrap;
     user-select: text;
   }
   .output-log .entry { margin-bottom: 8px; }
-  .output-log .entry .ts { color: var(--text-tertiary); margin-right: 8px; }
-  .output-log .entry.ok { }
-  .output-log .entry.err { color: #ff8a80; }
+  .output-log .entry .ts {
+    color: var(--text-tertiary);
+    margin-right: 10px;
+    font-size: 10.5px;
+  }
+  .output-log .entry.err { color: #fda4af; }
   .output-log .entry.dim { color: var(--text-secondary); }
 
   .clear-btn {
     background: transparent;
     border: none;
     color: var(--text-tertiary);
-    font-size: 11px;
+    font-size: 10.5px;
     cursor: pointer;
     padding: 2px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+    transition: color 150ms ease;
   }
   .clear-btn:hover { color: var(--text); }
 
-  /* Scrollbar */
+  /* ─────── Scrollbar ─────── */
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #48484a; border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #5e5e60; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 </style>
 </head>
 <body>
@@ -241,7 +377,7 @@
   <header>
     <div class="title-block">
       <h1>Hollow AgentOS</h1>
-      <div class="subtitle">control panel</div>
+      <div class="subtitle">CONTROL PANEL</div>
     </div>
     <div id="status" class="status">
       <div class="dot"></div>
@@ -249,6 +385,44 @@
     </div>
   </header>
 
+  <!-- Agent stat cards -->
+  <div class="agent-stats">
+    <div class="stat-card" data-agent="scout">
+      <div class="stat-header">
+        <div>
+          <div class="stat-label">scout</div>
+          <div class="stat-name" id="name-scout">—</div>
+        </div>
+        <span class="pill unknown" id="pill-scout">—</span>
+      </div>
+      <div class="stat-value suffering-low" id="load-scout">—</div>
+      <div class="stat-meta" id="info-scout">suffering load</div>
+    </div>
+    <div class="stat-card" data-agent="analyst">
+      <div class="stat-header">
+        <div>
+          <div class="stat-label">analyst</div>
+          <div class="stat-name" id="name-analyst">—</div>
+        </div>
+        <span class="pill unknown" id="pill-analyst">—</span>
+      </div>
+      <div class="stat-value suffering-low" id="load-analyst">—</div>
+      <div class="stat-meta" id="info-analyst">suffering load</div>
+    </div>
+    <div class="stat-card" data-agent="builder">
+      <div class="stat-header">
+        <div>
+          <div class="stat-label">builder</div>
+          <div class="stat-name" id="name-builder">—</div>
+        </div>
+        <span class="pill unknown" id="pill-builder">—</span>
+      </div>
+      <div class="stat-value suffering-low" id="load-builder">—</div>
+      <div class="stat-meta" id="info-builder">suffering load</div>
+    </div>
+  </div>
+
+  <!-- System control -->
   <div class="card">
     <div class="card-header">
       <h2>System</h2>
@@ -256,16 +430,17 @@
     <div class="button-row">
       <button class="btn" onclick="op('start')">Start</button>
       <button class="btn" onclick="op('stop')">Stop</button>
-      <button class="btn" onclick="op('status')">Status</button>
-      <button class="btn" onclick="op('open_monitor')">Monitor</button>
+      <button class="btn" onclick="refreshAll()">Refresh</button>
+      <button class="btn" onclick="op('open_monitor')">Open Monitor</button>
       <button class="btn" onclick="op('open_workspace')">Workspace</button>
     </div>
   </div>
 
+  <!-- Send message -->
   <div class="card">
     <div class="card-header">
       <h2>Send Message</h2>
-      <span class="card-hint">delivered to all agents next cycle</span>
+      <span class="card-hint">delivered next cycle</span>
     </div>
     <textarea id="msg" class="msg-input" placeholder="Type a host message…"></textarea>
     <div class="msg-actions">
@@ -273,30 +448,31 @@
     </div>
   </div>
 
+  <!-- Per-agent control -->
   <div class="card">
     <div class="card-header">
-      <h2>Agents</h2>
-      <button class="clear-btn" onclick="op('status')">refresh</button>
+      <h2>Agent Control</h2>
     </div>
-    <div class="agent-grid" id="agent-grid">
-      <div class="agent-row" data-agent="scout">
-        <div><span class="agent-name">scout</span><span class="agent-meta" id="meta-scout">—</span></div>
+    <div class="agent-grid">
+      <div class="agent-row">
+        <div><span class="agent-name">scout</span><span class="agent-meta" id="meta-scout"></span></div>
         <button class="btn compact" onclick="opArg('suspend','scout')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','scout')">Resume</button>
       </div>
-      <div class="agent-row" data-agent="analyst">
-        <div><span class="agent-name">analyst</span><span class="agent-meta" id="meta-analyst">—</span></div>
+      <div class="agent-row">
+        <div><span class="agent-name">analyst</span><span class="agent-meta" id="meta-analyst"></span></div>
         <button class="btn compact" onclick="opArg('suspend','analyst')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','analyst')">Resume</button>
       </div>
-      <div class="agent-row" data-agent="builder">
-        <div><span class="agent-name">builder</span><span class="agent-meta" id="meta-builder">—</span></div>
+      <div class="agent-row">
+        <div><span class="agent-name">builder</span><span class="agent-meta" id="meta-builder"></span></div>
         <button class="btn compact" onclick="opArg('suspend','builder')">Suspend</button>
         <button class="btn compact" onclick="opArg('resume','builder')">Resume</button>
       </div>
     </div>
   </div>
 
+  <!-- Destructive -->
   <div class="card">
     <div class="card-header">
       <h2>Destructive</h2>
@@ -307,10 +483,11 @@
     </div>
   </div>
 
+  <!-- Output log -->
   <div class="card output-card">
     <div class="card-header">
       <h2>Output</h2>
-      <button class="clear-btn" onclick="clearOutput()">clear</button>
+      <button class="clear-btn" onclick="clearOutput()">CLEAR</button>
     </div>
     <div id="output" class="output-log"></div>
   </div>
@@ -320,10 +497,10 @@
   const output = document.getElementById('output');
   const statusEl = document.getElementById('status');
   const statusText = statusEl.querySelector('.status-text');
+  const AGENTS = ['scout', 'analyst', 'builder'];
 
   function ts() {
-    const d = new Date();
-    return d.toLocaleTimeString('en-US', { hour12: false });
+    return new Date().toLocaleTimeString('en-US', { hour12: false });
   }
 
   function log(text, cls = 'ok') {
@@ -346,7 +523,7 @@
     try {
       const result = await window.pywebview.api[name]();
       log(result, 'ok');
-      if (name === 'status') updateAgentMeta(result);
+      if (name === 'status') updateStatsFromText(result);
     } catch (e) {
       log('error: ' + e, 'err');
     }
@@ -356,6 +533,7 @@
     try {
       const result = await window.pywebview.api[name](arg);
       log(result, 'ok');
+      setTimeout(refreshAll, 500);
     } catch (e) {
       log('error: ' + e, 'err');
     }
@@ -364,7 +542,7 @@
   async function sendMessage() {
     const ta = document.getElementById('msg');
     const text = ta.value.trim();
-    if (!text) { log('empty message — nothing sent', 'dim'); return; }
+    if (!text) { log('empty message', 'dim'); return; }
     try {
       const result = await window.pywebview.api.send_message(text);
       log(result, 'ok');
@@ -375,32 +553,77 @@
   }
 
   async function confirmNuke() {
-    const ok = await window.pywebview.api.confirm_dialog(
-      'Nuclear Reset',
-      'Wipe workspace, dynamic tools, profiles, suffering, and goals?\n\nNames will be preserved. Stop the daemon first if running.'
-    );
-    if (!ok) { log('nuke cancelled', 'dim'); return; }
-    log('running nuclear reset…', 'dim');
-    try {
-      const result = await window.pywebview.api.nuke();
-      log(result, 'ok');
-    } catch (e) {
-      log('error: ' + e, 'err');
+    log('confirm: nuclear reset will wipe workspace, tools, profiles, suffering, and goals (names preserved). click again within 5s to confirm.', 'dim');
+    if (window._nukeArmed) {
+      window._nukeArmed = false;
+      log('running nuclear reset…', 'dim');
+      try {
+        const result = await window.pywebview.api.nuke();
+        log(result, 'ok');
+        setTimeout(refreshAll, 800);
+      } catch (e) { log('error: ' + e, 'err'); }
+      return;
     }
+    window._nukeArmed = true;
+    setTimeout(() => { window._nukeArmed = false; }, 5000);
   }
 
-  function updateAgentMeta(statusText) {
-    // Parse status output to extract per-agent meta info
-    const lines = statusText.split('\n');
+  function classifyLoad(load) {
+    if (load < 0.35) return 'suffering-low';
+    if (load < 0.75) return 'suffering-mid';
+    return 'suffering-high';
+  }
+
+  function updateStatsFromText(text) {
+    const lines = text.split('\n');
     let current = null;
+    const data = {};
     for (const line of lines) {
-      const m = line.match(/^(scout|analyst|builder)\s*\(([^)]+)\):/);
-      if (m) { current = m[1]; continue; }
-      if (current && line.includes('suffering=')) {
-        const meta = line.trim().replace(/^\s+/, '');
-        const el = document.getElementById('meta-' + current);
-        if (el) el.textContent = '· ' + meta;
-        current = null;
+      const m1 = line.match(/^(scout|analyst|builder)\s*\(([^)]+)\):/);
+      if (m1) {
+        current = m1[1];
+        data[current] = { name: m1[2] };
+        continue;
+      }
+      if (current) {
+        const m2 = line.match(/status=(\S+)\s*\|\s*suffering=([\d.]+)\s*\|\s*ops=(\d+)\s*\|\s*questions=(\d+)/);
+        if (m2) {
+          data[current].status = m2[1];
+          data[current].load = parseFloat(m2[2]);
+          data[current].ops = parseInt(m2[3]);
+          data[current].qs = parseInt(m2[4]);
+        }
+        const m3 = line.match(/^\s*stressors:\s*(.+)/);
+        if (m3) {
+          data[current].stressors = m3[1].trim();
+        }
+      }
+    }
+
+    for (const aid of AGENTS) {
+      const d = data[aid];
+      if (!d) continue;
+      // Stat card
+      document.getElementById('name-' + aid).textContent = d.name || '—';
+      const loadEl = document.getElementById('load-' + aid);
+      if (typeof d.load === 'number') {
+        loadEl.textContent = d.load.toFixed(2);
+        loadEl.className = 'stat-value ' + classifyLoad(d.load);
+      }
+      const info = document.getElementById('info-' + aid);
+      const parts = [`${d.ops || 0} opinions`, `${d.qs || 0} questions`];
+      if (d.stressors) parts.unshift(d.stressors.split(',')[0].trim());
+      info.textContent = parts.join(' · ');
+      // Pill
+      const pill = document.getElementById('pill-' + aid);
+      const status = d.status || '?';
+      pill.textContent = status;
+      pill.className = 'pill ' + (status === 'active' ? 'active' :
+                                  status === 'suspended' ? 'suspended' : 'unknown');
+      // Meta line in agent control
+      const meta = document.getElementById('meta-' + aid);
+      if (meta && typeof d.load === 'number') {
+        meta.textContent = `· suffering ${d.load.toFixed(2)} · ${d.name}`;
       }
     }
   }
@@ -417,12 +640,18 @@
     }
   }
 
-  // Wait for pywebview to be ready, then start polling
+  async function refreshAll() {
+    await pollHealth();
+    try {
+      const result = await window.pywebview.api.status();
+      updateStatsFromText(result);
+    } catch (e) {}
+  }
+
   window.addEventListener('pywebviewready', () => {
     log('panel ready', 'dim');
-    pollHealth();
-    setInterval(pollHealth, 5000);
-    setTimeout(() => op('status'), 300);
+    refreshAll();
+    setInterval(refreshAll, 5000);
   });
 </script>
 </body>
