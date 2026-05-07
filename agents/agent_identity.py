@@ -207,19 +207,121 @@ class AgentIdentity:
 
     def add_opinion(self, opinion: str, domain: str = "") -> None:
         """
-        Record a developed opinion. Opinions constrain future action —
-        the agent cannot be assigned goals that violate them without dissonance.
+        Record a developed opinion. Opinions constrain future action — the
+        agent cannot be assigned goals that violate them without dissonance.
+
+        Dedup by text similarity (jaccard 0.55 across normalized tokens) — same
+        belief in different domains was bloating profiles with copies (e.g. one
+        opinion text recorded 3x under system_architecture, peer_interaction,
+        peer_dynamics). On near-duplicate, refresh the formed-date and increment
+        a reaffirmed counter rather than appending a new entry.
         """
+        opinion_text = opinion[:200].strip()
+        if not opinion_text:
+            return
         ops = self._data.get("opinions_list", [])
+
+        def _norm(s: str) -> set:
+            import re as _re
+            return set(_re.sub(r'\W+', ' ', s.lower()).split())
+
+        new_tokens = _norm(opinion_text)
+        if not new_tokens:
+            return
+        for existing in ops:
+            ex_tokens = _norm(existing.get("opinion", ""))
+            if not ex_tokens:
+                continue
+            jaccard = len(new_tokens & ex_tokens) / max(1, len(new_tokens | ex_tokens))
+            if jaccard >= 0.55:
+                # Same belief — reaffirm in place, don't append a copy.
+                existing["last_reaffirmed"] = time.strftime("%Y-%m-%d")
+                existing["reaffirmed_count"] = existing.get("reaffirmed_count", 0) + 1
+                # Keep the broader of the two domains
+                if domain and not existing.get("domain"):
+                    existing["domain"] = domain[:60]
+                self._data["opinions_list"] = ops
+                self._save()
+                return
         entry = {
-            "opinion": opinion[:200],
+            "opinion": opinion_text,
             "domain":  domain[:60],
             "formed":  time.strftime("%Y-%m-%d"),
+            "last_reaffirmed": time.strftime("%Y-%m-%d"),
+            "reaffirmed_count": 1,
             "times_tested": 0,
+            "contradictions": 0,
         }
         ops.append(entry)
-        self._data["opinions_list"] = ops[-20:]
+        # Cap to 10 (was 20) — opinions should be focused, not a wall
+        self._data["opinions_list"] = ops[-10:]
         self._save()
+
+    def test_opinion_against_outcome(self, goal_objective: str, succeeded: bool) -> None:
+        """
+        When a goal completes (success or failure), increment times_tested on
+        opinions whose domain words appear in the goal text. Track contradiction
+        rate: an opinion-domain goal that fails often is evidence the opinion is
+        wrong. Auto-retire opinions whose contradiction rate is high enough.
+        """
+        ops = self._data.get("opinions_list", [])
+        if not ops:
+            return
+        goal_lower = (goal_objective or "").lower()
+        modified = False
+        survivors = []
+        for op in ops:
+            domain = op.get("domain", "").lower().replace("_", " ")
+            domain_words = [w for w in domain.split() if len(w) > 3]
+            if domain_words and any(w in goal_lower for w in domain_words):
+                op["times_tested"] = op.get("times_tested", 0) + 1
+                if not succeeded:
+                    op["contradictions"] = op.get("contradictions", 0) + 1
+                modified = True
+            tested = op.get("times_tested", 0)
+            contradictions = op.get("contradictions", 0)
+            # Retire when an opinion has been tested at least 3 times and most
+            # outcomes contradicted it. The opinion was wrong; stop letting it
+            # distort goal selection.
+            if tested >= 3 and contradictions / tested >= 0.6:
+                continue  # drop
+            survivors.append(op)
+        if modified or len(survivors) != len(ops):
+            self._data["opinions_list"] = survivors
+            self._save()
+
+    def decay_stale_opinions(self, days_threshold: int = 7) -> int:
+        """
+        Drop opinions that haven't been re-affirmed in `days_threshold` days
+        and have low reaffirmed_count. Keeps the opinion list reflective of
+        current beliefs, not artifacts from one bad cycle long ago.
+        Returns count of opinions dropped.
+        """
+        ops = self._data.get("opinions_list", [])
+        if not ops:
+            return 0
+        import time as _t
+        from datetime import datetime as _dt
+        now_ts = _t.time()
+        survivors = []
+        dropped = 0
+        for op in ops:
+            last = op.get("last_reaffirmed") or op.get("formed", "")
+            try:
+                last_ts = _dt.strptime(last, "%Y-%m-%d").timestamp()
+            except Exception:
+                survivors.append(op)
+                continue
+            age_days = (now_ts - last_ts) / 86400.0
+            reaffirmed = op.get("reaffirmed_count", 1)
+            if age_days > days_threshold and reaffirmed <= 1:
+                dropped += 1
+                continue
+            survivors.append(op)
+        if dropped:
+            self._data["opinions_list"] = survivors
+            self._save()
+        return dropped
 
     def check_opinion_conflict(self, proposed_action: str) -> str:
         """

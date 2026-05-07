@@ -935,6 +935,14 @@ class AutonomyLoop:
                     _txn_commit_goal()
                     self._goal_engine.complete(agent_id, goal_id)
                     self._synthesize_completion(agent_id, goal.objective, steps_executed)
+                    # Test held opinions against this success — opinions whose
+                    # domain words match the goal text get a +1 to times_tested.
+                    try:
+                        from agents.agent_identity import AgentIdentity as _AI
+                        _ident = _AI.load_or_create(agent_id)
+                        _ident.test_opinion_against_outcome(goal.objective, succeeded=True)
+                    except Exception:
+                        pass
                     return (goal_id, 1.0, steps_executed)
                 else:
                     metrics = dict(current.metrics)
@@ -967,6 +975,15 @@ class AutonomyLoop:
                             self._semantic_memory.store(agent_id, f"FAILED: {explanation}")
                         _thought(agent_id, f"  FAIL: abandon + cleanup | {explanation[:160]}")
                         _txn_rollback_goal("artifact_validation_failed")
+                        # Test held opinions against this failure — opinions whose
+                        # domain matched the goal get a contradiction tick. After
+                        # 3 tested + 60% contradicted, the opinion auto-retires.
+                        try:
+                            from agents.agent_identity import AgentIdentity as _AI
+                            _ident = _AI.load_or_create(agent_id)
+                            _ident.test_opinion_against_outcome(goal.objective, succeeded=False)
+                        except Exception:
+                            pass
                         return (goal_id, 0.0, steps_executed)
                     metrics["progress"] = 0.85
                     metrics["has_output"] = False  # force re-earning output gate

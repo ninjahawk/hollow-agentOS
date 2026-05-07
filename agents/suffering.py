@@ -97,13 +97,26 @@ def get_capability_status(agent_id: str, capability_id: str) -> tuple:
             )
             peer_interaction = peer_calls >= spec.get("required_peer_calls", 1)
             if not peer_interaction:
-                # Fallback paths: messages received from peers, or peers naming
-                # this agent in their recent goals. Either counts as "you exist
-                # to your peers."
+                # Fallback paths: messages received from peers (read from the
+                # message bus, where they actually live), or peers naming this
+                # agent in their recent goals. Either counts as "you exist to
+                # your peers."
                 try:
-                    msgs = ident._data.get("messages_received_from_peers", [])
-                    if len(msgs) >= 1:
-                        peer_interaction = True
+                    from pathlib import Path as _Pmb
+                    import json as _jmb
+                    _mb = _Pmb("/agentOS/memory/message-bus.json")
+                    if _mb.exists():
+                        _data = _jmb.loads(_mb.read_text())
+                        for _q_name, _msgs in _data.get("queues", {}).items():
+                            if _q_name != agent_id:
+                                continue
+                            for _m in _msgs:
+                                if _m.get("from_id") in ("scout", "analyst", "builder") \
+                                        and _m.get("from_id") != agent_id:
+                                    peer_interaction = True
+                                    break
+                            if peer_interaction:
+                                break
                 except Exception:
                     pass
                 if not peer_interaction:

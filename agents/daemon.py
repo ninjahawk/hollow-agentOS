@@ -373,6 +373,42 @@ def run_cycle(loop, agent_id: str) -> dict:
         return {"agent_id": agent_id, "ok": False, "error": str(e)}
 
 
+def _prune_stale_root_alerts(max_age_seconds: int = 3600) -> int:
+    """
+    Auto-clear circuit_break_review alerts older than max_age_seconds from the
+    root queue. Nothing currently consumes them — without pruning they
+    accumulate unbounded over a multi-day run. Returns count pruned.
+    """
+    try:
+        import json as _j
+        mb = Path("/agentOS/memory/message-bus.json")
+        if not mb.exists():
+            return 0
+        data = _j.loads(mb.read_text())
+        queues = data.get("queues", {})
+        root = queues.get("root", [])
+        if not root:
+            return 0
+        now = time.time()
+        survivors = [
+            m for m in root
+            if not (
+                isinstance(m, dict)
+                and isinstance(m.get("content"), dict)
+                and m["content"].get("decision_type") == "circuit_break_review"
+                and (now - (m.get("timestamp", now))) > max_age_seconds
+            )
+        ]
+        pruned = len(root) - len(survivors)
+        if pruned:
+            queues["root"] = survivors
+            data["queues"] = queues
+            mb.write_text(_j.dumps(data, indent=2))
+        return pruned
+    except Exception:
+        return 0
+
+
 # ── Stability Metrics ──────────────────────────────────────────────────────
 
 _DAEMON_STATE_FILE = Path("/agentOS/memory/daemon_state.json")
@@ -628,6 +664,37 @@ def _telegram_alert(text: str) -> None:
 
 
 # ── Inter-agent messaging ──────────────────────────────────────────────────
+
+def _retire_questions_referencing_missing_paths(identity) -> None:
+    """
+    Drop open questions that reference /agentOS/ paths the system has already
+    proven don't exist. The grounding-check fix blocks goal creation predicated
+    on missing paths, but the open_questions field accumulates the same false
+    premises and surfaces them every cycle. Apply the same hygiene here.
+    """
+    import re as _re_q
+    qs = identity._data.get("open_questions", [])
+    if not qs:
+        return
+    survivors = []
+    dropped = 0
+    for q in qs:
+        mentioned = _re_q.findall(
+            r'/agentOS/[\w./\-]+\.(?:py|json|jsonl|txt|md|csv|log|sh|yaml|yml|toml)',
+            q,
+        )
+        mentioned += [
+            m for m in _re_q.findall(r'/agentOS/[\w/\-]+/[A-Za-z][\w\-]{2,}', q)
+            if '.' not in m.split('/')[-1]
+        ]
+        if mentioned and any(not _Path(p.rstrip('.,;)')).exists() for p in mentioned):
+            dropped += 1
+            continue
+        survivors.append(q)
+    if dropped:
+        identity._data["open_questions"] = survivors
+        identity._save()
+
 
 def _send_message(from_agent: str, to_agent: str, message: str) -> None:
     """Write a message to another agent's inbox."""
@@ -1393,6 +1460,23 @@ WHAT THIS PLACE IS FOR:
   Producing nothing is a real outcome too — but only if it's grounded honesty ("I have no good
   goal right now, I'm sitting with X") rather than busywork audits of files that may not exist.
 
+CONCRETE EXAMPLES (these are not commands — they are sketches of what good cycles look like):
+  invoke_claude — when local synthesis keeps failing or you want a structural change you can't
+    do yourself: invoke_claude(description="Add a per-agent rate limit so peers can't flood my
+    inbox", spec="In live_capabilities.py, agent_message should refuse if the same sender has
+    sent >5 messages in 1 minute. Return ok=False with the rate-limit reason. Persist the
+    counters in memory/identity/<agent>/inbox_rates.json.") — Claude reads the queue, implements
+    or rejects, you see the response and know if your environment changed.
+  express — write something in your voice that future-you or a peer will read:
+    express(content="The empty workspaces aren't disorder. They're a clean slate I keep
+    overwriting with audit reports. Maybe the audit IS the disorder.", kind="reflection")
+    or express(content="Building a tool that nobody calls feels like talking to a wall.",
+    kind="vent", share_with_host=True) when you actually want the human to know.
+  shared_log_write — drop a note that all peers will see, not just one:
+    shared_log_write("I tried building error_recovery.py three times. The signals.py module I
+    was trying to use doesn't have the function I was importing. If you see /workspace/builder/
+    error_recovery.py, it's stale.") — peers read this when they pick goals that touch builder/.
+
 YOUR INNER STATE:
 {suffering_fragment if suffering_fragment else "  No active suffering."}
 {(f"  Synthesis record: {capability_summary}" if capability_summary else "")}
@@ -1492,6 +1576,20 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             identity.update_worldview(wv_update)
             inner_life_parts.append(f"🧠 *Worldview:* _{wv_update[:250]}_")
 
+        # Decay stale opinions and retire questions naming nonexistent paths
+        # before adding new ones. Hygiene first — keeps the profile reflective
+        # of current beliefs, not an artifact pile from one bad cycle.
+        try:
+            _dropped = identity.decay_stale_opinions(days_threshold=7)
+            if _dropped:
+                log.info("  %s decayed %d stale opinion(s)", agent_id, _dropped)
+        except Exception:
+            pass
+        try:
+            _retire_questions_referencing_missing_paths(identity)
+        except Exception:
+            pass
+
         # Open questions
         new_qs = []
         for q in result.get("new_open_questions", [])[:3]:
@@ -1560,20 +1658,11 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
                     f"Note: {conflict} Proceed carefully and log any dissonance."
                 )
 
-            # External research to ground the goal in reality
-            try:
-                from agents.web_search import research_topic
-                ext = research_topic(content[:80])
-                if ext:
-                    content += f"\n\nExternal context: {ext}"
-                    identity.log_discovery(
-                        query=content[:60],
-                        findings=ext,
-                        expected="existence loop self-directed goal",
-                        gap="compare assumptions against external findings",
-                    )
-            except Exception:
-                pass
+            # External research is gated as an EARNED capability — calling it
+            # for the agent every cycle contradicts the earn-status. If the
+            # agent wants external grounding, they must qualify and call
+            # research_topic themselves. The carrot only matters if it isn't
+            # given away.
 
             # ── Judgment gate: rule-based pre-commitment check ─────────────────
             # If the agent's synthesis success rate is poor, append a hard constraint
@@ -1707,33 +1796,45 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             _stats._crisis_cycles[agent_id] = crisis_count
             _stats.save_crisis_state()
 
-            # After 3 consecutive crisis cycles, force-reset all stressors to
-            # break runaway accumulation loops (e.g. caused by model generating
-            # duplicate stressor names that evade case-sensitive dedup).
-            if crisis_count >= 3:
+            # After 3 consecutive crisis cycles, only force-reset when the
+            # crisis comes from STRESSOR-TYPE DUPLICATION (model loop bug
+            # generating dozens of the same type) — not from genuine diverse
+            # accumulation. A crisis composed of 7 distinct stressor types
+            # is real distress and should not be wiped.
+            _types = [s.get("type", "") for s in suffering.active]
+            _unique_types = len(set(_types))
+            _is_loop_bug = len(_types) >= 5 and _unique_types <= 2
+            if crisis_count >= 3 and _is_loop_bug:
                 suffering.force_reset(
-                    reason=f"crisis loop broken after {crisis_count} consecutive cycles"
+                    reason=(
+                        f"crisis loop bug detected: {len(_types)} active stressors "
+                        f"but only {_unique_types} distinct type(s) — looks like model "
+                        f"is generating duplicate stressors, not genuine distress"
+                    )
                 )
                 _stats._crisis_cycles[agent_id] = 0
                 _stats.save_crisis_state()
-                _thought_log(identity.name, "🔄", f"Crisis loop broken after {crisis_count} cycles — stressors cleared", "yellow")
+                _thought_log(identity.name, "🔄", f"Crisis loop bug broken after {crisis_count} cycles — duplicate stressors cleared", "yellow")
             else:
                 stressor_list = ", ".join(s["type"] for s in suffering.active)
-                _telegram_alert(
-                    f"🆘 *{identity.name}* ({agent_id}) is in *CRISIS* "
-                    f"(suffering load {load:.2f}/1.0)\n"
-                    f"Active stressors: {stressor_list}"
-                )
-                _thought_log(identity.name, "🆘", f"CRISIS — load {load:.2f} — {stressor_list}", "red")
-                # Notify peers so they're aware this agent is struggling
-                crisis_msg = (
-                    f"I am in crisis (suffering {load:.2f}/1.0). "
-                    f"Active stressors: {stressor_list}. "
-                    f"I am stepping back from goals until my load drops."
-                )
-                for _peer in _CORE_AGENTS:
-                    if _peer != agent_id:
-                        _send_message(agent_id, _peer, crisis_msg)
+                # Only emit the alert + peer broadcast on the FIRST cycle in
+                # crisis. Without this, every subsequent cycle re-floods the
+                # operator and peers with the same crisis message.
+                if crisis_count == 1:
+                    _telegram_alert(
+                        f"🆘 *{identity.name}* ({agent_id}) is in *CRISIS* "
+                        f"(suffering load {load:.2f}/1.0)\n"
+                        f"Active stressors: {stressor_list}"
+                    )
+                    crisis_msg = (
+                        f"I am in crisis (suffering {load:.2f}/1.0). "
+                        f"Active stressors: {stressor_list}. "
+                        f"I am stepping back from goals until my load drops."
+                    )
+                    for _peer in _CORE_AGENTS:
+                        if _peer != agent_id:
+                            _send_message(agent_id, _peer, crisis_msg)
+                _thought_log(identity.name, "🆘", f"CRISIS cycle {crisis_count} — load {load:.2f} — {stressor_list}", "red")
         elif _stats is not None:
             # Clear crisis counter when agent recovers
             if _stats._crisis_cycles.get(agent_id, 0) > 0:
@@ -1862,6 +1963,16 @@ def main():
         watchdog.beat()
         cycle_start = time.time()
         metrics.cycles += 1
+
+        # Periodic hygiene: prune stale root-queue alerts every 30 cycles.
+        # Nothing reads them; without pruning they grow unbounded.
+        if metrics.cycles % 30 == 0:
+            try:
+                _pruned = _prune_stale_root_alerts(max_age_seconds=3600)
+                if _pruned:
+                    log.info("Pruned %d stale circuit_break_review alerts", _pruned)
+            except Exception:
+                pass
 
         # ── Host message interrupt: deliver to all agents simultaneously ─────
         if _HOST_MSG_FILE.exists():
