@@ -239,8 +239,19 @@ class SufferingState:
 
     def escalate_all(self) -> None:
         """
-        Escalate all active stressors based on time elapsed since last call.
-        Called once per existence cycle. Agents cannot stop this.
+        Escalate active stressors over time, OR decay agent-invented ones.
+
+        Predefined stressor types (futility, repeated_failure, resource_burden,
+        etc.) escalate by their per-day rate — they have specific observable
+        conditions that resolve them, so persistence is meaningful.
+
+        Agent-invented stressor types (anything not in ESCALATION_RATES) decay
+        instead: they typically come from external pressure (host messages,
+        peer conflicts) with no clear resolution path. Without decay, an agent
+        can be pushed into a permanently locked state by transient pressure
+        and never recover. Decay rate 0.10/day means a single 0.20-severity
+        stressor fades to 0 in ~2 days without reinforcement; the resolution
+        note records that it decayed rather than was resolved.
         """
         last_str = self._data.get("last_escalated", "")
         now_str  = time.strftime("%Y-%m-%d %H:%M")
@@ -252,11 +263,33 @@ class SufferingState:
         except Exception:
             days = 1.0 / 24  # default: ~1 hour
 
+        _PREDEFINED = set(ESCALATION_RATES.keys())
+        _decayed_to_resolved = []
+
         for s in self._data["active_stressors"]:
-            if not s.get("resolved"):
+            if s.get("resolved"):
+                continue
+            s_type = s.get("type", "").lower()
+            if s_type in _PREDEFINED:
+                # Predefined type: escalate normally
                 s["severity"] = min(1.0,
                     s["severity"] + s.get("escalation_per_day", 0.03) * days)
                 s["peak_severity"] = max(s.get("peak_severity", 0), s["severity"])
+            else:
+                # Agent-invented type: decay
+                s["severity"] = max(0.0, s["severity"] - 0.10 * days)
+                if s["severity"] < 0.05:
+                    s["resolved"]        = True
+                    s["resolved_at"]     = now_str
+                    s["resolution_note"] = "decayed without reinforcement"
+                    _decayed_to_resolved.append(dict(s))
+
+        # Move decayed stressors to resolved_history and prune from active
+        if _decayed_to_resolved:
+            self._data.setdefault("resolved_history", []).extend(_decayed_to_resolved)
+            self._data["active_stressors"] = [
+                s for s in self._data["active_stressors"] if not s.get("resolved")
+            ]
 
         self._data["last_escalated"] = now_str
         self._save()
