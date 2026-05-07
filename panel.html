@@ -26,7 +26,6 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
-    height: 100%;
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
@@ -34,13 +33,13 @@
     font-size: 13px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    overflow: hidden;
     user-select: none;
     letter-spacing: -0.005em;
   }
+  body { overflow-y: auto; min-height: 100vh; }
 
   .app {
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     padding: 28px 32px;
@@ -49,22 +48,36 @@
     margin: 0 auto;
   }
 
-  /* ─────── Header ─────── */
+  /* ─────── Brand / header ─────── */
   header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
   }
-  .title-block h1 {
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
-  .title-block .subtitle {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    margin-top: 2px;
-    letter-spacing: 0.01em;
+  .brand-mark {
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--text);
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px rgba(139, 92, 246, 0); /* placeholder for the optional accent */
+  }
+  .brand-text {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+                 "Helvetica Neue", system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .brand-text .accent {
+    color: var(--accent);
+    margin-left: 2px;
   }
   .status {
     display: flex;
@@ -260,7 +273,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: 220px;
     gap: 8px;
   }
   .output-log {
@@ -276,6 +289,7 @@
     overflow-y: auto;
     white-space: pre-wrap;
     user-select: text;
+    min-height: 180px;
   }
   .output-log .entry { margin-bottom: 6px; }
   .output-log .entry .ts {
@@ -319,9 +333,9 @@
 <div class="app">
 
   <header>
-    <div class="title-block">
-      <h1>Hollow AgentOS</h1>
-      <div class="subtitle">Control Panel</div>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">HOLLOW<span class="accent">.</span></div>
     </div>
     <div id="status" class="status">
       <div class="dot"></div>
