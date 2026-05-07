@@ -695,7 +695,8 @@ def _daemon_uptime_str() -> str:
 
 
 def _workspace_stub_flag(_fp) -> str:
-    """Return a warning tag if a workspace file looks like an unverified stub."""
+    """Return a warning tag if a workspace file looks like an unverified stub.
+    Catches files written via shell_exec that bypass fs_write's placeholder check."""
     try:
         _txt = _fp.read_text(errors="replace")
         if _fp.suffix == ".json":
@@ -714,6 +715,21 @@ def _workspace_stub_flag(_fp) -> str:
                         "emit_pause_signal", "# Placeholder logic"]
             if any(m in _txt for m in _markers):
                 return "  [⚠ broken imports or placeholder logic]"
+        # Text/markdown files: flag stub-word placeholders ({result}, {output}, etc.)
+        # and unresolved option brackets ([option_a / option_b]). These are the
+        # patterns that slip through fs_write when shell_exec writes the file.
+        if _fp.suffix in (".txt", ".md", ""):
+            import re as _wpre
+            _STUB_WORDS = {"result", "output", "count", "data", "value", "content",
+                           "response", "json_content", "text", "placeholder",
+                           "todo", "tbd", "name_here", "fill_in", "xxx"}
+            _placeholders = _wpre.findall(r'\{([a-zA-Z_]\w{0,40})\}', _txt)
+            if _placeholders:
+                _has_stub = any(p.lower() in _STUB_WORDS for p in _placeholders)
+                if len(_placeholders) >= 2 or _has_stub:
+                    return "  [⚠ unfilled template placeholders]"
+            if _wpre.search(r'\[[\w\s\-]{2,40}\s*/\s*[\w\s\-]{2,40}\]', _txt):
+                return "  [⚠ unresolved option brackets — agent didn't decide]"
     except Exception:
         pass
     return ""
