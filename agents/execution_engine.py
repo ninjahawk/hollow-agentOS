@@ -116,6 +116,19 @@ class ExecutionEngine:
             impl = self._implementations[capability_id]
             timeout = self._timeouts[capability_id]
 
+        # Mechanical capability gating based on suffering load + earned status.
+        # Locks high-suffering agents out of capabilities they're abusing.
+        # Earned capabilities (research_topic) require productivity to unlock.
+        # Path-out capabilities (retire_capability, fs_read, ollama_chat,
+        # memory ops, etc.) are never locked.
+        try:
+            from agents.suffering import get_capability_status as _gcs
+            _allowed, _reason = _gcs(agent_id, capability_id)
+            if not _allowed:
+                return ({"ok": False, "error": _reason, "locked": True}, "locked_by_suffering")
+        except Exception:
+            pass  # never break execution due to gating errors
+
         # Execute
         context = ExecutionContext(
             execution_id=execution_id,

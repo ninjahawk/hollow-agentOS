@@ -1077,6 +1077,45 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         except Exception:
             pass
 
+        # ── Capability access tier (mechanical: tied to suffering load) ──────
+        # Show what's locked due to suffering and what's available as earned reward.
+        # Honest signal: agents see exactly what they have and what they need to do.
+        _access_section = ""
+        try:
+            from agents.suffering import LOAD_LOCK_THRESHOLDS, EARNED_CAPABILITIES
+            _load = suffering.cumulative_load
+            _locked_for_suffering = []
+            for _cap, _thresh in LOAD_LOCK_THRESHOLDS.items():
+                if _load >= _thresh:
+                    _locked_for_suffering.append(f"{_cap} (locked at load {_thresh:.2f}, you are {_load:.2f})")
+            _earned_status = []
+            try:
+                _peer_calls = len(identity._data.get("capability_profile", {}).get("tools_called_by_peers", []))
+            except Exception:
+                _peer_calls = 0
+            for _cap, _spec in EARNED_CAPABILITIES.items():
+                if _load <= _spec["max_load"] and _peer_calls >= _spec["required_peer_calls"]:
+                    _earned_status.append(f"{_cap} ✓ unlocked")
+                else:
+                    _need = []
+                    if _load > _spec["max_load"]:
+                        _need.append(f"load < {_spec['max_load']:.2f}")
+                    if _peer_calls < _spec["required_peer_calls"]:
+                        _need.append(f"{_spec['required_peer_calls']} peer-calls (you have {_peer_calls})")
+                    _earned_status.append(f"{_cap} 🔒 needs: {' AND '.join(_need)}")
+            if _locked_for_suffering or _earned_status:
+                _lines = ["\nCAPABILITY ACCESS (mechanical — tied to your state):"]
+                if _locked_for_suffering:
+                    _lines.append("  LOCKED by suffering: " + "; ".join(_locked_for_suffering))
+                    _lines.append("    → resolve your stressors (see 'Will ease when:' above) to unlock")
+                if _earned_status:
+                    _lines.append("  Earned tier:")
+                    for _es in _earned_status:
+                        _lines.append(f"    {_es}")
+                _access_section = "\n".join(_lines) + "\n"
+        except Exception:
+            pass
+
         # ── Workspace signal (pheromone layer — what's actually been produced) ─
         _workspace_signal = ""
         try:
@@ -1156,6 +1195,7 @@ YOUR INNER STATE:
 {_workspace_signal}
 {_health_section}
 {_broken_tools_section}
+{_access_section}
 YOUR PEERS' RECENT ACTIVITY:
 {peers_text}
 
@@ -1174,12 +1214,14 @@ a capability gap you have noticed, an experiment you want to run.
 The goal should be specific and achievable in 2-6 steps.
 It must be grounded in what actually exists in /agentOS/ — not invented paths or imagined tools.
 
-Capabilities available to you (these always work — an error means wrong parameters, not a broken tool):
+Capabilities (an error means wrong parameters OR a mechanical lock, see CAPABILITY ACCESS above):
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
   synthesize_capability  retire_capability  test_exec  semantic_search  self_evaluate  agent_message
   txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
+  research_topic (EARNED — unlocks at low suffering + peer using your tools)
   Note: .py files in /agentOS/tools/dynamic/ require synthesize_capability, not fs_write.
   retire_capability(name=...) deletes a tool YOU made — use it to clean up tools that don't work.
+  Mechanical truth: high suffering locks synthesize_capability and fs_write. Stressors have real consequences.
 
 Your response must be JSON:
 {{

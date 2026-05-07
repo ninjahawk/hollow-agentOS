@@ -62,6 +62,7 @@ _BUILTIN_CAPS = frozenset({
     "synthesize_capability", "list_proposals", "vote_on_proposal",
     "invoke_claude", "check_claude_status", "self_evaluate",
     "broken_tools_list", "git_clone", "wrap_repo", "retire_capability",
+    "research_topic",
 })
 
 

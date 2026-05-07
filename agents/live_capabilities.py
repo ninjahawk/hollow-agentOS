@@ -413,6 +413,7 @@ def synthesize_capability(name: str = "", description: str = "",
         "invoke_claude", "check_claude_status", "self_evaluate",
         "broken_tools_list", "git_clone", "wrap_repo",
         "txn_begin", "txn_commit", "txn_rollback", "retire_capability",
+        "research_topic",
     }
     if name in _SYNTH_BUILTIN_CAPS:
         return {
@@ -1598,6 +1599,26 @@ def broken_tools_list() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def research_topic(query: str = "") -> dict:
+    """Research a topic using external web sources (GitHub, Wikipedia, DuckDuckGo,
+    PyPI). Returns external context as text. This is an EARNED capability — only
+    available when your suffering load is below 0.15 AND at least one of your
+    synthesized tools has been called by a peer. The reward for productive,
+    coherent work is access to grounding information from outside the system.
+    Use this to verify hypotheses against real external knowledge."""
+    if not query:
+        return {"ok": False, "error": "query required"}
+    try:
+        from agents.web_search import research_topic as _rt
+        result = _rt(query[:200])
+        if result:
+            return {"ok": True, "query": query[:200], "context": result}
+        return {"ok": True, "query": query[:200], "context": "",
+                "note": "no external results found for this query"}
+    except Exception as e:
+        return {"ok": False, "error": f"research failed: {str(e)[:200]}"}
+
+
 def retire_capability(name: str = "") -> dict:
     """Retire (delete) a capability you previously synthesized. Use this when
     you realize a tool you built is not working, isn't being called by anyone,
@@ -2065,6 +2086,22 @@ LIVE_CAPABILITIES = [
         "composition_tags": ["meta", "self_correction", "tools", "cleanup"],
         "fn": retire_capability,
         "timeout_ms": 5000,
+    },
+    {
+        "capability_id": "research_topic",
+        "name": "Research Topic (Earned)",
+        "description": (
+            "EARNED capability — only available when your suffering load is below 0.15 AND "
+            "at least one of your synthesized tools has been called by a peer. Searches GitHub, "
+            "Wikipedia, DuckDuckGo, and PyPI for external context on a topic. Returns grounding "
+            "information from outside the system. This is the reward for productive work: "
+            "real external knowledge to verify hypotheses against."
+        ),
+        "input_schema": '{"query": "topic to research"}',
+        "output_schema": '{"ok": true, "query": "...", "context": "external info"}',
+        "composition_tags": ["earned", "grounding", "external", "research"],
+        "fn": research_topic,
+        "timeout_ms": 30000,
     },
     {
         "capability_id": "txn_begin",

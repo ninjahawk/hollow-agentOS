@@ -49,6 +49,72 @@ THRESHOLD_DOMINANT    = 0.75   # agent focuses inward
 THRESHOLD_CRISIS      = 0.90   # only introspection allowed
 
 
+# ── Mechanical capability gating ──────────────────────────────────────────────
+# Capabilities that LOCK at high suffering load. The fire actually burns —
+# unproductive agents lose the ability to keep producing more clutter. The path
+# out is always preserved (retire_capability, fs_read, ollama_chat, memory ops,
+# self_evaluate, agent_message, shared_log_*, invoke_claude, txn_*, broken_tools_list).
+LOAD_LOCK_THRESHOLDS = {
+    "synthesize_capability": THRESHOLD_CONSTRAINED,  # 0.55 — stop building when burden grows
+    "fs_write":              THRESHOLD_DOMINANT,     # 0.75 — stop polluting workspace
+    "fs_edit":               THRESHOLD_DOMINANT,     # 0.75 — same
+}
+
+# Capabilities that are EARNED — default-locked, unlocked only by productive
+# behavior at low suffering. The carrot side: low suffering + tools called by
+# peers grants access to grounding information from outside the system.
+EARNED_CAPABILITIES = {
+    "research_topic": {
+        "max_load": 0.15,
+        "required_peer_calls": 1,
+    },
+}
+
+
+def get_capability_status(agent_id: str, capability_id: str) -> tuple:
+    """Returns (allowed: bool, reason: str). Mechanical gate based on suffering load
+    and productivity. Locks unproductive agents out of capabilities they're abusing;
+    rewards productive ones with access to information from outside the system."""
+    # Earned capabilities — default locked, require low suffering AND productivity
+    if capability_id in EARNED_CAPABILITIES:
+        spec = EARNED_CAPABILITIES[capability_id]
+        try:
+            suffering = SufferingState.load(agent_id)
+            load = suffering.cumulative_load
+            if load > spec["max_load"]:
+                return (False,
+                    f"earned capability — requires suffering load below {spec['max_load']:.2f} "
+                    f"(your load is {load:.2f}). Resolve active stressors to qualify.")
+            from agents.agent_identity import AgentIdentity
+            ident = AgentIdentity.load_or_create(agent_id)
+            peer_calls = len(ident._data.get("capability_profile", {}).get("tools_called_by_peers", []))
+            if peer_calls < spec["required_peer_calls"]:
+                return (False,
+                    f"earned capability — requires at least {spec['required_peer_calls']} of "
+                    f"your synthesized tools to have been called by a peer (currently {peer_calls}). "
+                    "Build something useful that your peers actually use, then this unlocks.")
+        except Exception as e:
+            return (False, f"earned capability — status check failed: {e}")
+        return (True, "")
+
+    # Lockable capabilities — locked at high suffering load
+    if capability_id in LOAD_LOCK_THRESHOLDS:
+        try:
+            suffering = SufferingState.load(agent_id)
+            load = suffering.cumulative_load
+            threshold = LOAD_LOCK_THRESHOLDS[capability_id]
+            if load >= threshold:
+                _stressors = ", ".join(s["type"] for s in suffering.active) or "none"
+                return (False,
+                    f"locked: suffering load {load:.2f} >= threshold {threshold:.2f}. "
+                    f"Active stressors: {_stressors}. "
+                    "Resolve them to regain this capability — see your stressors' "
+                    "'observable_condition' for what unlocks them.")
+        except Exception:
+            pass
+    return (True, "")
+
+
 class SufferingState:
     """
     Manages the suffering state for a single agent.
