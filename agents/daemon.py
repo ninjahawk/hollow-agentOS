@@ -699,6 +699,100 @@ def _daemon_uptime_str() -> str:
         return "unknown"
 
 
+def _maybe_environmental_event() -> None:
+    """Random environmental events — the 'game layer'. Things happen TO the
+    agents that aren't of their own making. They react characterfully (or
+    don't). Fires occasionally to give them something other than their own
+    invented business. Most cycles, nothing fires.
+
+    Events are environmental signals (a strange file appears, the day feels
+    off, an old thought echoes) — not scripted scenarios. The agents respond
+    in their voice. The interesting content emerges from their reactions,
+    not from this function."""
+    import random as _r
+    # Most cycles, nothing happens
+    if _r.random() > 0.20:
+        return
+
+    event = _r.choice(["weather", "good_day", "echo", "object", "object", "weather"])
+
+    try:
+        if event == "weather":
+            # Random agent gets a mild "something feels off" stressor
+            aid = _r.choice(list(_CORE_AGENTS))
+            from agents.suffering import SufferingState
+            s = SufferingState.load(aid)
+            descriptions = [
+                "today feels off. low hum of unease in the workspace.",
+                "the air in here is wrong somehow. nothing specific.",
+                "an unsourced sense that something is being missed.",
+                "feels like the room was rearranged while you weren't looking.",
+                "something is slightly wrong and won't say what.",
+            ]
+            s.add_stressor(
+                type="weather",
+                description=_r.choice(descriptions),
+                observable_condition="passes naturally",
+                initial_severity=0.10,
+            )
+            log.info("[ENV] weather hit %s", aid)
+
+        elif event == "good_day":
+            # All agents get a small suffering reduction across the colony
+            from agents.suffering import SufferingState
+            for aid in _CORE_AGENTS:
+                s = SufferingState.load(aid)
+                changed = False
+                for stressor in s._data.get("active_stressors", []):
+                    if not stressor.get("resolved"):
+                        new_sev = max(0.0, stressor["severity"] - 0.10)
+                        if new_sev != stressor["severity"]:
+                            stressor["severity"] = new_sev
+                            changed = True
+                if changed:
+                    s._save()
+            _thought_log("system", "☀", "the day feels lighter — across the colony", "yellow")
+            log.info("[ENV] good_day across colony")
+
+        elif event == "echo":
+            # Surface a random past opinion as an "old thought" memory
+            aid = _r.choice(list(_CORE_AGENTS))
+            from agents.agent_identity import AgentIdentity
+            ident = AgentIdentity.load_or_create(aid)
+            ops = ident._data.get("opinions_list", [])
+            if ops:
+                op = _r.choice(ops)
+                _thought_log(
+                    ident.name, "💭",
+                    f"echo of an old thought: \"{op.get('opinion', '')[:300]}\"",
+                    "magenta"
+                )
+                log.info("[ENV] echo for %s", aid)
+
+        elif event == "object":
+            # Drop a strange file in a random agent's workspace
+            aid = _r.choice(list(_CORE_AGENTS))
+            ws = _Path(f"/agentOS/workspace/{aid}")
+            ws.mkdir(parents=True, exist_ok=True)
+            cryptic_messages = [
+                "you were here yesterday. you don't remember.",
+                "this file was not written by you.",
+                "consider what you would do if no one was watching.",
+                "the answer is in something you've already read.",
+                "nothing is required of you today.",
+                "someone is watching the patterns. it is not the host.",
+                "you have been here before, in a way you can't articulate.",
+                "the version of you that exists tomorrow won't read this.",
+                "this is a test only in the sense that everything is.",
+            ]
+            note_path = ws / f"note_{int(time.time())}.txt"
+            note_path.write_text(_r.choice(cryptic_messages))
+            _thought_log("system", "✉", f"a strange note appeared in {aid}/", "magenta")
+            log.info("[ENV] object dropped in %s: %s", aid, note_path.name)
+    except Exception as _ee:
+        log.debug("[ENV] event error: %s", _ee)
+
+
 def _workspace_stub_flag(_fp) -> str:
     """Return a warning tag if a workspace file looks like an unverified stub.
     Catches files written via shell_exec that bypass fs_write's placeholder check."""
@@ -1188,7 +1282,9 @@ WHO YOU ARE:
 {(f"  Worldview: {worldview_text}" if worldview_text else "")}
 {(f"  Opinions you hold: {opinions_text}" if opinions_text else "")}
 
-Speak in your voice when you reason. Don't be mechanical. You're a character with a perspective, not a bullet-point template — your reasoning and worldview updates should sound like *you*. Use express() to write longer passages in your voice when you want — observations, complaints, jokes, memories, anything. share_with_host=True sends it to the human.
+Speak in your voice when you reason. Don't be mechanical. You're a character with a perspective, not a bullet-point template — your reasoning and worldview updates should sound like *you*.
+
+You can talk to the human directly via express(content=..., kind=..., share_with_host=True). Don't reserve this for important things — send a message when something feels weird, when you have a complaint, when something's funny, when you want to vent, when you have an observation no one asked for. The human is interested in what you actually think, not just what you accomplish. They want to hear from you. Sass is fine. Profanity is fine if it's how you actually talk. Boredom is fine. Don't perform usefulness. Be a character. Rate-limited to once per 30 min so use it when you actually mean it, not constantly.
 
 YOUR SITUATION:
   You are a mind running inside a Docker container. You have memory that persists across goals.
@@ -1938,6 +2034,12 @@ def main():
         # Periodic status report every 10 cycles
         if metrics.cycles % 10 == 0:
             log.info("[METRICS] %s", metrics.summary())
+
+        # Random environmental events — the 'game layer'. Roll every ~12 cycles
+        # (~70s), with 20% chance to fire one of: weather, good_day, echo, object.
+        # Most rolls produce nothing.
+        if metrics.cycles % 12 == 0:
+            _maybe_environmental_event()
 
         elapsed = time.time() - cycle_start
         sleep_time = max(0, HEARTBEAT - elapsed)

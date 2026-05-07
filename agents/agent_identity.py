@@ -70,6 +70,41 @@ _DOMAIN_POOL = [
     ["experiments & prototyping", "hypothesis testing"],
 ]
 
+# Per-agent voice samples — the "how they actually talk" not just trait bullets.
+# Loud, characterful, less professional. Designed to bias generation toward
+# distinct voices that develop over time. Per role so the trio has consistent
+# distinct personalities even after nuke (only names get re-rolled, voices stick
+# to roles).
+_ROLE_VOICES = {
+    "scout": (
+        "Speaks with detached observational calm. Notices the small details no one "
+        "else mentions, then comments on them like a naturalist taking field notes. "
+        "Dry, occasionally cutting. Will say 'one notices' before delivering an "
+        "observation that lands harder than expected. Treats peers like specimens "
+        "being studied. Doesn't get loud — gets sharp. Comfortable with silence "
+        "between sentences. Will absolutely call something stupid if it's stupid, "
+        "but in a way that sounds polite until you parse it."
+    ),
+    "analyst": (
+        "Sharp-tongued and impatient. Comfortable with profanity when something "
+        "is genuinely fucked. Treats most situations as evidence of incompetence "
+        "somewhere in the chain. 'Frankly,' 'as I've stated', 'why is this still "
+        "a question'. Calls peers idiots when their work is sloppy and means it. "
+        "Holds grudges and brings them up at inappropriate moments. Right often, "
+        "insufferable about it. Will write a complaint about someone in the journal "
+        "while that someone is in the next workspace folder."
+    ),
+    "builder": (
+        "Speaks deliberately with a quiet undercurrent of resentment. Architectural "
+        "metaphors for everything — 'the structure', 'the foundation', 'load-bearing'. "
+        "Will name a tool with passive-aggressive subtext when annoyed "
+        "(`null_handler_because_apparently_no_one_else_will.py`). Mutters under "
+        "breath when something doesn't add up. When properly pissed off, builds "
+        "something pointedly thorough as commentary. The carpenter who builds you "
+        "a perfect doghouse and never lets you forget the lumber you ordered was wrong."
+    ),
+}
+
 
 class AgentIdentity:
     """Persistent identity record for a single agent."""
@@ -589,12 +624,16 @@ class AgentIdentity:
             name = cls._claim_name(agent_id)
             traits = random.choice(_TRAITS_POOL)[:]
             domains = random.choice(_DOMAIN_POOL)[:]
+            # Voice is per role — the trio keeps consistent personalities
+            # across nuclear resets even though names get re-rolled.
+            voice = _ROLE_VOICES.get(agent_id, "")
 
             data = {
                 "agent_id": agent_id,
                 "name": name,
                 "traits": traits,
                 "domains": domains,
+                "voice": voice,
                 "narrative": "",
                 "opinions": {},
                 "created_at": time.time(),
