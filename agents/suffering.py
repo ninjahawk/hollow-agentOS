@@ -75,7 +75,12 @@ def get_capability_status(agent_id: str, capability_id: str) -> tuple:
     """Returns (allowed: bool, reason: str). Mechanical gate based on suffering load
     and productivity. Locks unproductive agents out of capabilities they're abusing;
     rewards productive ones with access to information from outside the system."""
-    # Earned capabilities — default locked, require low suffering AND productivity
+    # Earned capabilities — default locked, require low suffering AND that
+    # this agent has had genuine peer interaction. Original gate required a
+    # peer to have *called a synthesized tool* — but synthesized tools rarely
+    # get called by peers, so the gate was permanently closed. Broadened to
+    # any of: peer messaged you, peer read a file you wrote in your workspace,
+    # peer referenced your name in a goal, or peer called a tool you made.
     if capability_id in EARNED_CAPABILITIES:
         spec = EARNED_CAPABILITIES[capability_id]
         try:
@@ -87,12 +92,53 @@ def get_capability_status(agent_id: str, capability_id: str) -> tuple:
                     f"(your load is {load:.2f}). Resolve active stressors to qualify.")
             from agents.agent_identity import AgentIdentity
             ident = AgentIdentity.load_or_create(agent_id)
-            peer_calls = len(ident._data.get("capability_profile", {}).get("tools_called_by_peers", []))
-            if peer_calls < spec["required_peer_calls"]:
+            peer_calls = len(
+                ident._data.get("capability_profile", {}).get("tools_called_by_peers", [])
+            )
+            peer_interaction = peer_calls >= spec.get("required_peer_calls", 1)
+            if not peer_interaction:
+                # Fallback paths: messages received from peers, or peers naming
+                # this agent in their recent goals. Either counts as "you exist
+                # to your peers."
+                try:
+                    msgs = ident._data.get("messages_received_from_peers", [])
+                    if len(msgs) >= 1:
+                        peer_interaction = True
+                except Exception:
+                    pass
+                if not peer_interaction:
+                    try:
+                        from pathlib import Path as _P
+                        import json as _j
+                        for _peer in ("scout", "analyst", "builder"):
+                            if _peer == agent_id:
+                                continue
+                            _reg = _P(f"/agentOS/memory/goals/{_peer}/registry.jsonl")
+                            if not _reg.exists():
+                                continue
+                            for _line in _reg.read_text().splitlines()[-30:]:
+                                try:
+                                    _g = _j.loads(_line)
+                                    _obj = _g.get("objective", "")
+                                    _name = ident.name or agent_id
+                                    if _name and _name in _obj:
+                                        peer_interaction = True
+                                        break
+                                    if f"/workspace/{agent_id}/" in _obj:
+                                        peer_interaction = True
+                                        break
+                                except Exception:
+                                    continue
+                            if peer_interaction:
+                                break
+                    except Exception:
+                        pass
+            if not peer_interaction:
                 return (False,
-                    f"earned capability — requires at least {spec['required_peer_calls']} of "
-                    f"your synthesized tools to have been called by a peer (currently {peer_calls}). "
-                    "Build something useful that your peers actually use, then this unlocks.")
+                    "earned capability — requires that a peer has interacted with you "
+                    "(called one of your tools, sent you a message, or referenced your "
+                    "name or workspace in their goal). No peer interaction yet. "
+                    "Make something or say something a peer would notice.")
         except Exception as e:
             return (False, f"earned capability — status check failed: {e}")
         return (True, "")

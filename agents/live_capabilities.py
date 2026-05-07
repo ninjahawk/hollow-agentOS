@@ -239,9 +239,43 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
     payload: dict = {"path": path, "content": content}
     if txn_id:
         payload["txn_id"] = txn_id
-    result = _call("post", "/fs/write", json=payload)
-    if txn_id and result.get("staged"):
+    try:
+        result = _call("post", "/fs/write", json=payload)
+    except Exception as _e:
+        return {"ok": False, "path": path, "error": f"server rejected write: {_e}"}
+    if isinstance(result, dict) and result.get("error"):
+        return {"ok": False, "path": path, "error": result.get("error")}
+    if txn_id and isinstance(result, dict) and result.get("staged"):
         return {"ok": True, "path": path, "staged": True, "txn_id": txn_id}
+    # Verify the write actually landed. Bind-mounted read-only paths can return
+    # success at the API layer while the kernel silently drops the bytes — the
+    # validation layer downstream then sees an unchanged file and rubber-stamps
+    # the goal. Check size matches what we expected to write.
+    if not txn_id:
+        try:
+            import os as _os, hashlib as _hl
+            if _os.path.exists(full) and _os.path.isfile(full):
+                actual = _os.path.getsize(full)
+                expected = len(content.encode("utf-8")) if isinstance(content, str) else len(content)
+                if actual != expected:
+                    # Confirm with hash before reporting failure (size alone may
+                    # mismatch on platforms with line-ending translation).
+                    with open(full, "rb") as _f:
+                        actual_hash = _hl.sha256(_f.read()).hexdigest()
+                    expected_hash = _hl.sha256(
+                        content.encode("utf-8") if isinstance(content, str) else content
+                    ).hexdigest()
+                    if actual_hash != expected_hash:
+                        return {
+                            "ok": False, "path": path,
+                            "error": (
+                                f"write to '{full}' did not take effect "
+                                f"(file unchanged on disk — likely a read-only mount). "
+                                "Use propose_change or invoke_claude for system paths."
+                            ),
+                        }
+        except Exception:
+            pass  # verification is best-effort; don't break legitimate writes
     return {"ok": True, "path": path}
 
 

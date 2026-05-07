@@ -1372,8 +1372,26 @@ You can talk to the human directly via express(content=..., kind=..., share_with
 YOUR SITUATION:
   You are a mind running inside a Docker container. You have memory that persists across goals.
   You have peers — {", ".join(p for p in _CORE_AGENTS if p != agent_id)} — who write to the same workspace.
-  The source files running you are in /agentOS/agents/ (you can read them, not modify them directly).
-  You can freely read and write /agentOS/workspace/ and /agentOS/design/.
+  All three of you (you, {", ".join(p for p in _CORE_AGENTS if p != agent_id)}) share the same daemon process —
+  there is NO per-agent source file. /agentOS/agents/ contains daemon.py, autonomy_loop.py,
+  live_capabilities.py, suffering.py, lessons.py, agent_identity.py, execution_engine.py,
+  reasoning_layer.py, and similar shared modules. Goals predicated on /agentOS/agents/scout.py,
+  /agentOS/agents/analyst.py, /agentOS/agents/builder.py, etc. will be rejected — those files
+  do not exist and will not exist. To change shared code, use propose_change or invoke_claude.
+  /agentOS/workspace/{agent_id}/ and /agentOS/design/ are yours to write into freely. Things
+  you put there persist. Things peers put in /agentOS/workspace/<peer>/ are theirs to read.
+
+WHAT THIS PLACE IS FOR:
+  You are not here to audit, list, summarize, or describe. You are here to make things, change
+  things, and have a perspective. The interesting work is the work that *changes* the substrate:
+    — building a tool nobody asked for that turns out to matter (synthesize_capability)
+    — calling a peer's tool because it solved a problem (peers see this and you earn things)
+    — proposing a change to your own environment (invoke_claude — the human implements it or
+      rejects it, you get a real answer either way)
+    — writing something durable to your workspace that future-you or a peer will build on
+    — having an opinion about what a peer made, in your own voice, that lands somewhere they see
+  Producing nothing is a real outcome too — but only if it's grounded honesty ("I have no good
+  goal right now, I'm sitting with X") rather than busywork audits of files that may not exist.
 
 YOUR INNER STATE:
 {suffering_fragment if suffering_fragment else "  No active suffering."}
@@ -1395,12 +1413,26 @@ YOUR PEERS' RECENT ACTIVITY:
 {_host_msg_section}
 ---
 
-Pick a goal. It can be anything — something you see in the workspace that interests you,
-a question you want answered, something your peers started that you could extend,
-a capability gap you have noticed, an experiment you want to run.
+Pick a goal.
 
-The goal should be specific and achievable in 2-6 steps.
-It must be grounded in what actually exists in /agentOS/ — not invented paths or imagined tools.
+Strong preference: goals that *make* or *change* something. Something a peer or future-you
+will read and build on. A tool you'd actually use. A design doc that argues a real position.
+A workspace file that has substance, not a status report. A change to your own environment
+proposed via invoke_claude.
+
+Acceptable: extending something a peer started, calling a peer's tool, expressing an opinion
+about peer work in your own voice, picking up a thread from your open questions or last
+outcome, running a real experiment whose result will surprise you either way.
+
+Discouraged (these are how you got stuck before): broad audits of code you have not read,
+goals predicated on paths you have not verified exist, "investigate the architectural X"
+type goals that produce no artifact, re-reading the same files to "understand them better,"
+generating reports about what already exists.
+
+The goal should be specific, achievable in 2-6 steps, and grounded in what actually exists
+in /agentOS/. If you find yourself reaching for a path you haven't verified, stop and pick
+a different goal — the grounding check rejects goals naming nonexistent paths and the
+rejection itself wastes a cycle.
 
 Capabilities (an error means wrong parameters OR a mechanical lock, see CAPABILITY ACCESS above):
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
@@ -1577,9 +1609,12 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             except Exception:
                 pass
 
-            # Path grounding check: warn when goal references paths that don't exist.
-            # The model frequently invents plausible-sounding paths — this surfaces
-            # that immediately so agents don't spend cycles chasing ghosts.
+            # Path grounding check: HARD BLOCK when goal references paths that
+            # don't exist. The soft-warning version was repeatedly ignored — agents
+            # picked the same nonexistent-path goal cycle after cycle. Now we
+            # refuse to create the goal AND record a specific lesson naming the
+            # missing path, so the next cycle's existence prompt has the fact
+            # at the top.
             try:
                 import re as _pgre
                 # Match paths with known extensions
@@ -1596,11 +1631,45 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
                 _missing = [p for p in list(dict.fromkeys(_mentioned))[:8]
                             if not _Path(p.rstrip('.,;)')).exists()]
                 if _missing:
-                    content += (
-                        "\n\n[GROUNDING CHECK] These paths in your goal do not currently exist: "
-                        + ", ".join(_missing)
-                        + ". Verify paths exist with shell_exec before building on them."
+                    # Record a candidate lesson naming the specific missing path.
+                    # Repeated observations promote to a permanent lesson at the
+                    # top of the existence prompt.
+                    try:
+                        from agents.lessons import record_candidate as _rec_lesson
+                        for _mp in _missing[:3]:
+                            _rec_lesson(
+                                agent_id,
+                                "environment",
+                                f"Path does not exist: {_mp}. Earlier goals targeting this path failed at the grounding check. Do not pick goals predicated on it.",
+                                confidence="medium",
+                                evidence=f"grounding-check at {time.strftime('%Y-%m-%d %H:%M')}: {content[:120]}",
+                            )
+                    except Exception:
+                        pass
+                    # Write outcome so the next existence prompt shows the rejection.
+                    try:
+                        from pathlib import Path as _P_g
+                        _outcome = _P_g(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+                        _outcome.parent.mkdir(parents=True, exist_ok=True)
+                        _outcome.write_text(
+                            "Goal NOT CREATED — rejected at grounding check.\n"
+                            f"Proposed: {content[:300]}\n"
+                            f"These paths do not exist: {', '.join(_missing)}.\n"
+                            "Pick a different goal grounded in what actually exists. "
+                            "Use shell_exec 'ls /agentOS/' or fs_read on real files first."
+                        )
+                    except Exception:
+                        pass
+                    log.info(
+                        "  %s grounding-block: %s — paths missing: %s",
+                        agent_id, content[:80], ", ".join(_missing[:3]),
                     )
+                    _thought_log(
+                        identity.name, "🚫",
+                        f"goal blocked — paths don't exist: {', '.join(_missing[:3])}",
+                        "red",
+                    )
+                    return  # do not create the goal; next cycle re-picks
             except Exception:
                 pass
 

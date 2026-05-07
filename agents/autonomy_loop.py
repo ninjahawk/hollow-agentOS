@@ -1353,18 +1353,39 @@ class AutonomyLoop:
 
     def _delete_goal_fs_writes(self, agent_id: str, goal_id: str) -> list:
         """
-        Delete every file that was successfully fs_write'd during this goal's
-        execution. Called when the goal is permanently abandoned because no
-        verifiable artifact could be produced. Broken work must not persist
-        into future cycles — if it does, agents will treat invented prior work
-        as real and compound the failure.
+        Delete files that THIS goal newly created — not files this goal merely
+        modified that were created earlier. An abandoned goal that overwrote a
+        prior successful artifact must not wipe the original work.
+
+        A path is considered newly created by this goal iff there is no
+        successful fs_write to that path in any earlier goal in the agent's
+        execution chain. If an earlier goal touched the path, we leave it
+        alone (the prior version may have been valuable).
 
         Returns the list of paths that were deleted.
         """
         try:
-            chain = self.get_execution_chain(agent_id, limit=200)
+            chain = self.get_execution_chain(agent_id, limit=500)
         except Exception:
             return []
+
+        # Build set of paths written by ANY earlier goal (different goal_id).
+        # These are off-limits even if this goal also wrote them — we don't
+        # know if this goal's write was the one that made the file broken,
+        # and we do not want to lose the prior version.
+        prior_written = set()
+        for step in chain:
+            if step.goal_id == goal_id:
+                continue
+            if step.capability_id != "fs_write":
+                continue
+            r = step.execution_result or {}
+            if not r.get("ok"):
+                continue
+            p = r.get("path", "")
+            if p:
+                prior_written.add(p)
+
         deleted = []
         seen = set()
         for step in chain:
@@ -1379,6 +1400,9 @@ class AutonomyLoop:
             if not path or path in seen:
                 continue
             seen.add(path)
+            if path in prior_written:
+                # An earlier goal already produced this file — leave it.
+                continue
             # Only delete things in workspaces the agent owns. Never touch
             # /agentOS/agents/, /agentOS/api/, etc. — those are read-only anyway,
             # and we do NOT want to accidentally remove system files even if some
@@ -1715,6 +1739,11 @@ class AutonomyLoop:
         _target_path = _goal_targets_file(_objective)
         if _target_path:
             # Was the target file successfully written during this goal?
+            # Match strictly when the goal explicitly names a directory in the path
+            # (e.g. /agentOS/agents/scheduler.py): require exact or full-suffix match.
+            # Only allow basename-match when the goal mentions a bare filename
+            # (e.g. "scheduler.py" with no directory).
+            _target_has_dir = "/" in _target_path
             _hit = False
             for _s in steps:
                 if _s.capability_id != "fs_write":
@@ -1723,18 +1752,27 @@ class AutonomyLoop:
                 if not _r.get("ok"):
                     continue
                 _written = _r.get("path", "")
-                if _written and (
-                    _written == _target_path
-                    or _written.endswith("/" + _target_path)
-                    or _target_path.endswith(_written)
-                    or _target_path.split("/")[-1] == _written.split("/")[-1]
-                ):
-                    _hit = True
-                    break
+                if not _written:
+                    continue
+                if _target_has_dir:
+                    # Strict: exact match or full-suffix match on a path boundary.
+                    if (_written == _target_path
+                        or _written.endswith("/" + _target_path.lstrip("/"))
+                        or _target_path == _written
+                        or _target_path.endswith("/" + _written.lstrip("/"))):
+                        _hit = True
+                        break
+                else:
+                    # Bare filename: basename match is acceptable.
+                    if _target_path.split("/")[-1] == _written.split("/")[-1]:
+                        _hit = True
+                        break
             if not _hit:
                 checks.append(
                     f"goal targets '{_target_path}' but no fs_write to that path "
-                    f"succeeded in this goal — modify-intent unsatisfied"
+                    f"succeeded in this goal — modify-intent unsatisfied. "
+                    f"(writing a same-named file in workspace/ does not satisfy a "
+                    f"goal that names a system path)"
                 )
                 # Goal-intent unsatisfied: fail validation outright. Don't fall through
                 # to weaker checks (a successful unrelated shell_exec must not validate

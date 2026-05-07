@@ -216,13 +216,14 @@ def record_candidate(agent_id: str, category: str, text: str,
                 bucket.pop(idx)
                 _write_json(candidates_json_path(agent_id), candidates)
             else:
-                # High-confidence single-shot CAN bypass the 2-occurrence rule,
-                # but only for the constraint and environment categories where
-                # the model is reasoning about mechanical facts that don't need
-                # empirical repetition. Patterns category always requires >=2
-                # observations.
-                can_bypass = (entry.get("confidence") == "high"
-                              and category in ("environment", "constraints"))
+                # High-confidence single-shot CAN bypass the 2-occurrence rule
+                # for any category — including patterns. Originally patterns
+                # required repetition, but in practice goals fail in different
+                # ways each cycle so the same pattern rarely accumulates twice.
+                # The result was an empty patterns category indefinitely.
+                # If the model is confident enough to mark a pattern "high",
+                # let it land.
+                can_bypass = entry.get("confidence") == "high"
                 if ev_count >= PROMOTION_THRESHOLD or can_bypass:
                     promoted = _promote_candidate(agent_id, category, entry)
                     if promoted:
