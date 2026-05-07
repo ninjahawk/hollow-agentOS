@@ -96,6 +96,11 @@ class AgentIdentity:
         return self._data.get("domains", [])
 
     @property
+    def voice(self) -> str:
+        """Voice/style sample — biases speech patterns. Distinct per agent."""
+        return self._data.get("voice", "")
+
+    @property
     def narrative(self) -> str:
         return self._data.get("narrative", "")
 

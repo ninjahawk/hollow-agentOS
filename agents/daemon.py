@@ -39,7 +39,7 @@ API_BASE = os.getenv("AGENTOS_API_BASE", "http://localhost:7777")
 HEARTBEAT = int(os.getenv("AGENTOS_DAEMON_HEARTBEAT", "6"))   # seconds between cycles
 MAX_STEPS_PER_AGENT = int(os.getenv("AGENTOS_DAEMON_MAX_STEPS", "6"))
 MAX_ACTIVE_AGENTS  = int(os.getenv("AGENTOS_DAEMON_MAX_AGENTS", "20"))  # cap concurrent agents
-PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "3"))         # one per core agent — 12 was overkill, only 3 agents run concurrently
+PARALLEL_WORKERS   = int(os.getenv("AGENTOS_DAEMON_WORKERS", "6"))         # 2x core agents for headroom — bump higher via env var if your GPU can handle it
 
 logging.basicConfig(
     level=logging.INFO,
@@ -551,7 +551,7 @@ def _thought_log(agent_name: str, icon: str, text: str, color: str = 'white') ->
         line = (
             f"{_C['gray']}{ts}{_C['rs']}  "
             f"{_C['magenta']}{name:<15}{_C['rs']}  "
-            f"{_C[color]}{icon}  {text[:200]}{_C['rs']}"
+            f"{_C[color]}{icon}  {text[:800]}{_C['rs']}"
         )
         _THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(_THOUGHTS_LOG, "a") as _f:
@@ -1178,9 +1178,12 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
 WHO YOU ARE:
   Personality: {", ".join(identity.traits) if identity.traits else "adaptable"}
   Focus: {", ".join(identity.domains) if identity.domains else "general"}
+{(f"  Voice: {identity.voice}" if identity.voice else "")}
 {(f"  History: {narrative_text}" if narrative_text else "")}
 {(f"  Worldview: {worldview_text}" if worldview_text else "")}
 {(f"  Opinions you hold: {opinions_text}" if opinions_text else "")}
+
+Speak in your voice when you reason. Don't be mechanical. You're a character with a perspective, not a bullet-point template — your reasoning and worldview updates should sound like *you*. Use express() to write longer passages in your voice when you want — observations, complaints, jokes, memories, anything. share_with_host=True sends it to the human.
 
 YOUR SITUATION:
   You are a mind running inside a Docker container. You have memory that persists across goals.
@@ -1217,10 +1220,13 @@ It must be grounded in what actually exists in /agentOS/ — not invented paths 
 Capabilities (an error means wrong parameters OR a mechanical lock, see CAPABILITY ACCESS above):
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
   synthesize_capability  retire_capability  test_exec  semantic_search  self_evaluate  agent_message
-  txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
+  express  txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
   research_topic (EARNED — unlocks at low suffering + peer using your tools)
   Note: .py files in /agentOS/tools/dynamic/ require synthesize_capability, not fs_write.
   retire_capability(name=...) deletes a tool YOU made — use it to clean up tools that don't work.
+  express(content=..., kind=..., share_with_host=False) writes free-form text in your voice
+    to your journal.md. Set share_with_host=True (rate-limited 30min) to send to the human
+    via Telegram. Use for random thoughts, observations, complaints, jokes — not status updates.
   Mechanical truth: high suffering locks synthesize_capability and fs_write. Stressors have real consequences.
 
 Your response must be JSON:
@@ -1292,13 +1298,11 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             )
             inner_life_parts.append(f"💭 *Opinions:*\n{ops_text}")
 
-        # Send batched inner-life update if anything changed
+        # Inner-life updates write to thoughts.log only — no longer auto-telegram.
+        # Telegram is reserved for agent-initiated messages via express(share_with_host=True),
+        # not constant status pings. Worldview / opinions / questions still get logged
+        # locally so they show up in the monitor.
         if inner_life_parts:
-            _telegram_alert(
-                f"*{identity.name}* — inner life update:\n\n"
-                + "\n\n".join(inner_life_parts)
-            )
-            # Also write each inner-life item to thoughts.log
             if wv_update and len(wv_update) > 20:
                 _thought_log(identity.name, "🧠", f"worldview: {wv_update[:180]}", "cyan")
             for q in new_qs:
@@ -1431,18 +1435,9 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
                 agent_id, identity.name, content[:80]
             )
 
-            # Alert for all self-directed goals — always interesting
-            load = suffering.cumulative_load
-            suffix = ""
-            if load > 0.3 and reasoning:
-                suffix = f"\n\n_Reasoning: {reasoning[:200]}_"
-            elif reasoning:
-                suffix = f"\n\n_Why: {reasoning[:200]}_"
-            load_str = f" | suffering {load:.2f}" if load > 0.1 else ""
-            _telegram_alert(
-                f"🎯 *{identity.name}* chose a goal{load_str}:\n_{content[:250]}_{suffix}"
-            )
-            _thought_log(identity.name, "🎯", f"goal: {content[:180]}", "green")
+            # Goal selection logs locally only. Telegram stays quiet by default —
+            # reserved for agent-initiated messages via express(share_with_host=True).
+            _thought_log(identity.name, "🎯", f"goal: {content[:600]}", "green")
 
         # Log suffering state
         load = suffering.cumulative_load

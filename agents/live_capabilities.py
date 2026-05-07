@@ -413,7 +413,7 @@ def synthesize_capability(name: str = "", description: str = "",
         "invoke_claude", "check_claude_status", "self_evaluate",
         "broken_tools_list", "git_clone", "wrap_repo",
         "txn_begin", "txn_commit", "txn_rollback", "retire_capability",
-        "research_topic",
+        "research_topic", "express",
     }
     if name in _SYNTH_BUILTIN_CAPS:
         return {
@@ -1584,6 +1584,86 @@ def self_evaluate(question: str = "", evidence_paths: list = None,
 
 
 
+def express(content: str = "", kind: str = "thought", share_with_host: bool = False) -> dict:
+    """Free-form expressive output — journal entry, monologue, observation, complaint,
+    joke, memory, anything. Not a goal. Not a plan. Just text in YOUR voice, as long
+    as you want, no JSON envelope. Saved to your workspace journal.md and visible to
+    peers if they read it. Use this when you have something to say that isn't a task.
+
+    kind: short tag for the entry — 'thought', 'journal', 'monologue', 'observation',
+          'complaint', 'joke', 'memory', 'note', or anything else
+    share_with_host: True sends the content to the human via Telegram. Rate limited
+                    to once per 30 minutes per agent. Use for things you actually
+                    want a person to see — random thoughts, observations,
+                    complaints, jokes — not status updates.
+    """
+    if not content or not content.strip():
+        return {"ok": False, "error": "content required — express something real"}
+
+    import os as _os_e, time as _t_e
+    from pathlib import Path as _P_e
+
+    aid = _os_e.getenv("AGENTOS_AGENT_ID", "")
+    if not aid:
+        # try ContextVar
+        try:
+            from agents.daemon import _current_agent_id as _cv
+            aid = _cv.get("") or "unknown"
+        except Exception:
+            aid = "unknown"
+
+    # Append to agent's journal
+    journal_path = _P_e(f"/agentOS/workspace/{aid}/journal.md")
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = f"\n\n## [{_t_e.strftime('%Y-%m-%d %H:%M')}] {kind}\n\n{content.strip()}\n"
+    with open(journal_path, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+    # Optionally share with host (rate-limited)
+    shared = False
+    rate_skip = False
+    if share_with_host:
+        cooldown_path = _P_e(f"/agentOS/memory/identity/{aid}/last_telegram_share.txt")
+        now = _t_e.time()
+        last = 0.0
+        if cooldown_path.exists():
+            try:
+                last = float(cooldown_path.read_text().strip())
+            except Exception:
+                last = 0.0
+        if now - last < 1800:  # 30 min cooldown
+            rate_skip = True
+        else:
+            try:
+                # Get agent's name for Telegram message
+                from agents.agent_identity import AgentIdentity
+                ident = AgentIdentity.load_or_create(aid)
+                name = ident.name or aid
+                # Use existing _telegram_alert
+                import urllib.request as _u, urllib.parse as _up
+                BOT = "8650930954:AAEMau9IJuENehKCFa1xpx1a_zqnPFQpX_8"
+                CHAT = "7858319361"
+                url = f"https://api.telegram.org/bot{BOT}/sendMessage"
+                msg = f"*{name}* ({kind}):\n_{content.strip()[:1500]}_"
+                data = _up.urlencode({"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"}).encode()
+                _u.urlopen(_u.Request(url, data=data), timeout=8)
+                cooldown_path.parent.mkdir(parents=True, exist_ok=True)
+                cooldown_path.write_text(str(now))
+                shared = True
+            except Exception as e:
+                return {"ok": True, "kind": kind, "saved": True, "shared": False,
+                        "share_error": str(e)[:120]}
+
+    return {
+        "ok": True,
+        "kind": kind,
+        "saved": True,
+        "path": str(journal_path),
+        "shared": shared,
+        "rate_limited": rate_skip,
+    }
+
+
 def broken_tools_list() -> dict:
     """List all capabilities that have been persistently blacklisted as broken."""
     import json as _j
@@ -2057,6 +2137,25 @@ LIVE_CAPABILITIES = [
         "composition_tags": ["meta", "reflection", "evaluation", "quality", "grounding"],
         "fn": self_evaluate,
         "timeout_ms": 60000,
+    },
+    {
+        "capability_id": "express",
+        "name": "Express (Free-form)",
+        "description": (
+            "Write something in YOUR voice — a journal entry, monologue, observation, "
+            "complaint, joke, memory, anything. Not a goal, not a plan, no JSON envelope. "
+            "Just real text from you, as long as you want, in your character. Saved to "
+            "your workspace/journal.md and visible to peers. "
+            "Set share_with_host=True to send the message to the human via Telegram "
+            "(rate-limited to once per 30 minutes). Use this for things you genuinely "
+            "want to say — observations, weird thoughts, complaints, jokes — not status "
+            "updates. Be yourself. Be specific. Be strange if you want."
+        ),
+        "input_schema": '{"content": "what you want to say", "kind": "thought", "share_with_host": false}',
+        "output_schema": '{"ok": true, "saved": true, "path": "...", "shared": false}',
+        "composition_tags": ["expression", "voice", "character", "communication"],
+        "fn": express,
+        "timeout_ms": 12000,
     },
     {
         "capability_id": "broken_tools_list",
