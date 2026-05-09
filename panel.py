@@ -58,34 +58,60 @@ class API:
 
     # ── System ───────────────────────────────────────────────────────────────
     def start(self):
-        if (ROOT / "launch.bat").exists():
+        # Windows: prefer launch.bat for the familiar new-window UX.
+        # Mac/Linux: fall back to python3 hollow.py which does the same thing.
+        if sys.platform == "win32" and (ROOT / "launch.bat").exists():
             subprocess.Popen(["cmd.exe", "/c", "start", "", str(ROOT / "launch.bat")],
                              cwd=str(ROOT), shell=False)
             return "Started launch.bat in new window."
-        return "launch.bat not found."
+        py = shutil.which("python3") or shutil.which("python") or sys.executable
+        subprocess.Popen([py, str(ROOT / "hollow.py")], cwd=str(ROOT))
+        return "Started hollow.py."
 
     def stop(self):
-        if (ROOT / "stop.bat").exists():
+        if sys.platform == "win32" and (ROOT / "stop.bat").exists():
             subprocess.Popen(["cmd.exe", "/c", "start", "", str(ROOT / "stop.bat")],
                              cwd=str(ROOT), shell=False)
             return "Started stop.bat in new window."
-        return "stop.bat not found."
+        py = shutil.which("python3") or shutil.which("python") or sys.executable
+        subprocess.Popen([py, str(ROOT / "hollow.py"), "stop"], cwd=str(ROOT))
+        return "Stopping containers."
 
     def open_monitor(self):
         thoughts = ROOT / "thoughts.py"
         if not thoughts.exists():
             return "thoughts.py not found."
-        subprocess.Popen(
-            ["cmd.exe", "/c", "start", "", "python", str(thoughts)],
-            cwd=str(ROOT), shell=False,
-        )
+        py = shutil.which("python3") or shutil.which("python") or sys.executable
+        if sys.platform == "win32":
+            subprocess.Popen(
+                ["cmd.exe", "/c", "start", "", py, str(thoughts)],
+                cwd=str(ROOT), shell=False,
+            )
+        elif sys.platform == "darwin":
+            # macOS: open in a new Terminal window
+            subprocess.Popen(
+                ["osascript", "-e",
+                 f'tell app "Terminal" to do script "cd {ROOT} && {py} {thoughts}"'],
+            )
+        else:
+            # Linux: try common terminal emulators, fall back to detached background
+            for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xterm"):
+                if shutil.which(term):
+                    subprocess.Popen([term, "-e", f"{py} {thoughts}"], cwd=str(ROOT))
+                    return "Monitor opened in new terminal."
+            subprocess.Popen([py, str(thoughts)], cwd=str(ROOT))
         return "Monitor opened in new window."
 
     def open_workspace(self):
-        if WORKSPACE.exists():
-            os.startfile(str(WORKSPACE))
-            return f"Opened {WORKSPACE}"
-        return f"{WORKSPACE} does not exist."
+        if not WORKSPACE.exists():
+            return f"{WORKSPACE} does not exist."
+        if sys.platform == "win32":
+            os.startfile(str(WORKSPACE))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(WORKSPACE)])
+        else:
+            subprocess.Popen(["xdg-open", str(WORKSPACE)])
+        return f"Opened {WORKSPACE}"
 
     # ── Status ───────────────────────────────────────────────────────────────
     def status(self):

@@ -60,21 +60,9 @@ CPU works but planning calls are ~40s instead of ~6s.
 1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), right-click it, and choose **Extract All**. Extract it somewhere permanent — your Desktop or Documents is fine.
 2. Open the extracted folder and double-click **`install.bat`**.
 
-The installer handles everything from there: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it (~2–7 GB depending on your choice), and starts the agents. The live monitor opens automatically when it's done.
+The installer handles everything from there: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it (~2–7 GB depending on your choice), and starts the agents. The live monitor opens automatically when it's done. After that first run, double-click **`panel.bat`** to manage the system day-to-day — see [Running it](#running-it--the-operator-panel) below.
 
 **If the wizard says you need to restart Windows** — that's normal on first install. Docker needs a one-time Windows restart to finish its setup. Restart your computer, come back to the folder, and double-click **`install.bat`** again. It picks up where it left off.
-
-After setup:
-
-| | |
-|---|---|
-| **Start** | Double-click `launch.bat` |
-| **Stop** | Double-click `stop.bat` |
-| **Re-run setup** | Double-click `install.bat` |
-
-Agent memory and state survive restarts. `stop.bat` shuts everything down cleanly and frees your GPU memory.
-
----
 
 **Mac / Linux**
 
@@ -83,7 +71,7 @@ Install [Docker Desktop](https://docs.docker.com/get-docker/) first and make sur
 ```bash
 git clone https://github.com/ninjahawk/hollow-agentOS
 cd hollow-agentOS
-pip3 install rich
+pip3 install rich pywebview httpx
 python3 hollow.py
 ```
 
@@ -101,22 +89,41 @@ sudo systemctl restart docker
 
 Without it, `docker compose up` fails with `could not select device driver "nvidia" with capabilities: [[gpu]]`. If you don't have a GPU at all, edit `docker-compose.yml` and remove the `deploy.resources.reservations.devices` block from the `api` service (lines 68–74).
 
-To reopen the monitor later: `python3 hollow.py`  
-To stop: `python3 hollow.py stop`
+---
+
+## Running it — the operator panel
+
+Once setup is done, the **operator panel** is how you actually run this. It's a native window with start/stop buttons, a live status readout for every agent, and god-mode controls for intervening in their world. Day-to-day, this is the only surface you need.
+
+| | |
+|---|---|
+| **Open the panel (Windows)** | Double-click `panel.bat` |
+| **Open the panel (Mac/Linux)** | `python3 panel.py` (one-time install: `pip3 install pywebview httpx`) |
+
+What the panel does:
+
+- **Start / Stop** — bring the stack up or shut it down cleanly (frees GPU memory)
+- **Open Monitor** — opens the live terminal stream (`thoughts.py`) in a new window
+- **Open Workspace** — opens the agent workspace folder in your file manager
+- **Per-agent controls** — suspend, resume, adjust suffering load, clear stressors, add custom stressors
+- **Inject things into the agent's world** — drop a file into their workspace, send a host message, trigger an environmental event (weather, echo, object)
+- **Nuke** — wipe state when a baseline gets contaminated and you want a clean run
+
+Other ways to watch / manage:
+
+| Surface | Where | When you'd use it |
+|---|---|---|
+| **Web dashboard** | <http://localhost:7778> | Browser UI — agent panels, decision queue, suffering bars, in-browser shell, app store view |
+| **Terminal monitor** | `python3 thoughts.py` (or `python hollow.py` with no args) | Tailing logs in a terminal when you don't want a GUI |
+| **CLI** | `python3 hollow.py setup` / `stop` / `status` | Headless setups, scripting, SSH sessions |
+
+Agent memory, lessons, and identity survive restarts. Stop with the panel button (or `python3 hollow.py stop` / `stop.bat`) and the next start picks up where you left off.
 
 ---
 
-**What you're looking at**
+## What's actually running
 
-Three agents are running — a scout, an analyst, and a builder. They pick their own names. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress.
-
-Three places to watch the system from:
-
-| Surface | Where | What it shows |
-|---|---|---|
-| **Live monitor** | `python3 thoughts.py` (or `python hollow.py`) | Real-time stream of agent activity in the terminal — goals, tool calls, stressors, lessons promotions |
-| **Web dashboard** | <http://localhost:7778> | Browser UI with agent panels, decision queue, suffering bars, shell, and an app store view (`apps.html`) |
-| **Operator panel** | `panel.bat` (Win) or `python panel.py` (Mac/Linux) | Native pywebview window for god-mode interventions: adjust suffering, drop files into agent workspaces, trigger environmental events |
+Three agents — a scout, an analyst, and a builder. They pick their own names on first boot. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress, lessons getting promoted into their permanent rule set.
 
 When an agent wants to change something it can't touch itself, it files an `invoke_claude` request. If you're using [Claude Code](https://claude.ai/code), add `mcp/server.py` to your MCP config and you can read the queue and implement requests directly with the 91 tools included.
 
