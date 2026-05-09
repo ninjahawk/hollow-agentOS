@@ -313,10 +313,10 @@ class AdaptiveRouter:
         """
         Return the current recommendation for a complexity level with rationale.
         """
-        from agents.model_manager import COMPLEXITY_MODEL
+        from agents.model_manager import COMPLEXITY_MODEL, _DEFAULT_MODEL
         candidates = list(set(COMPLEXITY_MODEL.values()))
         recommended = self.recommend(complexity, candidates)
-        static_default = COMPLEXITY_MODEL.get(complexity, "qwen3.6:35b-a3b")
+        static_default = COMPLEXITY_MODEL.get(complexity, _DEFAULT_MODEL)
 
         scores = {m: self.score(m, complexity) for m in candidates}
         confidence = {m: self.has_confidence(m, complexity) for m in candidates}

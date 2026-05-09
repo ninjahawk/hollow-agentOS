@@ -28,24 +28,48 @@ OLLAMA_BASE = "http://localhost:11434"
 # Prevents OOM by leaving a buffer for model overhead + KV cache
 VRAM_HEADROOM_MB = 512
 
-# Complexity → preferred model name (used for affinity check + fallback)
-# All tiers point to qwen3.6:35b-a3b — MoE with 3B active params, faster than
-# any dense model in the system while being the strongest reasoner. Routing
-# tiers preserved for future heterogeneous setups.
+# All complexity tiers route to the user's configured default model. The default
+# is qwen3.6:35b-a3b (MoE, 3B active) but the wizard offers 9B/4B/3B fallbacks
+# for lower-spec hardware. Hardcoding qwen3.6 here would silently route smaller-
+# model users back to a model they never pulled. Routing tiers preserved for
+# future heterogeneous setups.
+def _configured_default_model() -> str:
+    try:
+        import json as _j
+        from pathlib import Path as _P
+        for _candidate in (_P("/agentOS/config.json"), _P(__file__).resolve().parent.parent / "config.json"):
+            if _candidate.exists():
+                _cfg = _j.loads(_candidate.read_text())
+                _m = _cfg.get("ollama", {}).get("default_model")
+                if _m:
+                    return _m
+    except Exception:
+        pass
+    return "qwen3.6:35b-a3b"
+
+
+_DEFAULT_MODEL = _configured_default_model()
+
 COMPLEXITY_MODEL = {
-    1: "qwen3.6:35b-a3b",
-    2: "qwen3.6:35b-a3b",
-    3: "qwen3.6:35b-a3b",
-    4: "qwen3.6:35b-a3b",
-    5: "qwen3.6:35b-a3b",
+    1: _DEFAULT_MODEL,
+    2: _DEFAULT_MODEL,
+    3: _DEFAULT_MODEL,
+    4: _DEFAULT_MODEL,
+    5: _DEFAULT_MODEL,
 }
 
-# Models that are too large to swap in/out frequently — pin them once loaded
-PINNED_MODELS: set[str] = {"qwen3.6:35b-a3b"}
+# Pin the active model — large models are too costly to swap in/out frequently.
+PINNED_MODELS: set[str] = {_DEFAULT_MODEL}
 
-# Approximate VRAM footprint when Ollama's /api/ps doesn't report size (MB)
+# Approximate VRAM footprint when Ollama's /api/ps doesn't report size (MB).
+# Used as a fallback ceiling for VRAM admission control. Smaller models that
+# aren't listed here fall through to an 8 GB default in recommend(), which is
+# generous enough to admit anything in the wizard's options.
 MODEL_VRAM_FALLBACK: dict[str, int] = {
-    "qwen3.6:35b-a3b":         22_000,
+    "qwen3.6:35b-a3b": 22_000,
+    "qwen3.5:9b":       6_500,
+    "gemma3:4b":        4_000,
+    "llama3.2:3b":      2_500,
 }
 
 
@@ -86,7 +110,7 @@ class ModelManager:
         3. Must evict: evict LRU non-pinned (background first), then load
         4. Fallback: return preferred model name and let Ollama handle it
         """
-        preferred = COMPLEXITY_MODEL.get(complexity, "qwen3.6:35b-a3b")
+        preferred = COMPLEXITY_MODEL.get(complexity, _DEFAULT_MODEL)
         self._refresh()
 
         with self._lock:

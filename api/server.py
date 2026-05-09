@@ -114,17 +114,34 @@ def _require_ollama():
 
 
 # ── Ollama model routing ─────────────────────────────────────────────────────
+# Aliases route to the user's configured default. Hardcoding qwen3.6:35b-a3b
+# breaks setups where the user picked a smaller model in the wizard.
+def _configured_default_model() -> str:
+    try:
+        import json as _j
+        from pathlib import Path as _P
+        for _candidate in (_P("/agentOS/config.json"), _P(__file__).resolve().parent.parent / "config.json"):
+            if _candidate.exists():
+                _cfg = _j.loads(_candidate.read_text())
+                _m = _cfg.get("ollama", {}).get("default_model")
+                if _m:
+                    return _m
+    except Exception:
+        pass
+    return "qwen3.6:35b-a3b"
+
+
+DEFAULT_MODEL = _configured_default_model()
 MODEL_ROUTES = {
-    "code":            "qwen3.6:35b-a3b",
-    "code-fast":       "qwen3.6:35b-a3b",
-    "general":         "qwen3.6:35b-a3b",
-    "general-large":   "qwen3.6:35b-a3b",
-    "reasoning":       "qwen3.6:35b-a3b",
+    "code":            DEFAULT_MODEL,
+    "code-fast":       DEFAULT_MODEL,
+    "general":         DEFAULT_MODEL,
+    "general-large":   DEFAULT_MODEL,
+    "reasoning":       DEFAULT_MODEL,
     "reasoning-large": "nous-hermes2:34b",
     "uncensored":      "dolphin3:latest",
     "custom":          "emmi:latest",
 }
-DEFAULT_MODEL = "qwen3.6:35b-a3b"
 
 # ── In-memory state cache (used by /state and /state/diff) ───────────────────
 _STATE_CACHE_TTL = 5.0  # seconds — serve from cache within this window

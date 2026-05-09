@@ -475,7 +475,7 @@ def _pull_model(model_id: str) -> bool:
 
 
 def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
-    def _nogpu_compose() -> tuple[bool, str]:
+    def _nogpu_compose(reason: str = "") -> tuple[bool, str]:
         compose_text = (ROOT / "docker-compose.yml").read_text()
         patched = re.sub(
             r"(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "\n",
@@ -488,6 +488,10 @@ def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
                 ["docker", "compose", "-f", str(tmp), "up", "-d"],
                 cwd=ROOT, capture_output=True, text=True, timeout=300,
             )
+            if r2.returncode == 0 and reason:
+                # GPU was present but Docker couldn't reach it. Most common cause
+                # on Linux: nvidia-container-toolkit not installed. Surface a tip.
+                return True, f"started in CPU-only mode (reason: {reason})"
             return r2.returncode == 0, r2.stderr[:200]
         finally:
             tmp.unlink(missing_ok=True)
@@ -502,9 +506,15 @@ def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
         )
         if r.returncode == 0:
             return True, ""
-        combined = r.stdout + r.stderr
-        if "nvidia" in combined.lower() or "gpu" in combined.lower():
-            return _nogpu_compose()
+        combined = (r.stdout + r.stderr).lower()
+        # Detect the two GPU-related failure modes Linux users hit:
+        # 1. could not select device driver "nvidia" → nvidia-container-toolkit missing
+        # 2. unknown or unsupported runtime: nvidia → same root cause
+        if "could not select device driver" in combined or "unknown runtime" in combined:
+            tip = "GPU detected but Docker cannot reach it — install nvidia-container-toolkit"
+            return _nogpu_compose(reason=tip)
+        if "nvidia" in combined or "gpu" in combined:
+            return _nogpu_compose(reason="GPU init failed")
         return False, r.stderr[:300]
     except subprocess.TimeoutExpired:
         return False, "timed out"
@@ -928,6 +938,11 @@ def run_setup() -> None:
         return
 
     log(f"[{GREEN}]✓[/]  Containers started")
+    if err and "CPU-only mode" in err:
+        # Surface the GPU fallback reason so Linux users know why and how to fix.
+        log(f"[{YELLOW}]⚠[/]  {err}")
+        if "nvidia-container-toolkit" in err:
+            log(f"[{MUTED}]    Linux: sudo apt install nvidia-container-toolkit && sudo systemctl restart docker[/]")
     log(f"[{DIM}]Waiting for API…[/]")
 
     for _ in range(30):

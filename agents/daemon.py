@@ -2235,6 +2235,25 @@ def main():
                         log.info("Auto-retired broken tools from disk: %s", _removed)
                 except Exception as _are:
                     log.debug("auto-retire error: %s", _are)
+                # Sweep orphan JSON specs in tools/dynamic/ — JSON files with no paired
+                # .py implementation. These are "ghost tools" (issue #15): agents see
+                # them in capability listings, call them, get null back, and burn cycles
+                # investigating why. Either the synthesis half-succeeded or a prior
+                # cleanup removed the .py without removing the spec. Removing the spec
+                # makes the tool stop appearing in listings.
+                try:
+                    _dyn_dir = Path("/agentOS/tools/dynamic")
+                    _orphan_removed = []
+                    if _dyn_dir.exists():
+                        for _jp in _dyn_dir.glob("*.json"):
+                            _py_p = _dyn_dir / f"{_jp.stem}.py"
+                            if not _py_p.exists():
+                                _jp.unlink(missing_ok=True)
+                                _orphan_removed.append(_jp.stem)
+                    if _orphan_removed:
+                        log.info("Removed orphan JSON specs (no .py impl): %s", _orphan_removed)
+                except Exception as _ore:
+                    log.debug("orphan spec sweep error: %s", _ore)
                 # Auto-clean 0-byte workspace files older than 5 minutes. These are
                 # failed writes (binary redirect errors, shell pipe issues) that
                 # pollute the pheromone signal immediately — peers see them and read

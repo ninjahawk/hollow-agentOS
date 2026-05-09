@@ -48,9 +48,27 @@ PRIORITY_URGENT     = 0
 PRIORITY_NORMAL     = 1
 PRIORITY_BACKGROUND = 2
 
-# Complexity → Ollama role → model. All roles route to qwen3.6:35b-a3b
-# (MoE, 3B active, 35B total). Role distinction preserved for future
-# heterogeneous setups but currently a no-op for model selection.
+# Complexity → Ollama role → model. All roles route to the user's configured
+# default. Role distinction preserved for future heterogeneous setups but
+# currently a no-op. Reading from config (instead of hardcoding qwen3.6:35b-a3b)
+# means smaller-model users get routed to the model they actually pulled.
+def _configured_default_model() -> str:
+    try:
+        import json as _j
+        from pathlib import Path as _P
+        for _candidate in (_P("/agentOS/config.json"), _P(__file__).resolve().parent.parent / "config.json"):
+            if _candidate.exists():
+                _cfg = _j.loads(_candidate.read_text())
+                _m = _cfg.get("ollama", {}).get("default_model")
+                if _m:
+                    return _m
+    except Exception:
+        pass
+    return "qwen3.6:35b-a3b"
+
+
+_DEFAULT_MODEL = _configured_default_model()
+
 COMPLEXITY_ROUTING = {
     1: "general",
     2: "general",
@@ -60,9 +78,9 @@ COMPLEXITY_ROUTING = {
 }
 
 ROLE_MODEL = {
-    "general":   "qwen3.6:35b-a3b",
-    "code":      "qwen3.6:35b-a3b",
-    "reasoning": "qwen3.6:35b-a3b",
+    "general":   _DEFAULT_MODEL,
+    "code":      _DEFAULT_MODEL,
+    "reasoning": _DEFAULT_MODEL,
 }
 
 # Estimated tokens per complexity level (for budget pre-check)
@@ -368,7 +386,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "qwen3.6:35b-a3b")
+                model_for_role = ROLE_MODEL.get(role, _DEFAULT_MODEL)
 
         # Model policy check — does the submitting agent allow this role?
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
@@ -548,7 +566,7 @@ class TaskScheduler:
             if self._model_manager:
                 model_for_role = self._model_manager.recommend(task.complexity)
             else:
-                model_for_role = ROLE_MODEL.get(role, "qwen3.6:35b-a3b")
+                model_for_role = ROLE_MODEL.get(role, _DEFAULT_MODEL)
 
         if agent and not self._registry.check_model_policy(task.submitted_by, model_for_role, "ollama"):
             task.status = "failed"

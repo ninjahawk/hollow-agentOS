@@ -26,6 +26,11 @@ services:
       # 'image' above is used as-is when pulled from GHCR.
       # 'build' kicks in only when you run --build or docker compose build.
     container_name: hollow-api
+    # host.docker.internal resolves automatically on Docker Desktop (Win/Mac).
+    # On native Linux Docker (no Desktop), this hostname doesn't exist unless
+    # we map it explicitly to the host gateway. Harmless on Win/Mac.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "7777:7777"
     volumes:
@@ -99,6 +104,8 @@ services:
       context: .
       dockerfile: store/Dockerfile
     container_name: hollow-store
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "7779:7779"
     volumes:
