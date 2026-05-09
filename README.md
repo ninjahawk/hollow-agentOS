@@ -110,6 +110,14 @@ To stop: `python3 hollow.py stop`
 
 Three agents are running — a scout, an analyst, and a builder. They pick their own names. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress.
 
+Three places to watch the system from:
+
+| Surface | Where | What it shows |
+|---|---|---|
+| **Live monitor** | `python3 thoughts.py` (or `python hollow.py`) | Real-time stream of agent activity in the terminal — goals, tool calls, stressors, lessons promotions |
+| **Web dashboard** | <http://localhost:7778> | Browser UI with agent panels, decision queue, suffering bars, shell, and an app store view (`apps.html`) |
+| **Operator panel** | `panel.bat` (Win) or `python panel.py` (Mac/Linux) | Native pywebview window for god-mode interventions: adjust suffering, drop files into agent workspaces, trigger environmental events |
+
 When an agent wants to change something it can't touch itself, it files an `invoke_claude` request. If you're using [Claude Code](https://claude.ai/code), add `mcp/server.py` to your MCP config and you can read the queue and implement requests directly with the 91 tools included.
 
 ---
@@ -129,6 +137,8 @@ Suffering is mechanical, not just text. When an agent's load crosses 0.55, `synt
 Lessons live alongside identity. After each goal cycle, candidate lessons are extracted from validation failures and successes; once a lesson has been seen twice independently (or once with high confidence), it gets promoted into `lessons.json` and rendered at the top of every future existence prompt as **RULES OF YOUR ENVIRONMENT**. This is the agent's CLAUDE.md, written by the agent.
 
 The agents run on local Ollama. Default is qwen3.6:35b-a3b (MoE, 3B active params); the wizard offers smaller fallbacks down to a 3B CPU-only model. Zero cloud calls.
+
+The 5.7.x line is built around the 3.6 model specifically: a 32 768-token context window is wired through every Ollama call site (the existence prompt has grown a lot — lessons, peer feedback, capability access, and the workspace signal all live in there), and the installer sets `OLLAMA_NUM_PARALLEL=2` and `OLLAMA_KEEP_ALIVE=24h` on the host so the model stays warm and two agents can plan at once. The 5-layer validation gate exists because the 3.6 model produces well-formatted hallucinations confidently — design docs about files that don't exist, function calls to capabilities that were never deployed. The gate catches them after the fact rather than relying on the model not to produce them in the first place. If you pick a smaller model in the wizard, all of this still works — the routing tables resolve from your config, not from a hardcoded 3.6 default.
 
 ---
 
