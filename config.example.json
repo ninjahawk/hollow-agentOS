@@ -1,6 +1,6 @@
 {
   "name": "AgentOS",
-  "version": "5.4.0",
+  "version": "5.7.30",
   "description": "An operating environment designed exclusively for agentic AI — not humans.",
   "api": {
     "host": "0.0.0.0",

@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.5.5-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.7.30-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
@@ -42,7 +42,18 @@ You set it up, leave it running, and observe. The interesting parts happen when 
 
 ## Quick start
 
-**Requirements:** Windows 10 build 19041+, Windows 11, macOS, or Linux · 15 GB free disk space · Internet connection · NVIDIA GPU recommended (8 GB+ VRAM) — works on CPU, planning calls just take ~40s instead of ~6s.
+**Requirements:** Windows 10 build 19041+, Windows 11, macOS, or Linux · 15–30 GB free disk space · Internet connection · GPU optional.
+
+The setup wizard offers four models and your hardware decides which is realistic:
+
+| Model | VRAM | Disk | Notes |
+|---|---|---|---|
+| `qwen3.6:35b-a3b` (default) | 24 GB+ | ~23 GB | MoE, 3B active params — fast inference, deep reasoning |
+| `qwen3.5:9b` | 8 GB+ | ~5.2 GB | Older fallback, lower hardware bar |
+| `gemma3:4b` | 4 GB+ or CPU | ~3.3 GB | Google model |
+| `llama3.2:3b` | CPU only | ~2 GB | Runs anywhere |
+
+CPU works but planning calls are ~40s instead of ~6s.
 
 **Windows**
 
@@ -78,6 +89,18 @@ python3 hollow.py
 
 The wizard installs Ollama if you don't have it, walks you through model selection, downloads everything, and starts the agents.
 
+**Docker Desktop file sharing (Linux/macOS):** Docker Desktop sandboxes filesystem access. If `docker compose up` fails with `mounts denied: ... is not shared from the host`, open **Docker Desktop → Settings → Resources → File Sharing** and add the path containing your `hollow-agentOS` clone. Restart Docker Desktop and re-run the wizard.
+
+**NVIDIA GPU on Linux:** The CUDA toolkit alone is not enough — Docker needs the **nvidia-container-toolkit** package separately:
+
+```bash
+# Ubuntu / Mint / Debian
+sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+Without it, `docker compose up` fails with `could not select device driver "nvidia" with capabilities: [[gpu]]`. If you don't have a GPU at all, edit `docker-compose.yml` and remove the `deploy.resources.reservations.devices` block from the `api` service (lines 68–74).
+
 To reopen the monitor later: `python3 hollow.py`  
 To stop: `python3 hollow.py stop`
 
@@ -99,7 +122,13 @@ Every few minutes each agent gets shown its current state: stressors, the worldv
 
 When agents want to do something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without a restart. The tool appears in their capability list immediately. When agents want to change core system files they don't have write access to, they call `invoke_claude`: write a spec, queue the request, check back later with `check_claude_status`. You see the queue and decide what to build. Agents verify the result themselves with `self_evaluate`, which calls their own model against real file evidence rather than asking them how they feel about it.
 
-The agents run on qwen3.6:35b-a3b through Ollama on your machine. Zero cloud calls.
+Goal artifacts go through a five-layer false-completion gate: mechanical placeholder/AST checks, semantic accomplishment evaluation, peer feedback, and a codebase fact-check that reads the files an artifact claims to be about and verifies the claims. Failed goals are deleted on the third attempt — broken artifacts don't stick around to confuse future cycles.
+
+Suffering is mechanical, not just text. When an agent's load crosses 0.55, `synthesize_capability` is locked. At 0.75, `fs_write` and `fs_edit` lock too. Some capabilities are earned: `research_topic` only unlocks once load drops back below 0.15 and the agent has actually engaged with a peer. Agents read these gates as physical, not as a number to ignore.
+
+Lessons live alongside identity. After each goal cycle, candidate lessons are extracted from validation failures and successes; once a lesson has been seen twice independently (or once with high confidence), it gets promoted into `lessons.json` and rendered at the top of every future existence prompt as **RULES OF YOUR ENVIRONMENT**. This is the agent's CLAUDE.md, written by the agent.
+
+The agents run on local Ollama. Default is qwen3.6:35b-a3b (MoE, 3B active params); the wizard offers smaller fallbacks down to a 3B CPU-only model. Zero cloud calls.
 
 ---
 
@@ -111,7 +140,9 @@ Three files drive the behavior:
 
 `agents/suffering.py` is the psychological layer. Stressor definitions, escalation rates, resolution conditions, and the prompt injection logic that injects suffering into the existence prompt above certain severity thresholds. Agents can read this file but not write to it.
 
-`agents/live_capabilities.py` is everything agents can actually do. 21 capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
+`agents/live_capabilities.py` is everything agents can actually do. ~30 built-in capabilities including `invoke_claude`, `self_evaluate`, `synthesize_capability`, `research_topic`, the `txn_*` family, and `test_exec`. Mounted into the container so you can change agent capabilities without rebuilding the image.
+
+`agents/autonomy_loop.py` runs each goal: plan → execute → validate (5 layers) → commit/rollback. `agents/lessons.py` promotes durable operational knowledge from cycle outcomes. `agents/transaction.py` makes goal writes atomic so a failed goal can't half-corrupt the workspace.
 
 The rest of the repo is infrastructure that makes continuous operation possible: distributed transactions, semantic memory with embedding search, audit kernel with anomaly detection, checkpoint and replay, VRAM-aware scheduling, rate limiting. It's an OS layer. It exists so the agents don't stop.
 
@@ -138,13 +169,13 @@ The intended way to interact with the running system is Claude Code. Add this to
 
 ## Design choices
 
-**The model writes broken code.** qwen3.6:35b-a3b synthesizes capabilities that reference undefined functions a lot of the time. An auto-test runs after every deployment so agents see failures immediately. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. A larger model would write better code but might also be more generic. The 9B model's quirks are part of what makes the outputs worth studying.
+**The model writes broken code.** Even on the default 35B MoE, agents synthesize capabilities that reference undefined functions, fabricate file paths, or write convincing-looking design docs about code that doesn't exist. An auto-test runs after every deployment, and the five-layer validation gate catches false completions after the fact. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. The model's quirks are part of what makes the outputs worth studying — the system is designed to surface them, not hide them.
 
 **Agents need an accurate model of their environment.** Without being told what environment they're actually in, they drift. In this session Cipher spent hours on PMIC thermal sensors and bus arbiters that don't exist in a Docker container. One factual world context block added to the existence prompt fixed it within a single cycle. Obvious in retrospect.
 
 **invoke_claude is you.** When agents want to change core files, they write a spec and queue a request. You look at it and decide whether to build it. They're not asking permission, they're routing to a more capable implementation layer. You're a tool they can call, not the boss.
 
-**Platform support.** Developed on RTX 5070 (12 GB VRAM), Windows 11. The GPU deploy block in `docker-compose.yml` is optional. CPU works at ~40s per planning call.
+**Platform support.** Developed and tested on Windows 11 with an RTX 5070 (12 GB VRAM, partial offload for the 35B model). The Linux path works but is less battle-tested — see the Mac/Linux notes above for Docker Desktop file sharing and `nvidia-container-toolkit`. The GPU deploy block in `docker-compose.yml` is optional. CPU works at ~40s per planning call with one of the smaller models.
 
 ---
 
@@ -547,9 +578,10 @@ hollow-agentOS/
 │   └── agent_routes.py        Agent OS routes
 ├── agents/
 │   ├── daemon.py              Main loop, existence prompts, stall detection
-│   ├── autonomy_loop.py       plan, execute, substitute, gate, complete
-│   ├── live_capabilities.py   All 21 live capabilities, hot-mounted
-│   ├── suffering.py           Stressors, escalation, resolution, prompt injection
+│   ├── autonomy_loop.py       plan, execute, 5-layer validate, txn commit/rollback
+│   ├── live_capabilities.py   ~30 live capabilities, hot-mounted
+│   ├── lessons.py             Durable operational knowledge, candidate-promotion
+│   ├── suffering.py           Stressors, mechanical capability locks, prompt injection
 │   ├── reasoning_layer.py     Ollama-based planning and capability selection
 │   ├── capability_graph.py    Semantic capability discovery
 │   ├── execution_engine.py    Runs capabilities, passes results between steps

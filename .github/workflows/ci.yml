@@ -128,7 +128,70 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Job 3: Lint (never blocks the pipeline — always succeeds)
+  # Job 3: Docker smoke test (Linux)
+  # Catches yaml errors, mount/path issues, and Linux-specific compose problems
+  # that don't surface in unit/integration tests. Runs on a stock Ubuntu runner
+  # with no GPU and no Ollama — the API container should still come up and the
+  # healthcheck endpoint should respond. This is the smallest test that would
+  # have caught the issues @zenlan reported (#16, #17, #18) before release.
+  # ---------------------------------------------------------------------------
+  docker-smoke-test:
+    name: Docker smoke test (Linux, no GPU)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare config and required directories
+        run: |
+          cp config.example.json config.json
+          mkdir -p memory workspace logs design store/data memory/dynamic_tools
+
+      - name: Strip GPU block from compose (no GPU on the runner)
+        run: |
+          python3 -c "
+          import re
+          from pathlib import Path
+          p = Path('docker-compose.yml')
+          text = p.read_text()
+          text = re.sub(r'(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*', '\n', text)
+          p.write_text(text)
+          "
+
+      - name: Build images locally (skip GHCR pulls)
+        run: |
+          docker build -t hollow-agentos-local .
+          docker build -t hollow-store-local -f store/Dockerfile .
+
+      - name: Start the stack
+        env:
+          HOLLOW_API_IMAGE: hollow-agentos-local
+          HOLLOW_STORE_IMAGE: hollow-store-local
+        run: docker compose up -d
+
+      - name: Wait for API healthcheck
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:7777/health > /dev/null; then
+              echo "API healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API never became healthy"
+          docker compose logs api --tail 200
+          exit 1
+
+      - name: Verify dashboard responds
+        run: curl -sf http://localhost:7778/ > /dev/null
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Lint (never blocks the pipeline — always succeeds)
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
