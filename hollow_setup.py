@@ -449,8 +449,13 @@ def _write_env(api_key: Optional[str]) -> None:
 
 
 def _ensure_dirs() -> None:
-    for d in ["memory", "workspace", "workspace/wrappers", "workspace/sandbox",
-              "workspace/bin", "logs", "store/data"]:
+    # Every host path bind-mounted in docker-compose.yml must exist on disk before
+    # `docker compose up`. On native Linux Docker, missing sources are silently
+    # created as root-owned dirs, which breaks the agent runtime. On Docker Desktop
+    # (Mac/Win, and Linux when used) missing sources fail with "mkdir … no such
+    # file or directory". Keep this list synced with the volumes block.
+    for d in ["memory", "memory/dynamic_tools", "workspace", "workspace/wrappers",
+              "workspace/sandbox", "workspace/bin", "logs", "store/data", "design"]:
         (ROOT / d).mkdir(parents=True, exist_ok=True)
 
 
@@ -492,7 +497,7 @@ def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
                 # GPU was present but Docker couldn't reach it. Most common cause
                 # on Linux: nvidia-container-toolkit not installed. Surface a tip.
                 return True, f"started in CPU-only mode (reason: {reason})"
-            return r2.returncode == 0, r2.stderr[:200]
+            return r2.returncode == 0, (r2.stdout + r2.stderr)
         finally:
             tmp.unlink(missing_ok=True)
 
@@ -515,7 +520,7 @@ def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
             return _nogpu_compose(reason=tip)
         if "nvidia" in combined or "gpu" in combined:
             return _nogpu_compose(reason="GPU init failed")
-        return False, r.stderr[:300]
+        return False, (r.stdout + r.stderr)
     except subprocess.TimeoutExpired:
         return False, "timed out"
     except Exception as e:
@@ -930,7 +935,33 @@ def run_setup() -> None:
     log(f"[{DIM}]Starting containers…[/]")
     ok, err = _start_containers(has_gpu)
     if not ok:
-        log(f"[{RED}]✗[/]  Docker compose failed: {err[:80]}")
+        log(f"[{RED}]✗[/]  Docker compose failed.")
+        # Print the full compose error so users can act on it. Truncating to 80
+        # chars hid the actual cause for Linux users — see issue #17.
+        for line in (err or "").strip().splitlines():
+            log(f"[{MUTED}]    {line}[/]")
+        low = (err or "").lower()
+        # Docker Desktop on Linux/Mac/Win refuses bind mounts whose host path
+        # isn't in the configured File Sharing list, or paths the VM can't see
+        # (e.g. /mnt/ external drives on Linux Mint). Surface specific guidance.
+        if "mounts denied" in low or "not shared from the host" in low or \
+           "error while creating mount source path" in low or "host_mnt" in low:
+            _blank()
+            log(f"[{YELLOW}]Docker can't bind-mount the install directory.[/]")
+            log(f"[{MUTED}]  · Path: {ROOT}[/]")
+            if platform.system() == "Linux":
+                root_str = str(ROOT)
+                if root_str.startswith("/mnt/") or root_str.startswith("/media/"):
+                    log(f"[{MUTED}]  · /mnt and /media paths are not visible to Docker Desktop's VM on Linux.[/]")
+                    log(f"[{MUTED}]    Move the project to your home directory (e.g. ~/hollow-agentOS) and re-run setup,[/]")
+                    log(f"[{MUTED}]    or switch to native Docker engine instead of Docker Desktop.[/]")
+                else:
+                    log(f"[{MUTED}]  · In Docker Desktop → Settings → Resources → File Sharing,[/]")
+                    log(f"[{MUTED}]    add this path, apply & restart, then re-run setup.[/]")
+                    log(f"[{MUTED}]  · Or switch to native Docker engine, which has no file-sharing restriction.[/]")
+            else:
+                log(f"[{MUTED}]  · Open Docker Desktop → Settings → Resources → File Sharing,[/]")
+                log(f"[{MUTED}]    add this path, apply & restart, then re-run setup.[/]")
         _blank()
         _box_close()
         C.print(f"[{PIPE}]└[/]")
