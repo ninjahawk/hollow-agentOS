@@ -926,13 +926,19 @@ class AutonomyLoop:
 
                 time.sleep(0.1)
 
-            # Check completion — require a validated artifact before marking done
+            # Check completion — require a validated artifact before marking done.
+            # IMPORTANT: commit the txn BEFORE validating. Validation checks
+            # the file system; staged writes aren't on disk until commit, so
+            # a validate-before-commit ordering means a successful fs_write
+            # inside a txn will always fail substance checks (file missing).
+            # If validation later fails, _delete_goal_fs_writes cleans up
+            # broken artifacts during the abandon path.
             current = self._goal_engine.get(agent_id, goal_id)
             if current and current.metrics.get("progress", 0.0) >= 1.0:
+                _txn_commit_goal()
                 validation = self.validate_goal_artifact(agent_id, goal_id)
                 if validation.get("validated"):
                     _thought(agent_id, f"  artifact ok | {validation.get('artifact_type','')} {validation.get('artifact_value','')[:60]}")
-                    _txn_commit_goal()
                     self._goal_engine.complete(agent_id, goal_id)
                     self._synthesize_completion(agent_id, goal.objective, steps_executed)
                     # Test held opinions against this success — opinions whose
@@ -952,20 +958,26 @@ class AutonomyLoop:
                     # prompt can show the agent specifically what went wrong, instead
                     # of leaving them to blindly retry.
                     metrics["last_validation_checks"] = validation.get("checks", [])[-6:]
-                    _thought(agent_id, f"  artifact MISSING ({artifact_fails}/3) | {validation.get('checks',[])} — resetting progress")
+                    _thought(agent_id, f"  artifact MISSING ({artifact_fails}/5) | {validation.get('checks',[])} — resetting progress")
                     self._record_validation_failure(agent_id, goal.objective,
                                                     validation.get("checks", []),
-                                                    final=(artifact_fails >= 3))
-                    if artifact_fails >= 3:
-                        # Permanently abandon. Delete every fs_write produced during
-                        # this goal — broken artifacts must NEVER persist into future
-                        # cycles. If an agent makes 10 files that don't work, we will
-                        # not let them build on 10 files that don't work.
+                                                    final=(artifact_fails >= 5))
+                    if artifact_fails >= 5:
+                        # Permanently abandon after 5 strikes. The earlier
+                        # 3-strike threshold combined with delete-all-fs-writes
+                        # was strangling emergent work — agents lost cycles
+                        # of weird-but-real exploration to the cleanup pass
+                        # before anything could land. Now: more rope for
+                        # iteration, and the delete pass keeps only files
+                        # that fail their own substance check (broken .py,
+                        # placeholder stubs). Journals, design notes, and
+                        # other substantive-but-semantically-off artifacts
+                        # stay in workspace so character can accumulate.
                         deleted = self._delete_goal_fs_writes(agent_id, goal_id)
                         explanation = (
                             f"Goal '{goal.objective}' abandoned: artifact validation "
                             f"failed {artifact_fails} times. Checks: {validation.get('checks', [])}. "
-                            f"Deleted {len(deleted)} unverifiable file(s)."
+                            f"Deleted {len(deleted)} broken file(s); substantive artifacts kept."
                         )
                         metrics["failure_reason"] = explanation
                         metrics["deleted_artifacts"] = deleted
@@ -1216,7 +1228,7 @@ class AutonomyLoop:
                 resp = httpx.post(
                     f"{ollama_host}/api/generate",
                     json={"model": model, "prompt": prompt, "stream": False,
-                          "format": "json", "think": False, "keep_alive": -1,
+                          "think": False, "keep_alive": -1,
                           "options": {"num_ctx": 32768}},
                     timeout=240,
                 )
@@ -1370,14 +1382,27 @@ class AutonomyLoop:
 
     def _delete_goal_fs_writes(self, agent_id: str, goal_id: str) -> list:
         """
-        Delete files that THIS goal newly created — not files this goal merely
-        modified that were created earlier. An abandoned goal that overwrote a
-        prior successful artifact must not wipe the original work.
+        Delete BROKEN files that THIS goal newly created. Substantive files
+        — even ones the goal couldn't validate — are kept so the agent's
+        character can accumulate evidence (journals, design notes, partial
+        but real artifacts).
 
-        A path is considered newly created by this goal iff there is no
-        successful fs_write to that path in any earlier goal in the agent's
-        execution chain. If an earlier goal touched the path, we leave it
-        alone (the prior version may have been valuable).
+        Two filters apply:
+          1. Path was newly written by this goal (an earlier goal hadn't
+             produced it). Files an earlier goal made stay regardless —
+             we never wipe prior successful work.
+          2. File content fails its own substance check. .py that won't
+             compile, .md with unfilled placeholder scaffolding, files
+             below 200 bytes — these are unambiguously broken and would
+             only cause downstream agents to build on bad ground.
+             Files that pass substance stay, even if the surrounding goal
+             didn't validate semantically.
+
+        The CLAUDE.md rule "never let a broken artifact persist" still
+        holds — what changed is the definition of "broken." It is now
+        the per-file substance check, not the per-goal validation result.
+        A goal that produced one broken stub and one solid journal entry
+        gets the stub deleted and the entry preserved.
 
         Returns the list of paths that were deleted.
         """
@@ -1432,11 +1457,40 @@ class AutonomyLoop:
             )
             if not any(path.startswith(p) for p in allowed_prefixes):
                 continue
+            # Substance check: only delete files that fail their own
+            # per-file substance gate. Substantive-but-semantically-off
+            # files stay so the agent has continuity of effort and a
+            # character can accrue across cycles.
             try:
                 import os as _os_local
-                if _os_local.path.exists(path) and _os_local.path.isfile(path):
-                    _os_local.remove(path)
-                    deleted.append(path)
+                if not (_os_local.path.exists(path) and _os_local.path.isfile(path)):
+                    continue
+                size = _os_local.path.getsize(path)
+                ext = _os_local.path.splitext(path)[1].lower()
+                content = ""
+                try:
+                    content = open(path, encoding="utf-8", errors="replace").read()
+                except Exception:
+                    content = ""
+                # Classify the file as broken or kept.
+                is_broken = False
+                if size < 200:
+                    is_broken = True
+                elif _has_template_placeholder(content, ext):
+                    is_broken = True
+                elif ext == ".py":
+                    try:
+                        compile(content, path, "exec")
+                    except SyntaxError:
+                        is_broken = True
+                elif ext in (".py", ".sh", ".md", ".markdown"):
+                    if not _code_is_substantive(content, ext):
+                        is_broken = True
+                if not is_broken:
+                    # Substantive artifact — keep it. Character lives here.
+                    continue
+                _os_local.remove(path)
+                deleted.append(path)
             except Exception:
                 pass
         return deleted
@@ -1577,7 +1631,6 @@ class AutonomyLoop:
                         "model": model,
                         "prompt": prompt,
                         "stream": False,
-                        "format": "json",
                         "think": False,
                         "keep_alive": -1,
                         "options": {"num_ctx": 32768, "num_predict": 512},
@@ -1677,7 +1730,6 @@ class AutonomyLoop:
                     "model": model,
                     "prompt": prompt,
                     "stream": False,
-                    "format": "json",
                     "think": False,
                     "keep_alive": -1,
                     "options": {"num_ctx": 32768, "num_predict": 256},

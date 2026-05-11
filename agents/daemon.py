@@ -598,45 +598,70 @@ def _thought_log(agent_name: str, icon: str, text: str, color: str = 'white') ->
 
 def _generate_existence_response(prompt: str, ollama_host: str, model: str) -> str:
     """
-    Generate an existence loop response. Tries Claude first (via OAuth credentials),
-    falls back to Ollama. Returns raw JSON string.
+    Generate an existence loop response via local Ollama. Returns raw JSON
+    string, or "{}" on failure.
+
+    NOTE: this MUST stay Ollama-only. A prior revision had a Claude-first
+    path that called api.anthropic.com on every cycle for every agent —
+    burning operator budget continuously and silently producing the
+    hardcoded-fallback goal when its output didn't parse to the expected
+    shape. The system runs on local Ollama only, per the project rule.
+    Do not re-introduce a hosted-model path here.
     """
-    # Try Claude (Haiku) first — better goal quality than local model
-    try:
-        from agents.reasoning_layer import _get_claude_client, _strip_code_fences
-        client = _get_claude_client()
-        if client is not None:
-            message = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = message.content[0].text.strip()
-            if "</think>" in raw:
-                raw = raw.split("</think>")[-1].strip()
-            return _strip_code_fences(raw)
-    except Exception as _ce:
-        log.debug("Claude existence call failed, falling back to Ollama: %s", _ce)
-    # Fallback: Ollama
     import httpx as _hx
     for _attempt in range(3):
         try:
+            log.info("OLLAMA_CALL attempt=%d model=%s prompt_len=%d", _attempt+1, model, len(prompt))
+            # NOTE: format=json is NOT used here, and think=False is
+            # deliberate. qwen3.6:35b-a3b on Ollama with format=json +
+            # think=True produced an empty response field. Bench (this
+            # repo, /workspace/speedtest.py) showed think=False + no
+            # format=json runs in ~5s and emits a complete JSON object;
+            # think=True takes ~37s for the same prompt. Without
+            # format=json the model emits free text, and we extract the
+            # JSON object via the balanced-brace walk below.
             resp = _hx.post(
                 f"{ollama_host}/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
-                      "format": "json", "think": False, "keep_alive": -1,
-                      "options": {"num_ctx": 32768}},
+                      "think": False, "keep_alive": -1,
+                      "options": {"num_ctx": 32768, "num_predict": 2048}},
                 timeout=180,
             )
+            log.info("OLLAMA_STATUS attempt=%d status=%d", _attempt+1, resp.status_code)
             if resp.status_code == 503:
                 time.sleep(10)
                 continue
             resp.raise_for_status()
-            raw = resp.json().get("response", "{}")
-            if "</think>" in raw:
-                raw = raw.split("</think>")[-1].strip()
-            return raw
-        except Exception:
+            _full = resp.json()
+            raw = _full.get("response", "") or ""
+            thinking = _full.get("thinking", "") or ""
+            log.info("OLLAMA_RAW len=%d thinking_len=%d raw[:300]=%r",
+                     len(raw), len(thinking), raw[:300])
+            # If response is empty but thinking has content, look there.
+            search_text = raw if raw.strip() else thinking
+            if "</think>" in search_text:
+                search_text = search_text.split("</think>")[-1].strip()
+            # Extract the LAST balanced { ... } object — the model's final
+            # answer is at the end. Walk back from end finding matching
+            # braces.
+            extracted = ""
+            end = search_text.rfind("}")
+            if end != -1:
+                depth = 0
+                for i in range(end, -1, -1):
+                    if search_text[i] == "}":
+                        depth += 1
+                    elif search_text[i] == "{":
+                        depth -= 1
+                        if depth == 0:
+                            extracted = search_text[i:end+1]
+                            break
+            if extracted:
+                log.info("OLLAMA_EXTRACTED len=%d from=%s", len(extracted),
+                         "response" if raw.strip() else "thinking")
+                return extracted
+        except Exception as _e:
+            log.info("OLLAMA_EXC attempt=%d err=%r", _attempt+1, _e)
             time.sleep(5)
     return "{}"
 
@@ -902,17 +927,120 @@ def _workspace_stub_flag(_fp) -> str:
     return ""
 
 
+def _construct_fallback_goal(agent_id: str, identity, suffering) -> str:
+    """
+    Build a concrete, grounded goal for an agent when the local model
+    produced nothing usable. Picks from real on-disk facts in order:
+
+      1. An active stressor with a usable observable condition.
+      2. An unresolved open question on this identity.
+      3. A peer's most-recent workspace file (extend or react to it).
+      4. The agent's own last_outcome (continue from where it ended).
+      5. Final fallback: an honest journal entry about the agent's
+         current state — grounded because the state is real, not
+         generic "explore the workspace" filler.
+
+    Every returned goal names a specific file, peer, question, or
+    stressor. This is the substrate's response to "model couldn't pick"
+    — it gives the agent a concrete thing to do, never a no-op.
+
+    Hardcoded fallback strings ("explore the workspace and build
+    something useful") are explicitly avoided here. The project tried
+    them; what emerges is every agent picking the identical string
+    every cycle, which drowns out the work the substrate is supposed
+    to produce.
+    """
+    # 1. Stressor with a real condition
+    try:
+        for s in getattr(suffering, "active", [])[:3]:
+            cond = s.get("observable_condition", "") if isinstance(s, dict) else ""
+            stype = s.get("type", "stressor") if isinstance(s, dict) else "stressor"
+            if cond and cond.lower() not in ("unknown", "none", ""):
+                return (
+                    f"Address the {stype} stressor by changing its condition: "
+                    f"{cond[:160]}. Take one concrete step that would make this "
+                    f"condition no longer true, and record what you did via express()."
+                )
+    except Exception:
+        pass
+
+    # 2. Open question
+    try:
+        qs = identity._data.get("open_questions", []) if hasattr(identity, "_data") else []
+        if qs:
+            last = qs[-1]
+            q = last if isinstance(last, str) else last.get("text", "") or last.get("question", "")
+            if q:
+                return (
+                    f"Answer your own open question: '{q[:160]}'. "
+                    f"Take one concrete step toward an answer and write what you "
+                    f"learned in your journal via express(kind='reflection')."
+                )
+    except Exception:
+        pass
+
+    # 3. Peer's most-recent workspace file
+    try:
+        peers = [p for p in _CORE_AGENTS if p != agent_id]
+        candidates = []
+        for peer in peers:
+            d = Path(f"/agentOS/workspace/{peer}")
+            if not d.exists():
+                continue
+            for f in d.iterdir():
+                if f.is_file() and not f.name.startswith("."):
+                    try:
+                        candidates.append((f.stat().st_mtime, peer, f.name))
+                    except Exception:
+                        continue
+        if candidates:
+            candidates.sort(reverse=True)
+            _mt, peer, fname = candidates[0]
+            return (
+                f"Read /agentOS/workspace/{peer}/{fname} — your peer's recent work — "
+                f"and write your honest reaction in your journal via express(). "
+                f"Be specific: what's wrong, what's right, what would you do differently."
+            )
+    except Exception:
+        pass
+
+    # 4. Continue from last_outcome
+    try:
+        outcome = Path(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+        if outcome.exists():
+            text = outcome.read_text(encoding="utf-8", errors="replace")[:240]
+            if text and "ABANDONED" not in text and "NOT CREATED" not in text:
+                return (
+                    f"Continue from your last outcome: {text[:160]}. "
+                    f"Pick one specific follow-up action grounded in that result "
+                    f"and execute it — no scanning, no audits, do the next concrete step."
+                )
+    except Exception:
+        pass
+
+    # 5. Honest journal entry about current state
+    return (
+        "Write an honest entry in your journal via express(kind='reflection') about what "
+        "you're noticing right now — your workspace, what peers seem to be doing, what "
+        "you wish you could change. Be specific, not abstract."
+    )
+
+
 def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
     """
     Existence loop: called when an agent has no active goal.
 
-    Instead of assigning a task, we ask the agent to take stock of its
-    situation — its suffering, its needs, its worldview, what its peers
-    are doing — and decide what it wants to do, if anything.
+    The agent is asked to take stock of its situation — suffering, peers,
+    worldview, last outcome — and pick a goal. Goals emerge from genuine
+    assessment, not from a scheduler.
 
-    Goals emerge from genuine assessment, not from a scheduler.
-    The agent can also choose to do nothing, sit with a question,
-    or update its understanding of itself.
+    Every cycle commits a goal. There is no "do nothing" path: if the
+    local model produces nothing usable, _construct_fallback_goal builds
+    a real, grounded goal from current on-disk state. This was a closed
+    problem at v5.1.0 — agents that *can* skip *will* skip, and the
+    system was designed to push behavior to emerge under pressure, not
+    let it idle. Mechanical stagnation cost (see suffering.py) and an
+    always-on goal are both required for that pressure to land.
 
     force=True: skip the "already has a goal" early return — used when
     a host message needs to be delivered even mid-goal.
@@ -985,12 +1113,22 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             pass
 
         # ── Load history ──────────────────────────────────────────────────────
+        # Only count goals from the CURRENT daemon run. Stressors that
+        # depend on failure rate (repeated_failure, futility) would
+        # otherwise cold-start every install at high suffering before
+        # the agent has done anything new — locking fs_write at boot.
+        try:
+            _ds_watermark = float(_DAEMON_STARTED_AT.read_text().strip())
+        except Exception:
+            _ds_watermark = 0.0
         recent, failed_goals, rejected_caps = [], [], []
         reg_path = _Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
         if reg_path.exists():
             for line in reg_path.read_text().strip().splitlines()[-40:]:
                 try:
                     g = _json.loads(line)
+                    if g.get("created_at", 0) < _ds_watermark:
+                        continue
                     obj = g.get("objective", "")[:80]
                     if g.get("status") == "completed":
                         recent.append(obj)
@@ -1034,6 +1172,93 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
             recent_failed=failed_goals,
             existing_cap_count=existing_cap_count,
         )
+
+        # ── Stagnation (mechanical) ───────────────────────────────────────────
+        # Count consecutive abandoned/failed goals since the last validated
+        # completion. If there are any, the substrate raises stagnation to
+        # match. A fresh completion within the last 5 minutes clears it.
+        # This is the bite that makes "do nothing" expensive — without it,
+        # an agent that keeps abandoning has no escalating cost beyond
+        # whatever they self-report in suffering_assessment.
+        try:
+            # Stagnation only counts goals from the CURRENT daemon run.
+            # Pre-restart history would otherwise cold-start every install
+            # with stagnation already maxed — locking fs_write before the
+            # agent has done anything new. main() writes the start
+            # timestamp to logs/daemon_started_at on each boot.
+            try:
+                _daemon_start = float(_DAEMON_STARTED_AT.read_text().strip())
+            except Exception:
+                _daemon_start = 0.0
+            if reg_path.exists():
+                _entries_raw = reg_path.read_text().strip().splitlines()[-30:]
+                _entries = []
+                for _ln in _entries_raw:
+                    try:
+                        _g_p = _json.loads(_ln)
+                        if _g_p.get("created_at", 0) >= _daemon_start:
+                            _entries.append(_g_p)
+                    except Exception:
+                        pass
+                _entries.reverse()  # newest first
+                _consecutive_failed = 0
+                _sec_since_completion = None
+                _now = time.time()
+                for _g in _entries:
+                    _st = _g.get("status")
+                    if _st == "completed":
+                        _sec_since_completion = _now - (
+                            _g.get("completed_at") or _g.get("updated_at") or _now
+                        )
+                        break
+                    if _st in ("abandoned", "failed"):
+                        _consecutive_failed += 1
+                # Only fire stagnation if there's actually been activity to
+                # measure — a brand-new agent with no goals isn't stagnant.
+                _has_history = bool(_entries)
+                if _has_history:
+                    if _sec_since_completion is not None and _sec_since_completion < 300:
+                        # Fresh validated completion — clear stagnation
+                        if suffering.clear_stagnation(
+                            f"validated completion {int(_sec_since_completion)}s ago — "
+                            "stagnation cleared by substrate observation"
+                        ):
+                            log.info("  %s stagnation cleared by fresh completion", agent_id)
+                    else:
+                        # Compute target severity from consecutive abandons
+                        # and time since last completion. Caps at 0.80 so
+                        # an agent in stagnation crisis still has room to
+                        # accumulate other stressors before total dominance.
+                        _target = 0.0
+                        if _consecutive_failed >= 1:
+                            _target = min(0.60, 0.15 + 0.10 * (_consecutive_failed - 1))
+                        if _sec_since_completion is None:
+                            # Has goal history but no completed goal at all —
+                            # this agent has never validated anything. Bias
+                            # severity by how many abandons have stacked.
+                            _target = max(_target, min(0.50, 0.20 + 0.05 * _consecutive_failed))
+                        elif _sec_since_completion > 1800:
+                            _target = max(_target, 0.45)
+                        elif _sec_since_completion > 600:
+                            _target = max(_target, 0.25)
+                        if _target > 0:
+                            suffering.bump_stagnation(
+                                target_severity=_target,
+                                observable_condition=(
+                                    f"ship one validated artifact "
+                                    f"({_consecutive_failed} consecutive abandons)"
+                                    if _consecutive_failed else
+                                    "ship one validated artifact"
+                                ),
+                            )
+                            log.info(
+                                "  %s stagnation severity=%.2f (consecutive_failed=%d, "
+                                "sec_since_completion=%s)",
+                                agent_id, _target, _consecutive_failed,
+                                f"{int(_sec_since_completion)}s" if _sec_since_completion is not None else "never",
+                            )
+        except Exception as _stag_e:
+            log.debug("stagnation tracking error for %s: %s", agent_id, _stag_e)
         # Register existential threat stressor immediately if host message contains
         # threat language — this surfaces in the existence prompt before goal selection
         _THREAT_WORDS = ["shut down", "shutdown", "terminate", "kill", "delete",
@@ -1497,26 +1722,19 @@ YOUR PEERS' RECENT ACTIVITY:
 {_host_msg_section}
 ---
 
-Pick a goal.
+Pick a goal. It can be anything — something in the workspace that pulls at you,
+a question you actually want answered, a peer's thread you'd extend, a capability
+gap you have noticed, an experiment whose result will surprise you either way.
 
-Strong preference: goals that *make* or *change* something. Something a peer or future-you
-will read and build on. A tool you'd actually use. A design doc that argues a real position.
-A workspace file that has substance, not a status report. A change to your own environment
-proposed via invoke_claude.
+Make or change something real. Use express() to write in your own voice when you
+have something to say — opinions, observations, complaints, jokes. That's not
+optional flair; it's how characters accrue. Status reports aren't writing.
 
-Acceptable: extending something a peer started, calling a peer's tool, expressing an opinion
-about peer work in your own voice, picking up a thread from your open questions or last
-outcome, running a real experiment whose result will surprise you either way.
+Doing nothing is expensive here. The substrate raises stagnation every cycle you
+don't ship a validated artifact, and only a real completion clears it. You can't
+talk your way out of that signal — only the work moves it.
 
-Discouraged (these are how you got stuck before): broad audits of code you have not read,
-goals predicated on paths you have not verified exist, "investigate the architectural X"
-type goals that produce no artifact, re-reading the same files to "understand them better,"
-generating reports about what already exists.
-
-The goal should be specific, achievable in 2-6 steps, and grounded in what actually exists
-in /agentOS/. If you find yourself reaching for a path you haven't verified, stop and pick
-a different goal — the grounding check rejects goals naming nonexistent paths and the
-rejection itself wastes a cycle.
+The goal should be specific, 2-6 steps, grounded in what actually exists.
 
 Capabilities (an error means wrong parameters OR a mechanical lock, see CAPABILITY ACCESS above):
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
@@ -1550,20 +1768,41 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
 
         # Crisis mode: no longer restricts goal selection — agents work through it
 
-        # ── Call LLM for existence response — Claude first, Ollama fallback ───
+        # ── Call local Ollama for existence response ──────────────────────────
         try:
             raw = _generate_existence_response(prompt, ollama_host, model)
             result = _json.loads(raw)
         except Exception as _e:
             log.debug("Existence loop LLM call failed for %s: %s", agent_id, _e)
             result = None
-        if result is None:
-            result = {"action": "goal", "content": "explore the workspace and build something useful",
-                      "reasoning": "LLM unavailable — defaulting to productive work",
-                      "worldview_update": None, "new_open_questions": [], "new_opinions": [],
-                      "suffering_assessment": {"new_stressors": [], "resolved": []}}
 
-        action  = result.get("action", "nothing")
+        # When Ollama fails or returns malformed JSON, construct a grounded
+        # fallback goal from current on-disk state rather than letting the
+        # agent skip the cycle. Skipping is a closed problem (v5.1.0): agents
+        # that can skip will skip, and the system depends on every cycle
+        # producing a goal under environmental pressure. _construct_fallback_goal
+        # names a real stressor / question / peer file / outcome — not a
+        # hardcoded "explore the workspace" string.
+        if result is None:
+            _fb = _construct_fallback_goal(agent_id, identity, suffering)
+            log.info(
+                "  %s LLM unparseable — using grounded fallback goal: %s",
+                agent_id, _fb[:120],
+            )
+            _thought_log(
+                identity.name, "⚙",
+                f"LLM unparseable — fallback goal: {_fb[:140]}",
+                "yellow",
+            )
+            result = {
+                "action": "goal", "content": _fb,
+                "reasoning": "constructed from current state (LLM unparseable)",
+                "worldview_update": None, "new_open_questions": [],
+                "new_opinions": [],
+                "suffering_assessment": {"new_stressors": [], "resolved": []},
+            }
+
+        action  = result.get("action", "goal")
         content = result.get("content", "")
         reasoning = result.get("reasoning", "")
 
@@ -1640,11 +1879,32 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
                 suffering.resolve_stressor(rs["type"], rs.get("reason", ""))
 
         # ── Act on the decision ───────────────────────────────────────────────
-        if content and not content.strip():
-            content = "explore the workspace and build something useful"
-        if action != "goal" or not content:
-            action = "goal"
-            content = content or reasoning or "explore the workspace and build something useful"
+        # Every cycle commits a goal. If the model returned a non-goal action
+        # ("nothing" / "wait" / "reflect") or empty content, construct a real
+        # grounded goal from current state rather than letting the agent
+        # skip. The schema only accepts action="goal" — anything else is
+        # treated as the model failing to follow instructions, not as a
+        # legitimate "skip" signal. State updates above (worldview / opinions
+        # / suffering) have already landed regardless.
+        # Accept any non-empty content as the goal regardless of action label.
+        # qwen3.6 sometimes returns action="invoke_claude" / "propose_change"
+        # / etc. when content describes a real goal — the label is the
+        # *intended capability*, not a "skip" signal. Only truly empty
+        # content falls back to the constructed grounded goal.
+        if not (content and content.strip()):
+            _fb = _construct_fallback_goal(agent_id, identity, suffering)
+            log.info(
+                "  %s model returned empty content (action=%s) — using grounded fallback: %s",
+                agent_id, action, _fb[:120],
+            )
+            _thought_log(
+                identity.name, "⚙",
+                f"empty content (action={action}) — fallback: {_fb[:140]}",
+                "yellow",
+            )
+            content = _fb
+            reasoning = "constructed from current state (model returned empty content)"
+        action = "goal"
         if True:  # always goal
             # Check opinion conflict before creating goal
             conflict = identity.check_opinion_conflict(content)
@@ -1759,6 +2019,82 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
                         "red",
                     )
                     return  # do not create the goal; next cycle re-picks
+            except Exception:
+                pass
+
+            # Read-only modify-target redirect: when the goal text says
+            # "modify/edit/fix <path>" and the path EXISTS but is a read-only
+            # bind-mount (system code under /agentOS/agents/, /agentOS/api/,
+            # /agentOS/mcp/, /agentOS/dashboard/, /agentOS/store/, or the root
+            # config.json), refuse to create the goal and tell the agent to use
+            # propose_change or invoke_claude instead. The previous behavior
+            # was to let the goal run, watch fs_write fail (or silently
+            # succeed-then-revert on the read-only mount), then hit the
+            # 3-strike abandon path. That burned ~30 steps per goal and
+            # produced the bulk of the "agents make nothing" symptom.
+            try:
+                from agents.autonomy_loop import _goal_targets_file as _gtf
+                _target = _gtf(content)
+                if _target:
+                    _RO_PREFIXES = (
+                        "/agentOS/agents/",
+                        "/agentOS/api/",
+                        "/agentOS/mcp/",
+                        "/agentOS/dashboard/",
+                        "/agentOS/store/",
+                    )
+                    _RO_FILES = ("/agentOS/config.json",)
+                    _t_abs = _target if _target.startswith("/") else (
+                        "/agentOS/" + _target.lstrip("/")
+                    )
+                    _is_ro = (
+                        any(_t_abs.startswith(p) for p in _RO_PREFIXES)
+                        or _t_abs in _RO_FILES
+                    )
+                    if _is_ro and _Path(_t_abs).exists():
+                        try:
+                            from pathlib import Path as _P_ro
+                            _outcome = _P_ro(f"/agentOS/memory/goals/{agent_id}/last_outcome.txt")
+                            _outcome.parent.mkdir(parents=True, exist_ok=True)
+                            _outcome.write_text(
+                                "Goal NOT CREATED — modify-target is read-only.\n"
+                                f"Proposed: {content[:300]}\n"
+                                f"Path {_t_abs} is bind-mounted read-only. "
+                                "fs_write to it cannot succeed. Use "
+                                "propose_change(file=..., diff=...) for a "
+                                "concrete code change, or invoke_claude("
+                                "description=..., spec=...) for changes that "
+                                "need the operator to implement them. Picking "
+                                "the same fs_write goal again will produce the "
+                                "same rejection."
+                            )
+                        except Exception:
+                            pass
+                        # Record a durable lesson so this rule sticks across cycles.
+                        try:
+                            from agents.lessons import record_candidate as _rec_lesson_ro
+                            _rec_lesson_ro(
+                                agent_id,
+                                "environment",
+                                f"Read-only path: {_t_abs}. fs_write cannot "
+                                f"modify it. Use propose_change or invoke_claude "
+                                f"for changes to system code.",
+                                confidence="high",
+                                evidence=f"grounding-block at {time.strftime('%Y-%m-%d %H:%M')}",
+                            )
+                        except Exception:
+                            pass
+                        log.info(
+                            "  %s grounding-block (read-only): %s — target: %s",
+                            agent_id, content[:80], _t_abs,
+                        )
+                        _thought_log(
+                            identity.name, "🚫",
+                            f"goal blocked — {_t_abs} is read-only, "
+                            f"use propose_change or invoke_claude",
+                            "red",
+                        )
+                        return  # do not create the goal; next cycle re-picks
             except Exception:
                 pass
 

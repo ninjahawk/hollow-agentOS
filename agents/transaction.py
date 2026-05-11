@@ -29,7 +29,10 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
-TXN_TIMEOUT_SECONDS = 600  # 10 minutes — goals take 3-8 min; 60s caused silent rollback of all commits
+import os as _os_txn
+# 10 minutes default — real agent goals take 3-8 min; a 60s default was rolling
+# back successful commits prematurely. Tests override via TXN_TIMEOUT_SECONDS env.
+TXN_TIMEOUT_SECONDS = int(_os_txn.getenv("TXN_TIMEOUT_SECONDS", "600"))
 TXN_LOG_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "transactions.json"
 
 

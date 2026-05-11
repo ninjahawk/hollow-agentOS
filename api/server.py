@@ -483,27 +483,6 @@ async def system_status(authorization: Optional[str] = Header(None)):
     _verify_any_token(authorization)
     checks = {}
 
-    # Claude auth
-    try:
-        from agents.reasoning_layer import _get_claude_client, _read_claude_oauth_token
-        client = _get_claude_client()
-        if client:
-            oauth = _read_claude_oauth_token()
-            if oauth:
-                checks["claude"] = {"ok": True, "method": "oauth", "message": "Claude connected via Claude Code"}
-            elif os.getenv("ANTHROPIC_API_KEY"):
-                checks["claude"] = {"ok": True, "method": "api_key", "message": "Claude connected via API key"}
-            else:
-                checks["claude"] = {"ok": True, "method": "auth_token", "message": "Claude connected"}
-        else:
-            checks["claude"] = {
-                "ok": False,
-                "message": "Claude not connected — wrapping uses local Ollama (lower quality). "
-                           "Add ANTHROPIC_API_KEY to .env or install Claude Code."
-            }
-    except Exception as e:
-        checks["claude"] = {"ok": False, "message": f"Claude check failed: {e}"}
-
     # Ollama
     try:
         async with httpx.AsyncClient(timeout=3) as client_h:
@@ -2131,35 +2110,19 @@ async def customize_wrapper(
         f"Return ONLY the updated interface_spec JSON object. No explanation."
     )
 
-    async def _regenerate():
-        try:
-            from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
-            client = _get_claude_client()
-            if client:
-                msg = client.messages.create(
-                    model=CLAUDE_SMART_MODEL,
-                    max_tokens=1500,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                raw = _strip_code_fences(msg.content[0].text.strip())
-                return json.loads(raw)
-        except Exception:
-            pass
-        return None
-
     try:
-        from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
-        client = _get_claude_client()
-        if client:
-            msg = client.messages.create(
-                model=CLAUDE_SMART_MODEL,
-                max_tokens=1500,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = _strip_code_fences(msg.content[0].text.strip())
-            new_iface = json.loads(raw)
-        else:
-            raise HTTPException(status_code=503, detail="Claude not available for customization")
+        from agents.reasoning_layer import _strip_code_fences
+        import httpx as _hx_cust
+        r = _hx_cust.post(
+            f"{_ollama_host()}/api/generate",
+            json={"model": "qwen2.5:7b", "prompt": prompt, "stream": False,
+                  "format": "json"},
+            timeout=90,
+        )
+        if r.status_code != 200:
+            raise HTTPException(status_code=503, detail=f"Ollama returned {r.status_code}")
+        raw = _strip_code_fences(r.json().get("response", "").strip())
+        new_iface = json.loads(raw)
     except HTTPException:
         raise
     except Exception as e:
@@ -2322,21 +2285,10 @@ async def discover_tools(body: DiscoverRequest, authorization: Optional[str] = H
     loop = asyncio.get_event_loop()
 
     def _rank():
-        try:
-            from agents.reasoning_layer import _get_claude_client, CLAUDE_FAST_MODEL, _strip_code_fences
-            client = _get_claude_client()
-            if client:
-                msg = client.messages.create(
-                    model=CLAUDE_FAST_MODEL,
-                    max_tokens=300,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return json.loads(_strip_code_fences(msg.content[0].text.strip()))
-        except Exception:
-            pass
-        # Keyword fallback — used when Claude is unavailable.
-        # Intent expansion maps plain-English concepts to technical terms
-        # so "search files fast" matches ripgrep even without an LLM.
+        # Intent expansion: maps plain-English concepts to technical terms
+        # so "search files fast" matches ripgrep without needing an LLM.
+        # The local Ollama path could rerank, but the keyword map is fast,
+        # deterministic, and good enough for discovery — no LLM call here.
         _INTENT_MAP = {
             "search": ["grep", "ripgrep", "rg", "fzf", "fd", "find", "search"],
             "find": ["fd", "find", "fzf", "locate", "ripgrep"],

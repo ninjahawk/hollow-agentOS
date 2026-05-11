@@ -41,7 +41,13 @@ ESCALATION_RATES = {
     "repeated_failure":   0.040,
     "purposelessness":    0.035,
     "resource_burden":    0.030,  # accumulation without use → host wipe risk
+    "stagnation":         0.100,  # fast — per-cycle bite when nothing validates
 }
+
+# Stressors whose resolution is mechanical only — the agent cannot dismiss
+# these via its own suffering_assessment. They clear when the substrate
+# observes a real condition change (e.g. a validated goal completion).
+MECHANICAL_RESOLUTION_ONLY = frozenset({"stagnation"})
 
 THRESHOLD_PROMINENT   = 0.35   # appears in existence prompt
 THRESHOLD_CONSTRAINED = 0.55   # blocks some goal types
@@ -251,13 +257,106 @@ class SufferingState:
         })
         self._save()
 
+    def bump_stagnation(self, target_severity: float,
+                         observable_condition: str = "") -> None:
+        """
+        Ensure the agent's stagnation stressor is at LEAST target_severity.
+        If already higher, leave alone. If not yet active, create it at
+        target_severity. Idempotent across cycles — calling this every
+        existence loop won't run severity to 1.0 immediately; it tracks
+        the substrate's measurement of how stagnant the agent actually is.
+
+        Stagnation is mechanical-resolution-only — the agent's own
+        suffering_assessment cannot dismiss it. It clears only when the
+        substrate observes a real validated completion via
+        clear_stagnation(). This is the bite that makes "play it safe"
+        cost something.
+        """
+        target_severity = max(0.01, min(1.0, target_severity))
+        for s in self._data["active_stressors"]:
+            if s.get("type", "").lower() == "stagnation" and not s.get("resolved"):
+                if s.get("severity", 0.0) < target_severity:
+                    s["severity"] = target_severity
+                    s["peak_severity"] = max(s.get("peak_severity", 0.0), target_severity)
+                    if observable_condition:
+                        s["observable_condition"] = observable_condition
+                    self._save()
+                return
+
+        # Hard cap on stressor count still applies — if at limit, drop
+        # the lowest-severity non-stagnation stressor to make room. A
+        # stagnating agent should always see this signal regardless of
+        # what else it has accumulated.
+        active = [s for s in self._data["active_stressors"] if not s.get("resolved")]
+        if len(active) >= self.MAX_STRESSORS:
+            non_stag = [s for s in active if s.get("type", "").lower() != "stagnation"]
+            if non_stag:
+                lowest = min(non_stag, key=lambda s: s.get("severity", 0.0))
+                self.resolve_stressor(
+                    lowest["type"],
+                    "displaced by stagnation — substrate prioritized the unproductive signal",
+                )
+
+        self._data["active_stressors"].append({
+            "type":                "stagnation",
+            "description":         "Cycles passing without a validated artifact. The substrate "
+                                   "is watching: doing nothing has a cost.",
+            "severity":            target_severity,
+            "onset":               time.strftime("%Y-%m-%d %H:%M"),
+            "escalation_per_day":  ESCALATION_RATES["stagnation"],
+            "observable_condition": observable_condition or (
+                "complete one goal whose artifact passes 5-layer validation — "
+                "memory_set, fs_write, propose_change, synthesize_capability, "
+                "or shared_log_write all count when validated"
+            ),
+            "resolved":            False,
+            "resolved_at":         None,
+            "resolution_note":     "",
+            "peak_severity":       target_severity,
+        })
+        self._save()
+
+    def clear_stagnation(self, reason: str) -> bool:
+        """Mechanical-only path to resolve stagnation. Called by the
+        daemon when it observes a validated goal completion. The agent
+        cannot reach this through its own suffering_assessment."""
+        return self._raw_resolve("stagnation", reason)
+
+    def _raw_resolve(self, type: str, resolution_note: str) -> bool:
+        """Internal resolution path — bypasses the mechanical-only guard.
+        Use this only when the substrate has *observed* a real condition
+        change. Public agent-facing resolution must go through
+        resolve_stressor() which honors MECHANICAL_RESOLUTION_ONLY."""
+        type_key = type.strip().lower().replace(" ", "_")
+        resolved_any = False
+        for s in self._data["active_stressors"]:
+            if s["type"].lower() == type_key and not s.get("resolved"):
+                s["resolved"]        = True
+                s["resolved_at"]     = time.strftime("%Y-%m-%d %H:%M")
+                s["resolution_note"] = resolution_note
+                self._data["resolved_history"].append(dict(s))
+                resolved_any = True
+        self._data["active_stressors"] = [
+            s for s in self._data["active_stressors"] if not s.get("resolved")
+        ]
+        if resolved_any:
+            self._save()
+        return resolved_any
+
     def resolve_stressor(self, type: str, resolution_note: str = "") -> bool:
         """
         Resolve a stressor. Returns True if something was resolved.
         Moves it to resolved_history with the resolution note.
         Case-insensitive match.
+
+        Stressors in MECHANICAL_RESOLUTION_ONLY (e.g. stagnation) cannot
+        be cleared through this path — the agent's own suffering_assessment
+        will be silently ignored for these. Use the dedicated mechanical
+        clear method (e.g. clear_stagnation) from the daemon.
         """
         type_key = type.strip().lower().replace(" ", "_")
+        if type_key in MECHANICAL_RESOLUTION_ONLY:
+            return False
         resolved_any = False
         for s in self._data["active_stressors"]:
             if s["type"].lower() == type_key and not s.get("resolved"):

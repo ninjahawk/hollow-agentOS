@@ -1717,6 +1717,15 @@ def approve_proposal(proposal_id: str, authorization: Optional[str] = Header(Non
         result = _proposal_engine.approve(proposal_id, approved_by=caller.agent_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Surface the real apply-side error instead of letting it fall
+        # through to a bare 500. Standard_update + others raise from
+        # _apply() when their downstream backend fails (e.g. embed call
+        # to Ollama, file permission error). Caller needs the reason.
+        import traceback as _tb
+        _tb.print_exc()
+        raise HTTPException(status_code=500,
+                            detail=f"approve failed during apply: {type(e).__name__}: {e}")
     _audit(caller, "proposal_approve", {
         "proposal_id": proposal_id,
         "status": result.get("status"),

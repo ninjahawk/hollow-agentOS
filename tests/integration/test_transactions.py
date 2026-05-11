@@ -285,9 +285,23 @@ class TestConflictDetection:
 class TestTimeoutAutoRollback:
     def test_timeout_rolls_back(self, auth_headers):
         """
-        Begin txn. Stage 2 writes. Wait 65s without committing.
-        Assert txn rolled_back with reason=timeout. Files not written.
+        Begin txn. Stage 2 writes. Wait past the configured timeout
+        without committing. Assert txn rolled_back with reason=timeout.
+        Files not written.
+
+        Runtime default is TXN_TIMEOUT_SECONDS=600 (real agent goals take
+        3-8 minutes — a 60s default was rolling back successful commits).
+        CI sets TXN_TIMEOUT_SECONDS=10 in the workflow so this test
+        completes in ~15s rather than ~605s.
         """
+        import os
+        configured_timeout = int(os.getenv("TXN_TIMEOUT_SECONDS", "600"))
+        if configured_timeout > 60:
+            pytest.skip(
+                f"TXN_TIMEOUT_SECONDS={configured_timeout}s would make "
+                f"this test take too long; set TXN_TIMEOUT_SECONDS=10 to run it"
+            )
+
         path0 = f"/tmp/txn-timeout-0-{int(time.time())}.txt"
         path1 = f"/tmp/txn-timeout-1-{int(time.time())}.txt"
 
@@ -295,8 +309,8 @@ class TestTimeoutAutoRollback:
         _stage(auth_headers, txn_id, "fs_write", {"path": path0, "content": "timed out"})
         _stage(auth_headers, txn_id, "fs_write", {"path": path1, "content": "timed out"})
 
-        # Wait for watchdog to fire (60s timeout + 5s poll interval + buffer)
-        time.sleep(67)
+        # Wait for watchdog to fire (timeout + 5s poll interval + buffer)
+        time.sleep(configured_timeout + 7)
 
         status = _txn_status(auth_headers, txn_id)
         assert status["status"] == "rolled_back", (

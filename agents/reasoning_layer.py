@@ -81,86 +81,11 @@ CONFIG_PATH = Path(os.getenv("AGENTOS_CONFIG", "/agentOS/config.json"))
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
-# Claude auth — two supported paths (tried in order):
-#   1. OAuth credentials file (Claude Code session, draws from extra usage credits)
-#      Mounted into container at /claude-auth/.credentials.json
-#   2. ANTHROPIC_AUTH_TOKEN env var (OAuth token passed directly)
-#   3. ANTHROPIC_API_KEY env var (standard API key)
-#   4. Ollama / BatchLLM fallback (local, no Claude)
-ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
-ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
-CLAUDE_CREDENTIALS_PATH = Path(
-    os.getenv("CLAUDE_CREDENTIALS_PATH", "/claude-auth/.credentials.json")
-)
-CLAUDE_FAST_MODEL  = "claude-haiku-4-5-20251001"   # capability selection, routine planning
-CLAUDE_SMART_MODEL = "claude-sonnet-4-6"            # wrapping, interface generation, analysis
-
-# Keywords that indicate a goal needs Sonnet-level reasoning.
-# Everything else uses Haiku — same Claude, lower cost.
-_COMPLEX_KEYWORDS = {
-    "wrap", "wrap_repo", "interface", "capability map", "capability_map",
-    "analyze repo", "generate wrapper", "interface spec", "layer 3 bootstrap",
-    "ingest", "generate interface", "app wrapper",
-}
-
-
-def _classify_prompt(prompt: str) -> str:
-    """Return 'smart' (Sonnet) or 'fast' (Haiku) based on prompt content."""
-    lowered = prompt.lower()
-    if any(kw in lowered for kw in _COMPLEX_KEYWORDS):
-        return "smart"
-    return "fast"
-
-
-def _read_claude_oauth_token() -> str:
-    """
-    Read the current OAuth access token from the Claude Code credentials file.
-    Returns empty string if the file is missing or malformed.
-    Called fresh on every Claude request so token refresh by Claude Code
-    is picked up automatically without restarting the container.
-    """
-    try:
-        if CLAUDE_CREDENTIALS_PATH.exists():
-            data = json.loads(CLAUDE_CREDENTIALS_PATH.read_text())
-            token = data.get("claudeAiOauth", {}).get("accessToken", "")
-            return token
-    except Exception:
-        pass
-    return ""
-
-
-
-# Session-level flag: set True after confirmed auth failure so we stop
-# hammering api.anthropic.com with requests that will 401 every call.
-_claude_auth_known_bad: bool = False
-
-
-def _get_claude_client():
-    """
-    Return an Anthropic client using the best available auth method.
-    Priority: OAuth credentials file → ANTHROPIC_AUTH_TOKEN → ANTHROPIC_API_KEY
-    Returns None if no auth is available or auth has already failed this session.
-    """
-    global _claude_auth_known_bad
-    if _claude_auth_known_bad:
-        return None
-
-    import anthropic
-
-    # 1. OAuth credentials file (auto-refreshed by Claude Code)
-    oauth_token = _read_claude_oauth_token()
-    if oauth_token:
-        return anthropic.Anthropic(auth_token=oauth_token)
-
-    # 2. OAuth token from env var
-    if ANTHROPIC_AUTH_TOKEN:
-        return anthropic.Anthropic(auth_token=ANTHROPIC_AUTH_TOKEN)
-
-    # 3. Standard API key
-    if ANTHROPIC_API_KEY:
-        return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
-    return None
+# Hollow runs on local Ollama only. The hosted Anthropic API must never
+# be wired into agent runtime — see CLAUDE.md. Prior revisions had a
+# Claude-first path in reasoning + wrap_repo + the existence loop that
+# silently consumed operator API budget on every cycle for every agent.
+# That has been deleted; do not re-introduce.
 
 
 def _strip_code_fences(text: str) -> str:
@@ -231,57 +156,16 @@ class ReasoningLayer:
         except Exception:
             return "qwen3.6:35b-a3b"
 
-    def _claude_generate(self, prompt: str, model: str) -> str:
-        """
-        Call Claude using the best available auth (OAuth or API key).
-        Retries once with a fresh token read if a 401 is returned
-        (handles the case where Claude Code refreshed the OAuth token mid-session).
-        """
-        import anthropic
-
-        for attempt in range(2):
-            client = _get_claude_client()
-            if client is None:
-                raise RuntimeError("No Claude auth configured")
-            try:
-                message = client.messages.create(
-                    model=model,
-                    max_tokens=2048,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return _strip_code_fences(message.content[0].text.strip())
-            except anthropic.AuthenticationError:
-                if attempt == 0:
-                    continue  # re-read credentials file and retry once
-                # Second 401 — credentials are bad for this session. Stop trying.
-                global _claude_auth_known_bad
-                _claude_auth_known_bad = True
-                raise
-
     def _generate(self, prompt: str, model_tier: str = "auto") -> str:
         """
-        Generate a response. Routing priority:
-          1. Claude (OAuth credentials file, OAuth env token, or API key)
-          2. BatchLLM (local parallel GPU inference)
-          3. Ollama (local fallback)
+        Generate a response. Routing:
+          1. BatchLLM (local parallel GPU inference, if available)
+          2. Ollama (local default)
 
-        model_tier: "auto"  → classify prompt → Haiku or Sonnet
-                    "fast"  → Haiku  (capability selection, routine ops)
-                    "smart" → Sonnet (wrapping, interface generation, analysis)
+        model_tier is accepted for backward compatibility with callers
+        that still pass it, but only the configured local model is used.
         """
-        # 1. Claude (any auth method available)
-        if _get_claude_client() is not None:
-            try:
-                if model_tier == "auto":
-                    tier = _classify_prompt(prompt)
-                else:
-                    tier = model_tier
-                model = CLAUDE_SMART_MODEL if tier == "smart" else CLAUDE_FAST_MODEL
-                return self._claude_generate(prompt, model)
-            except Exception:
-                pass  # fall through to local models
-
-        # 2. BatchLLM (local parallel GPU inference)
+        # 1. BatchLLM (local parallel GPU inference)
         try:
             from agents.batch_llm import get_server
             server = get_server()
@@ -290,13 +174,13 @@ class ReasoningLayer:
         except Exception:
             pass
 
-        # 3. Ollama
+        # 2. Ollama
         import httpx
         model = self._ollama_model()
         resp = httpx.post(
             f"{OLLAMA_HOST}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False,
-                  "format": "json", "think": False,
+                  "think": False,
                   "options": {"num_ctx": 32768}},
             timeout=OLLAMA_TIMEOUT,
         )
@@ -315,11 +199,14 @@ class ReasoningLayer:
         """
         reasoning_id = f"rsn-{uuid.uuid4().hex[:12]}"
 
-        # Step 1: Find candidate capabilities via semantic search
+        # Step 1: Find candidate capabilities via semantic search.
+        # Transaction caps are loop-managed; never expose them to the model.
+        _LOOP_MANAGED = {"txn_begin", "txn_commit", "txn_rollback"}
         candidates = []
         if self._capability_graph:
-            results = self._capability_graph.find(intent, top_k=5, similarity_threshold=0.2)
-            candidates = [cap.capability_id for cap, _ in results]
+            results = self._capability_graph.find(intent, top_k=8, similarity_threshold=0.2)
+            candidates = [cap.capability_id for cap, _ in results
+                          if cap.capability_id not in _LOOP_MANAGED][:5]
 
         if not candidates:
             return (None, {}, 0.0, "No matching capabilities found")
@@ -377,7 +264,28 @@ class ReasoningLayer:
             )
 
             raw = self._generate(prompt, model_tier="fast")
-            result = json.loads(raw)
+            # Model output is free text now (format=json removed for speed
+            # and correctness on qwen3.6 — see CLAUDE.md). Extract the last
+            # balanced { ... } object via _strip_code_fences which already
+            # handles markdown fences and prose-before-JSON.
+            raw = _strip_code_fences(raw)
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                # Walk back from the last } to find a balanced object.
+                end = raw.rfind("}")
+                if end == -1:
+                    raise
+                depth = 0
+                start = -1
+                for i in range(end, -1, -1):
+                    if raw[i] == "}": depth += 1
+                    elif raw[i] == "{":
+                        depth -= 1
+                        if depth == 0: start = i; break
+                if start == -1:
+                    raise
+                result = json.loads(raw[start:end+1])
 
             cap_id = result.get("capability_id", "")
             if cap_id not in candidates:
@@ -402,16 +310,25 @@ class ReasoningLayer:
         Returns list of {capability_id, params, rationale} dicts.
         """
         candidates = []
+        # Transaction caps are managed automatically by the autonomy loop —
+        # txn_begin runs implicitly before steps, txn_commit/rollback run
+        # implicitly after based on goal outcome. The model must NOT see
+        # them as plannable steps, or it will pick txn_commit without the
+        # txn_id (which it has no way to know) and every step fails.
+        _LOOP_MANAGED = {"txn_begin", "txn_commit", "txn_rollback"}
         if self._capability_graph:
             # Use semantic search to find the most relevant caps — keeps prompt small
             results = self._capability_graph.find(objective, top_k=25, similarity_threshold=0.1)
             candidates = [(cap.capability_id, cap.description[:60], cap.input_schema)
-                          for cap, _ in results]
+                          for cap, _ in results
+                          if cap.capability_id not in _LOOP_MANAGED]
             # Always include core output caps so the planner can use them
             _ALWAYS_INCLUDE = {"memory_set", "fs_write", "ollama_chat", "shell_exec", "memory_get"}
             existing_ids = {c[0] for c in candidates}
             for cap in self._capability_graph.list_all(limit=500):
-                if cap.capability_id in _ALWAYS_INCLUDE and cap.capability_id not in existing_ids:
+                if (cap.capability_id in _ALWAYS_INCLUDE
+                        and cap.capability_id not in existing_ids
+                        and cap.capability_id not in _LOOP_MANAGED):
                     candidates.append((cap.capability_id, cap.description[:60], cap.input_schema))
 
         if not candidates:

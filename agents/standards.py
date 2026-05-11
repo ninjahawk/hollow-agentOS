@@ -10,13 +10,16 @@ Matching: cosine similarity via nomic-embed-text (falls back to keyword match if
 
 import json
 import math
+import os
 import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
 
-STANDARDS_PATH = Path("/agentOS/memory/standards.json")
-OLLAMA_HOST = "http://localhost:11434"
+# Respect AGENTOS_MEMORY_PATH so tests, CI, and alternative deployments
+# don't hit a hardcoded /agentOS/memory path the host doesn't have.
+STANDARDS_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "standards.json"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
 
 def _load() -> dict:

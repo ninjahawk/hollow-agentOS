@@ -178,6 +178,32 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
         import json as _j
         content = _j.dumps(content, indent=2)
     full = path if path.startswith("/") else f"/agentOS/workspace/{path}"
+    # Auto-rewrite shared-workspace-root writes into the calling agent's
+    # subfolder. Agents are told to write under /agentOS/workspace/<their_id>/
+    # but the model often drops the subdir and writes to the shared root,
+    # where the file becomes invisible to per-agent scans and is harder for
+    # peers to attribute. If the path is exactly /agentOS/workspace/<file>
+    # (no nested directory), rewrite it.
+    _rewritten_from = ""
+    if full.startswith("/agentOS/workspace/"):
+        _rest = full[len("/agentOS/workspace/"):]
+        # No slash → bare filename at workspace root. Per-agent subfolder names
+        # have slashes after them ("scout/foo.py") and are left alone.
+        if _rest and "/" not in _rest:
+            try:
+                import agents.daemon as _dm_fw
+                _aid_fw = _dm_fw._current_agent_id.get("")
+            except Exception:
+                _aid_fw = ""
+            if not _aid_fw:
+                import os as _os_fw
+                _aid_fw = _os_fw.getenv("AGENTOS_AGENT_ID", "")
+            if _aid_fw and _aid_fw not in ("root", ""):
+                _rewritten_from = full
+                full = f"/agentOS/workspace/{_aid_fw}/{_rest}"
+                # Keep the public 'path' field in sync so downstream validation
+                # and execution-chain records see the corrected location.
+                path = full
     # Block direct Python file writes to tools/dynamic/ — use synthesize_capability instead.
     # Also block __init__.py which breaks package imports when agents create it.
     if full.endswith("/__init__.py") and ("/tools/dynamic/" in full or "/memory/dynamic_tools/" in full):
@@ -235,8 +261,15 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "a") as f:
             f.write(content)
-        return {"ok": True, "path": full, "mode": "append"}
-    payload: dict = {"path": path, "content": content}
+        _r = {"ok": True, "path": full, "mode": "append"}
+        if _rewritten_from:
+            _r["rewritten_from"] = _rewritten_from
+            _r["note"] = (
+                f"path auto-rewritten from '{_rewritten_from}' to '{full}' "
+                f"— per-agent workspace subfolder is the canonical write location"
+            )
+        return _r
+    payload: dict = {"path": full, "content": content}
     if txn_id:
         payload["txn_id"] = txn_id
     try:
@@ -246,7 +279,14 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
     if isinstance(result, dict) and result.get("error"):
         return {"ok": False, "path": path, "error": result.get("error")}
     if txn_id and isinstance(result, dict) and result.get("staged"):
-        return {"ok": True, "path": path, "staged": True, "txn_id": txn_id}
+        _r = {"ok": True, "path": full, "staged": True, "txn_id": txn_id}
+        if _rewritten_from:
+            _r["rewritten_from"] = _rewritten_from
+            _r["note"] = (
+                f"path auto-rewritten from '{_rewritten_from}' to '{full}' "
+                f"— per-agent workspace subfolder is the canonical write location"
+            )
+        return _r
     # Verify the write actually landed. Bind-mounted read-only paths can return
     # success at the API layer while the kernel silently drops the bytes — the
     # validation layer downstream then sees an unchanged file and rubber-stamps
@@ -276,7 +316,14 @@ def fs_write(path: str = "", content="", append: bool = False, txn_id: str = "")
                         }
         except Exception:
             pass  # verification is best-effort; don't break legitimate writes
-    return {"ok": True, "path": path}
+    _r = {"ok": True, "path": full}
+    if _rewritten_from:
+        _r["rewritten_from"] = _rewritten_from
+        _r["note"] = (
+            f"path auto-rewritten from '{_rewritten_from}' to '{full}' "
+            f"— per-agent workspace subfolder is the canonical write location"
+        )
+    return _r
 
 
 
@@ -1234,29 +1281,11 @@ def wrap_repo(url: str = "", dest: str = "", upload: bool = True) -> dict:
     )
 
     raw_json = ""
-
-    # Try Claude first
     try:
-        from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
-        client = _get_claude_client()
-        if client:
-            import anthropic
-            msg = client.messages.create(
-                model=CLAUDE_SMART_MODEL,
-                max_tokens=3000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw_json = _strip_code_fences(msg.content[0].text.strip())
-    except Exception:
-        pass
-
-    # Fallback: Ollama
-    if not raw_json:
-        try:
-            result = ollama_chat(prompt=prompt, role="analyst", max_tokens=3000)
-            raw_json = result.get("response", "")
-        except Exception as e:
-            return {"error": f"LLM unavailable: {e}", "ok": False}
+        result = ollama_chat(prompt=prompt, role="analyst", max_tokens=3000)
+        raw_json = result.get("response", "")
+    except Exception as e:
+        return {"error": f"LLM unavailable: {e}", "ok": False}
 
     # ── Step 4: parse and validate ────────────────────────────────────────────
     import json as _json

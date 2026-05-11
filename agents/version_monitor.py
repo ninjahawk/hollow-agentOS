@@ -183,43 +183,18 @@ def update_wrapper_from_diff(
     )
 
     raw_json = ""
-
     try:
-        from agents.reasoning_layer import _get_claude_client, CLAUDE_SMART_MODEL, _strip_code_fences
-        client = _get_claude_client()
-        if client:
-            msg = client.messages.create(
-                model=CLAUDE_SMART_MODEL,
-                max_tokens=3000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw_json = _strip_code_fences(msg.content[0].text.strip())
+        from agents.reasoning_layer import _strip_code_fences
+        import httpx
+        r = httpx.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "qwen2.5:7b", "prompt": prompt, "stream": False},
+            timeout=90,
+        )
+        if r.status_code == 200:
+            raw_json = _strip_code_fences(r.json().get("response", "").strip())
     except Exception as e:
-        log.debug("Claude update_wrapper error: %s", e)
-
-    # Ollama fallback
-    if not raw_json:
-        try:
-            import httpx
-            r = httpx.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "qwen2.5:7b", "prompt": prompt, "stream": False},
-                timeout=90,
-            )
-            if r.status_code == 200:
-                raw_json = r.json().get("response", "")
-                # Strip fences from Ollama output too
-                raw_json = raw_json.strip()
-                if raw_json.startswith("```"):
-                    lines = raw_json.splitlines()
-                    inner = []
-                    for line in lines[1:]:
-                        if line.strip() == "```":
-                            break
-                        inner.append(line)
-                    raw_json = "\n".join(inner).strip()
-        except Exception as e:
-            log.debug("Ollama fallback error: %s", e)
+        log.debug("Ollama update_wrapper error: %s", e)
 
     if not raw_json:
         return None

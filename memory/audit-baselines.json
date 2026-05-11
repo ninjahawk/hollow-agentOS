@@ -1,1 +1,16 @@
-{}
+{
+  "role:root": {
+    "shell_calls_per_minute": {
+      "mean": 0.0,
+      "std": 0.01
+    },
+    "tokens_per_minute": {
+      "mean": 0.0,
+      "std": 0.01
+    },
+    "unique_op_types": {
+      "mean": 60.0,
+      "std": 0.01
+    }
+  }
+}

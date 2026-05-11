@@ -127,22 +127,114 @@ def _is_valid_category(category: str) -> bool:
 
 
 # ── String-similarity for dedup ────────────────────────────────────────────
+#
+# The raw Jaccard approach missed semantically-identical lessons because agents
+# rephrase the same rule with different surface vocabulary every cycle. Five
+# variants of "verify file exists before reading" all promoted as distinct
+# entries, drowning the lessons file. Two improvements:
+#   1. Stem + stopword-strip before Jaccard so "verifies/verify/verifying" and
+#      "files/file" collapse and surface filler doesn't dilute overlap.
+#   2. Family detection — known-rampant lesson families (e.g. "verify path/file
+#      exists before reading") collapse to a single canonical entry regardless
+#      of phrasing. Cheap, narrow, and easy to extend when a new family bloats.
+
+_STOPWORDS = frozenset([
+    "a", "an", "the", "of", "to", "in", "on", "at", "by", "for", "with",
+    "and", "or", "but", "if", "is", "are", "be", "been", "was", "were",
+    "this", "that", "these", "those", "it", "its", "as", "from", "into",
+    "any", "all", "some", "no", "not", "you", "your", "their",
+    # frequent lesson-prose filler that contributes no topic signal
+    "always", "ensure", "make", "sure", "before", "after", "when", "then",
+    "rather", "than", "instead", "via", "using", "use", "must", "should",
+    "may", "might", "can", "will", "would", "could", "do", "does", "doing",
+    "have", "has", "had", "very", "more", "less", "such", "etc", "e", "g",
+    "above", "below", "between", "context", "specific", "actual", "real",
+    "current", "given", "directly", "merely", "simply", "just",
+])
+
+# Light stemmer — strip the most common English inflections. Crude but
+# deterministic: "verify/verifies/verified/verifying", "file/files",
+# "directory/directories", "access/accessing/accessibility".
+_STEM_SUFFIXES = (
+    "ibility", "ability", "ization", "ational", "fulness",
+    "ousness", "iveness", "ization", "ation", "ities", "ility",
+    "ness", "ment", "ings", "ing", "ies", "ied", "ier", "ied",
+    "ers", "er", "ed", "es", "s",
+)
+
+
+def _stem(word: str) -> str:
+    if len(word) <= 4:
+        return word
+    for suf in _STEM_SUFFIXES:
+        if len(word) > len(suf) + 2 and word.endswith(suf):
+            return word[: -len(suf)]
+    return word
+
 
 def _normalize(s: str) -> str:
     return re.sub(r'\W+', ' ', s.lower()).strip()
 
 
+def _content_tokens(s: str) -> set:
+    """Stopword-stripped, stemmed token set used for similarity scoring."""
+    return {
+        _stem(w) for w in _normalize(s).split()
+        if w and w not in _STOPWORDS and len(w) > 2
+    }
+
+
 def _similarity(a: str, b: str) -> float:
-    """Cheap Jaccard similarity over word sets — good enough for dedup."""
-    sa, sb = set(_normalize(a).split()), set(_normalize(b).split())
+    """Stemmed Jaccard similarity over content words. Resilient to surface
+    rephrasing that left the original word-level Jaccard at ~0.15 for
+    semantically-identical lessons."""
+    sa, sb = _content_tokens(a), _content_tokens(b)
     if not sa or not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
 
 
+# Lesson families — when two lessons both match the same family, they're
+# treated as duplicates regardless of Jaccard score. Each family is groups
+# of substrings; a lesson matches the family iff its lowercased text contains
+# at least one substring from each group. Substring-based so it survives
+# inflectional variation without needing the stemmer to be perfect.
+#
+# Add a family here when a specific rule keeps generating distinct-by-Jaccard
+# but semantically-identical bullets across cycles.
+_LESSON_FAMILIES: tuple = (
+    # "verify file/path exists before reading/parsing/executing" —
+    # observed >5x per agent in the May 8 run before this was added.
+    ("verify_existence", (
+        ("verif", "check", "confirm", "validat"),
+        ("exist", "presence", "accessib", "access"),
+        ("file", "path", "director", "resource", "source", "target", "input"),
+    )),
+    # "/agentOS/agents/ is read-only — use propose_change/invoke_claude"
+    ("read_only_agents_path", (
+        ("read-only", "read only", "readonly"),
+        ("/agentos/agents", "agents/", "system path"),
+    )),
+)
+
+
+def _family_of(text: str) -> Optional[str]:
+    if not text:
+        return None
+    lower = text.lower()
+    for family_name, groups in _LESSON_FAMILIES:
+        if all(any(s in lower for s in group) for group in groups):
+            return family_name
+    return None
+
+
 def _find_similar(bullets: list, text: str) -> Optional[int]:
+    fam = _family_of(text)
     for i, b in enumerate(bullets):
-        if _similarity(b.get("text", ""), text) >= DUPLICATE_SIMILARITY_RATIO:
+        existing = b.get("text", "")
+        if fam and _family_of(existing) == fam:
+            return i
+        if _similarity(existing, text) >= DUPLICATE_SIMILARITY_RATIO:
             return i
     return None
 

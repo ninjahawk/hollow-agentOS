@@ -202,7 +202,7 @@ class CapabilityQuorum:
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={"model": model, "prompt": prompt,
-                      "stream": False, "format": "json", "think": False,
+                      "stream": False, "think": False,
                       "options": {"num_ctx": 32768}},
                 timeout=OLLAMA_TIMEOUT,
             )

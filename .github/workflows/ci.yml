@@ -107,7 +107,7 @@ jobs:
         run: |
           mkdir -p /tmp/hollow-memory /tmp/hollow-workspace
           cd api
-          PYTHONPATH=.. AGENTOS_CONFIG=../config.json AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace python3 -m uvicorn server:app \
+          PYTHONPATH=.. AGENTOS_CONFIG=../config.json AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace TXN_TIMEOUT_SECONDS=10 python3 -m uvicorn server:app \
             --host 0.0.0.0 --port 7777 --log-level warning &
           echo "API_PID=$!" >> "$GITHUB_ENV"
 
@@ -117,7 +117,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          PYTHONPATH=. AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace \
+          PYTHONPATH=. AGENTOS_MEMORY_PATH=/tmp/hollow-memory AGENTOS_WORKSPACE_ROOT=/tmp/hollow-workspace TXN_TIMEOUT_SECONDS=10 \
             pytest tests/integration/ -v --tb=short -m integration
 
       - name: Stop API server
@@ -151,12 +151,24 @@ jobs:
       - name: Strip GPU block from compose (no GPU on the runner)
         run: |
           python3 -c "
-          import re
+          # Line-based strip — the regex version dedented the next key
+          # ('restart: unless-stopped') and produced invalid YAML. See #16.
           from pathlib import Path
           p = Path('docker-compose.yml')
-          text = p.read_text()
-          text = re.sub(r'(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*', '\n', text)
-          p.write_text(text)
+          out = []
+          skipping = False
+          stripped = False
+          for line in p.read_text().splitlines():
+              if not stripped and not skipping and line.lstrip().startswith('# GPU acceleration'):
+                  skipping = True
+                  continue
+              if skipping:
+                  if 'capabilities: [gpu]' in line:
+                      skipping = False
+                      stripped = True
+                  continue
+              out.append(line)
+          p.write_text('\n'.join(out) + '\n')
           "
 
       - name: Build images locally (skip GHCR pulls)

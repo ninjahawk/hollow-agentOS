@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Hollow AgentOS — full stack
 #
 # Default — pulls pre-built image from GHCR, no build step required:

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import re
 import secrets
 import shutil
 import subprocess
@@ -481,11 +480,29 @@ def _pull_model(model_id: str) -> bool:
 
 def _start_containers(has_gpu: bool = True) -> tuple[bool, str]:
     def _nogpu_compose(reason: str = "") -> tuple[bool, str]:
-        compose_text = (ROOT / "docker-compose.yml").read_text()
-        patched = re.sub(
-            r"(?s)\s*# GPU acceleration.*?capabilities: \[gpu\]\s*", "\n",
-            compose_text,
-        )
+        # Strip the GPU reservation block from a copy of docker-compose.yml.
+        # Line-based pass: drop from the "# GPU acceleration" comment through
+        # the "capabilities: [gpu]" line. A previous regex-based approach
+        # accidentally ate the trailing indentation off the next key
+        # (`restart: unless-stopped`), producing invalid YAML on the fallback
+        # path — see issue #16.
+        src_lines = (ROOT / "docker-compose.yml").read_text().splitlines()
+        out_lines: list[str] = []
+        skipping = False
+        stripped_once = False
+        for line in src_lines:
+            stripped = line.lstrip()
+            if (not stripped_once and not skipping
+                    and stripped.startswith("# GPU acceleration")):
+                skipping = True
+                continue
+            if skipping:
+                if "capabilities: [gpu]" in line:
+                    skipping = False
+                    stripped_once = True
+                continue
+            out_lines.append(line)
+        patched = "\n".join(out_lines) + "\n"
         tmp = ROOT / ".docker-compose-nogpu.yml"
         tmp.write_text(patched)
         try:
