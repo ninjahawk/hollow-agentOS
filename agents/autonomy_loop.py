@@ -128,6 +128,27 @@ _C = {
     'yellow': '\033[93m', 'blue': '\033[94m', 'cyan': '\033[96m', 'white': '\033[97m',
 }
 
+# Thoughts log rotation threshold. Once the file exceeds this on the next
+# append, we rename it to .log.1 (overwriting any previous .1) and start
+# fresh. Without this it grew unbounded — observed at 37MB after weeks of
+# testing, would be GBs for a long-running install.
+_THOUGHTS_LOG_MAX_BYTES = 50 * 1024 * 1024
+
+
+def _maybe_rotate_thoughts(path: Path) -> None:
+    try:
+        if path.exists() and path.stat().st_size > _THOUGHTS_LOG_MAX_BYTES:
+            backup = path.with_suffix(path.suffix + ".1")
+            try:
+                if backup.exists():
+                    backup.unlink()
+            except Exception:
+                pass
+            path.rename(backup)
+    except Exception:
+        pass
+
+
 def _thought(agent_id: str, msg: str) -> None:
     """Append a formatted, colorized thought line to the live thoughts log."""
     try:
@@ -168,6 +189,7 @@ def _thought(agent_id: str, msg: str) -> None:
             out = f"{ts_s}  {_C['dim']}{aid:<15}  {m}{_C['rs']}"
 
         THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _maybe_rotate_thoughts(THOUGHTS_LOG)
         with open(THOUGHTS_LOG, "a") as f:
             f.write(out + "\n")
     except Exception:

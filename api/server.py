@@ -453,26 +453,6 @@ async def health():
     return {"ok": True, "time": _now()}
 
 
-@app.get("/token.js", include_in_schema=False)
-async def token_js():
-    """
-    Serve the API token as a JavaScript variable for the dashboard UI.
-    This endpoint requires no auth — the token is already in config.json which
-    is readable by anyone with filesystem access. Security model: if you can
-    reach localhost:7777, you're on the same machine and already have access.
-    """
-    from fastapi.responses import Response
-    config = _load_config()
-    token = config.get("api", {}).get("token", "ci-test-token-replace-in-production")
-    # Sanitize — token should be alphanumeric+symbols, no quotes
-    safe_token = token.replace("'", "").replace('"', "").replace("\\", "")[:128]
-    return Response(
-        content=f"window.__HOLLOW_TOKEN='{safe_token}';",
-        media_type="application/javascript",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
 @app.get("/system/status")
 async def system_status(authorization: Optional[str] = Header(None)):
     """

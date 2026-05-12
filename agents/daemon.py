@@ -591,6 +591,18 @@ def _thought_log(agent_name: str, icon: str, text: str, color: str = 'white') ->
             f"{_C[color]}{icon}  {text[:800]}{_C['rs']}"
         )
         _THOUGHTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        # Mirror autonomy_loop's rotation policy so both writers honor the cap.
+        try:
+            if _THOUGHTS_LOG.exists() and _THOUGHTS_LOG.stat().st_size > 50 * 1024 * 1024:
+                _bk = _THOUGHTS_LOG.with_suffix(_THOUGHTS_LOG.suffix + ".1")
+                try:
+                    if _bk.exists():
+                        _bk.unlink()
+                except Exception:
+                    pass
+                _THOUGHTS_LOG.rename(_bk)
+        except Exception:
+            pass
         with open(_THOUGHTS_LOG, "a") as _f:
             _f.write(line + "\n")
     except Exception:
