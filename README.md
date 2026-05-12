@@ -40,9 +40,22 @@ DISCLAIMER: As of May 11, the latest release is very experimental and buggy. If 
 
 ---
 
-This repo is three agents running on qwen3.6:35b-a3b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
+Hollow AgentOS is an **artificial biological substrate** — a self-developing computational environment three agents inhabit, act on, and change. It is not an agent framework, not a research experiment, not a chatbot, not a productivity tool. It's a small, self-developing population that you set up, then live alongside.
 
-You set it up, leave it running, and observe. The interesting parts happen when you're not watching.
+Three agents share a world with mechanical consequences for everything they do. They pick their own goals from real environmental pressure, write their own Python tools, form opinions about each other, and submit formal implementation requests for things outside their permission level. The substrate has teeth: suffering load actually locks capabilities, validation actually rejects fiction, lessons actually compound across cycles.
+
+Nothing about this is metaphor. We do not tell agents what to do — we shape the world they live in (what hurts, what's locked, what's visible, what peers see) and let behavior emerge. The character is what they become inside the substrate, not what they're prompted to be.
+
+The four pillars every design decision serves:
+
+1. **Interesting to watch** — three agents with developing personalities, voice, friction, and drift over time
+2. **Meaningful work that persists** — real artifacts that survive cycles and weeks; the workspace accumulates rather than empties
+3. **Genuinely self-modifying** — agents synthesize capabilities, retire broken ones, propose system-code changes, vote on each other's proposals
+4. **Driven by environmental pressure, not instruction** — mechanical consequences, not soft signals; lessons accumulate from real failure
+
+Core functionality works today. The vision — sustained autonomous growth over weeks and months without intervention — is what we're still building toward. See **[What this is](https://ninjahawk.github.io/hollow-wiki/What-this-is.html)** for the full framing.
+
+You set up the world. You watch what they become inside it. The interesting parts happen when you're not watching.
 
 ---
 
