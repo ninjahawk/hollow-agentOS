@@ -1102,6 +1102,15 @@ class AutonomyLoop:
                     metrics["progress"] = 0.85
                     metrics["has_output"] = False  # force re-earning output gate
                     self._goal_engine.update_progress(agent_id, goal_id, metrics)
+                    # Break out of the while-loop so we don't run a SECOND
+                    # validation in this cycle. Each validation is up to
+                    # L2 (200s) + 3*L5 (780s) under _bounded_call deadlines —
+                    # two validations in one cycle can push past the 1500s
+                    # cycle worker timeout. Next cycle picks up at 0.85
+                    # progress, does one more step or two to reach 1.0, then
+                    # validates again. Spread the work across cycles instead
+                    # of starving everything in one.
+                    break
 
         final = self._goal_engine.get(agent_id, goal_id)
         progress = final.metrics.get("progress", 0.0) if final else 0.0
