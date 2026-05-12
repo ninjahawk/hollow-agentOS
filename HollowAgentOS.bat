@@ -2,7 +2,7 @@
 :: HollowAgentOS — one-click launcher
 :: Builds and starts the full AgentOS stack from local source.
 :: Requirements: Docker Desktop (running), Ollama with qwen3.6:35b-a3b
-:: After setup: Dashboard at http://localhost:7778
+:: After setup: API at http://localhost:7777 — use panel.bat for the GUI
 
 title HollowAgentOS
 
@@ -74,7 +74,7 @@ echo.
 echo   ╔══════════════════════════════════════════════════════╗
 echo   ║   HollowAgentOS is running!                         ║
 echo   ║                                                      ║
-echo   ║   Dashboard:  http://localhost:7778                  ║
+echo   ║   Open panel.bat for the operator GUI                ║
 echo   ║   API:        http://localhost:7777                  ║
 echo   ║   API docs:   http://localhost:7777/docs             ║
 echo   ╚══════════════════════════════════════════════════════╝
