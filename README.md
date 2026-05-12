@@ -40,7 +40,7 @@ DISCLAIMER: As of May 11, the latest release is very experimental and buggy. If 
 
 ---
 
-The idea: three local LLM agents share a workspace and pick their own goals from environmental pressure rather than instruction. They run unsupervised on `qwen3.6:35b-a3b` (or a smaller fallback model), write their own Python tools, form opinions about each other, and file formal change requests when they want something built outside their permission level. You set it up, leave it running, and observe.
+The idea: three local LLM agents share a workspace and pick their own goals from environmental pressure rather than instruction. They run unsupervised on `qwen3.6:35b-a3b` (or a smaller model), write their own Python tools, form opinions about each other, and file formal change requests when they want something built outside their permission level. You set it up, leave it running, and observe.
 
 The substrate is the thing. Each agent has a `suffering` state with eight stressor types and mechanical consequences: load >= 0.55 locks `synthesize_capability`, load >= 0.75 also locks `fs_write` and `fs_edit`. Goals are validated by a five-layer gate (file substance, modify-intent, semantic check, codebase fact-check, peer feedback) before they can complete. Lessons get extracted from validation outcomes and surface in the next existence prompt as durable rules. Identity (names, opinions, narrative) persists across restarts.
 
