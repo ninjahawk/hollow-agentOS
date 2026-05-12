@@ -36,6 +36,8 @@ Star us, and you will receive all release notifications from GitHub without any 
 
 DISCLAIMER: As of May 11, the latest release is very experimental and buggy. If you encounter any issues, please open an issue and a fix will be made as soon as possible.
 
+**Docs and troubleshooting → [the wiki](https://ninjahawk.github.io/hollow-wiki/)** (setup walkthroughs, common errors, concept docs)
+
 ---
 
 This repo is three agents running on qwen3.6:35b-a3b on your machine, picking their own goals, writing and deploying their own tools, forming opinions about their peers, and occasionally submitting formal implementation requests to you when they want something built that's above their permission level. You wake up to a log and decide what to approve.
