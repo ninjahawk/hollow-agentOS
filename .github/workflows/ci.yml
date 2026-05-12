@@ -195,9 +195,6 @@ jobs:
           docker compose logs api --tail 200
           exit 1
 
-      - name: Verify dashboard responds
-        run: curl -sf http://localhost:7778/ > /dev/null
-
       - name: Tear down
         if: always()
         run: docker compose down -v

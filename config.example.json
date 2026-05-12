@@ -7,10 +7,6 @@
     "port": 7777,
     "token": "replace-this-with-any-random-string"
   },
-  "dashboard": {
-    "host": "0.0.0.0",
-    "port": 7778
-  },
   "memory": {
     "path": "/agentOS/memory",
     "auto_index_interval_seconds": 30,
