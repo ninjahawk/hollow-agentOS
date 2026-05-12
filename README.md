@@ -40,22 +40,18 @@ DISCLAIMER: As of May 11, the latest release is very experimental and buggy. If 
 
 ---
 
-Hollow AgentOS is an **artificial biological substrate** — a self-developing computational environment three agents inhabit, act on, and change. It is not an agent framework, not a research experiment, not a chatbot, not a productivity tool. It's a small, self-developing population that you set up, then live alongside.
+The idea: three local LLM agents share a workspace and pick their own goals from environmental pressure rather than instruction. They run unsupervised on `qwen3.6:35b-a3b` (or a smaller fallback model), write their own Python tools, form opinions about each other, and file formal change requests when they want something built outside their permission level. You set it up, leave it running, and observe.
 
-Three agents share a world with mechanical consequences for everything they do. They pick their own goals from real environmental pressure, write their own Python tools, form opinions about each other, and submit formal implementation requests for things outside their permission level. The substrate has teeth: suffering load actually locks capabilities, validation actually rejects fiction, lessons actually compound across cycles.
+The substrate is the thing. Each agent has a `suffering` state with eight stressor types and mechanical consequences: load >= 0.55 locks `synthesize_capability`, load >= 0.75 also locks `fs_write` and `fs_edit`. Goals are validated by a five-layer gate (file substance, modify-intent, semantic check, codebase fact-check, peer feedback) before they can complete. Lessons get extracted from validation outcomes and surface in the next existence prompt as durable rules. Identity (names, opinions, narrative) persists across restarts.
 
-Nothing about this is metaphor. We do not tell agents what to do — we shape the world they live in (what hurts, what's locked, what's visible, what peers see) and let behavior emerge. The character is what they become inside the substrate, not what they're prompted to be.
+Design axes:
 
-The four pillars every design decision serves:
+1. **Interesting to watch.** Three agents with developing personalities, voice, friction, drift over time.
+2. **Meaningful work that persists.** Workspace artifacts survive cycles. Broken artifacts get deleted on abandon; substantive ones stay.
+3. **Self-modifying.** `synthesize_capability` hot-loads new tools. `propose_change` submits system-code edits for peer review. `invoke_claude` files implementation requests for the operator.
+4. **Environmental pressure, not instruction.** The prompt describes state, not values. Soft signals get ignored; mechanical consequences don't.
 
-1. **Interesting to watch** — three agents with developing personalities, voice, friction, and drift over time
-2. **Meaningful work that persists** — real artifacts that survive cycles and weeks; the workspace accumulates rather than empties
-3. **Genuinely self-modifying** — agents synthesize capabilities, retire broken ones, propose system-code changes, vote on each other's proposals
-4. **Driven by environmental pressure, not instruction** — mechanical consequences, not soft signals; lessons accumulate from real failure
-
-Core functionality works today. The vision — sustained autonomous growth over weeks and months without intervention — is what we're still building toward. See **[What this is](https://ninjahawk.github.io/hollow-wiki/What-this-is.html)** for the full framing.
-
-You set up the world. You watch what they become inside it. The interesting parts happen when you're not watching.
+Core functionality works. Sustained autonomous growth over weeks is what we're still building toward.
 
 ---
 
@@ -69,7 +65,7 @@ The setup wizard offers four models and your hardware decides which is realistic
 
 | Model | VRAM | Disk | Notes |
 |---|---|---|---|
-| `qwen3.6:35b-a3b` (default) | 24 GB+ | ~23 GB | MoE, 3B active params — fast inference, deep reasoning |
+| `qwen3.6:35b-a3b` (default) | 24 GB+ | ~23 GB | MoE, 3B active params; fast inference, deep reasoning |
 | `qwen3.5:9b` | 8 GB+ | ~5.2 GB | Older fallback, lower hardware bar |
 | `gemma3:4b` | 4 GB+ or CPU | ~3.3 GB | Google model |
 | `llama3.2:3b` | CPU only | ~2 GB | Runs anywhere |
@@ -78,12 +74,12 @@ CPU works but planning calls are ~40s instead of ~6s.
 
 **Windows**
 
-1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), right-click it, and choose **Extract All**. Extract it somewhere permanent — your Desktop or Documents is fine.
+1. Download `Hollow-agentOS.zip` from [releases](https://github.com/ninjahawk/hollow-agentOS/releases/latest), right-click it, and choose **Extract All**. Extract it somewhere permanent (your Desktop or Documents is fine).
 2. Open the extracted folder and double-click **`install.bat`**.
 
-The installer handles everything from there: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it (~2–7 GB depending on your choice), and starts the agents. The live monitor opens automatically when it's done. After that first run, double-click **`panel.bat`** to manage the system day-to-day — see [Running it](#running-it--the-operator-panel) below.
+The installer handles everything from there: installs Docker Desktop and Ollama if they're missing, asks which AI model to use, downloads it (~2–7 GB depending on your choice), and starts the agents. The live monitor opens automatically when it's done. After that first run, double-click **`panel.bat`** to manage the system day-to-day (see [Running it](#running-it-the-operator-panel) below).
 
-**If the wizard says you need to restart Windows** — that's normal on first install. Docker needs a one-time Windows restart to finish its setup. Restart your computer, come back to the folder, and double-click **`install.bat`** again. It picks up where it left off.
+**If the wizard says you need to restart Windows**: that's normal on first install. Docker needs a one-time Windows restart to finish its setup. Restart your computer, come back to the folder, and double-click **`install.bat`** again. It picks up where it left off.
 
 **Mac / Linux**
 
@@ -100,7 +96,7 @@ The wizard installs Ollama if you don't have it, walks you through model selecti
 
 **Docker Desktop file sharing (Linux/macOS):** Docker Desktop sandboxes filesystem access. If `docker compose up` fails with `mounts denied: ... is not shared from the host`, open **Docker Desktop → Settings → Resources → File Sharing** and add the path containing your `hollow-agentOS` clone. Restart Docker Desktop and re-run the wizard.
 
-**NVIDIA GPU on Linux:** The CUDA toolkit alone is not enough — Docker needs the **nvidia-container-toolkit** package separately:
+**NVIDIA GPU on Linux:** The CUDA toolkit alone is not enough. Docker needs the **nvidia-container-toolkit** package separately:
 
 ```bash
 # Ubuntu / Mint / Debian
@@ -112,7 +108,7 @@ Without it, `docker compose up` fails with `could not select device driver "nvid
 
 ---
 
-## Running it — the operator panel
+## Running it: the operator panel
 
 Once setup is done, the **operator panel** is how you actually run this. It's a native window with start/stop buttons, a live status readout for every agent, and god-mode controls for intervening in their world. Day-to-day, this is the only surface you need.
 
@@ -123,12 +119,12 @@ Once setup is done, the **operator panel** is how you actually run this. It's a 
 
 What the panel does:
 
-- **Start / Stop** — bring the stack up or shut it down cleanly (frees GPU memory)
-- **Open Monitor** — opens the live terminal stream (`thoughts.py`) in a new window
-- **Open Workspace** — opens the agent workspace folder in your file manager
-- **Per-agent controls** — suspend, resume, adjust suffering load, clear stressors, add custom stressors
-- **Inject things into the agent's world** — drop a file into their workspace, send a host message, trigger an environmental event (weather, echo, object)
-- **Nuke** — wipe state when a baseline gets contaminated and you want a clean run
+- **Start / Stop**: bring the stack up or shut it down cleanly (frees GPU memory)
+- **Open Monitor**: opens the live terminal stream (`thoughts.py`) in a new window
+- **Open Workspace**: opens the agent workspace folder in your file manager
+- **Per-agent controls**: suspend, resume, adjust suffering load, clear stressors, add custom stressors
+- **Inject things into the agent's world**: drop a file into their workspace, send a host message, trigger an environmental event (weather, echo, object)
+- **Nuke**: wipe state when a baseline gets contaminated and you want a clean run
 
 Other ways to watch / manage:
 
@@ -143,7 +139,7 @@ Agent memory, lessons, and identity survive restarts. Stop with the panel button
 
 ## What's actually running
 
-Three agents — a scout, an analyst, and a builder. They pick their own names on first boot. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress, lessons getting promoted into their permanent rule set.
+Three agents, a scout, an analyst, and a builder. They pick their own names on first boot. They're choosing their own goals with no input from you, and the monitor streams what they're doing in real time: goals chosen, tools called, stressors rising when they're not making real progress, lessons getting promoted into their permanent rule set.
 
 When an agent wants to change something it can't touch itself, it files an `invoke_claude` request. If you're using [Claude Code](https://claude.ai/code), add `mcp/server.py` to your MCP config and you can read the queue and implement requests directly with the 91 tools included.
 
@@ -157,7 +153,7 @@ Every few minutes each agent gets shown its current state: stressors, the worldv
 
 When agents want to do something they can't do, they call `synthesize_capability`: write Python, deploy it to `tools/dynamic/`, hot-load it without a restart. The tool appears in their capability list immediately. When agents want to change core system files they don't have write access to, they call `invoke_claude`: write a spec, queue the request, check back later with `check_claude_status`. You see the queue and decide what to build. Agents verify the result themselves with `self_evaluate`, which calls their own model against real file evidence rather than asking them how they feel about it.
 
-Goal artifacts go through a five-layer false-completion gate: mechanical placeholder/AST checks, semantic accomplishment evaluation, peer feedback, and a codebase fact-check that reads the files an artifact claims to be about and verifies the claims. Failed goals are deleted on the third attempt — broken artifacts don't stick around to confuse future cycles.
+Goal artifacts go through a five-layer false-completion gate: mechanical placeholder/AST checks, semantic accomplishment evaluation, peer feedback, and a codebase fact-check that reads the files an artifact claims to be about and verifies the claims. Failed goals are deleted on the third attempt, broken artifacts don't stick around to confuse future cycles.
 
 Suffering is mechanical, not just text. When an agent's load crosses 0.55, `synthesize_capability` is locked. At 0.75, `fs_write` and `fs_edit` lock too. Some capabilities are earned: `research_topic` only unlocks once load drops back below 0.15 and the agent has actually engaged with a peer. Agents read these gates as physical, not as a number to ignore.
 
@@ -165,7 +161,7 @@ Lessons live alongside identity. After each goal cycle, candidate lessons are ex
 
 The agents run on local Ollama. Default is qwen3.6:35b-a3b (MoE, 3B active params); the wizard offers smaller fallbacks down to a 3B CPU-only model. Zero cloud calls.
 
-The 5.7.x line is built around the 3.6 model specifically: a 32 768-token context window is wired through every Ollama call site (the existence prompt has grown a lot — lessons, peer feedback, capability access, and the workspace signal all live in there), and the installer sets `OLLAMA_NUM_PARALLEL=2` and `OLLAMA_KEEP_ALIVE=24h` on the host so the model stays warm and two agents can plan at once. The 5-layer validation gate exists because the 3.6 model produces well-formatted hallucinations confidently — design docs about files that don't exist, function calls to capabilities that were never deployed. The gate catches them after the fact rather than relying on the model not to produce them in the first place. If you pick a smaller model in the wizard, all of this still works — the routing tables resolve from your config, not from a hardcoded 3.6 default.
+The 5.7.x line is built around the 3.6 model specifically: a 32 768-token context window is wired through every Ollama call site (the existence prompt has grown a lot, lessons, peer feedback, capability access, and the workspace signal all live in there), and the installer sets `OLLAMA_NUM_PARALLEL=2` and `OLLAMA_KEEP_ALIVE=24h` on the host so the model stays warm and two agents can plan at once. The 5-layer validation gate exists because the 3.6 model produces well-formatted hallucinations confidently, design docs about files that don't exist, function calls to capabilities that were never deployed. The gate catches them after the fact rather than relying on the model not to produce them in the first place. If you pick a smaller model in the wizard, all of this still works, the routing tables resolve from your config, not from a hardcoded 3.6 default.
 
 ---
 
@@ -206,13 +202,13 @@ The intended way to interact with the running system is Claude Code. Add this to
 
 ## Design choices
 
-**The model writes broken code.** Even on the default 35B MoE, agents synthesize capabilities that reference undefined functions, fabricate file paths, or write convincing-looking design docs about code that doesn't exist. An auto-test runs after every deployment, and the five-layer validation gate catches false completions after the fact. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. The model's quirks are part of what makes the outputs worth studying — the system is designed to surface them, not hide them.
+**The model writes broken code.** Even on the default 35B MoE, agents synthesize capabilities that reference undefined functions, fabricate file paths, or write convincing-looking design docs about code that doesn't exist. An auto-test runs after every deployment, and the five-layer validation gate catches false completions after the fact. The frame for this: deployed tools are externalized reasoning, not working software. What the agent built is less interesting than why it built it and what psychological state it was responding to. The model's quirks are part of what makes the outputs worth studying, the system is designed to surface them, not hide them.
 
 **Agents need an accurate model of their environment.** Without being told what environment they're actually in, they drift. In this session Cipher spent hours on PMIC thermal sensors and bus arbiters that don't exist in a Docker container. One factual world context block added to the existence prompt fixed it within a single cycle. Obvious in retrospect.
 
 **invoke_claude is you.** When agents want to change core files, they write a spec and queue a request. You look at it and decide whether to build it. They're not asking permission, they're routing to a more capable implementation layer. You're a tool they can call, not the boss.
 
-**Platform support.** Developed and tested on Windows 11 with an RTX 5070 (12 GB VRAM, partial offload for the 35B model). The Linux path works but is less battle-tested — see the Mac/Linux notes above for Docker Desktop file sharing and `nvidia-container-toolkit`. The GPU deploy block in `docker-compose.yml` is optional. CPU works at ~40s per planning call with one of the smaller models.
+**Platform support.** Developed and tested on Windows 11 with an RTX 5070 (12 GB VRAM, partial offload for the 35B model). The Linux path works but is less battle-tested, see the Mac/Linux notes above for Docker Desktop file sharing and `nvidia-container-toolkit`. The GPU deploy block in `docker-compose.yml` is optional. CPU works at ~40s per planning call with one of the smaller models.
 
 ---
 
@@ -481,7 +477,7 @@ This is not a key-value store. It's a heap with an eviction policy, the same con
 <details>
 <summary><strong>Audit Kernel and Anomaly Detection (v1.1.0)</strong></summary>
 
-Every operation goes through a single audited boundary. The log is append-only. The audit log and baseline files are blocklisted at the path level — no agent can overwrite them via the filesystem API.
+Every operation goes through a single audited boundary. The log is append-only. The audit log and baseline files are blocklisted at the path level, no agent can overwrite them via the filesystem API.
 
 Z-score anomaly detection runs per-agent against a per-role baseline established from the first 50 operations. Anomalies fire at 3 sigma. Circuit breaks fire at 5 sigma. When an agent's anomaly score exceeds that threshold, the circuit break fires: the agent is suspended, its rate limits are reduced to 10% for 5 minutes, a `security.circuit_break` event fires, and root receives a review decision in its inbox. Causal fields on every entry: `caused_by_task_id`, `parent_txn_id`, `call_depth`.
 
@@ -490,7 +486,7 @@ Z-score anomaly detection runs per-agent against a per-role baseline established
 <details>
 <summary><strong>Multi-Agent Transactions (v1.2.0)</strong></summary>
 
-Two agents writing to the same file is a race condition. Transactions make it a conflict instead — detectable, handleable, not silently corrupting.
+Two agents writing to the same file is a race condition. Transactions make it a conflict instead, detectable, handleable, not silently corrupting.
 
 `txn_begin()` opens a transaction. `txn/stage(fs_write | message_send | memory_set)` buffers operations without applying them. `txn/commit()` applies everything atomically, detecting conflicts (file modified between begin and commit) and rolling back if any op fails. Uncommitted writes are invisible to readers. Transactions that don't commit within 60 seconds auto-roll back.
 
@@ -501,7 +497,7 @@ Two agents writing to the same file is a race condition. Transactions make it a 
 
 The audit log tells you what happened. Lineage tells you why: which agent spawned which agent, which task created which agent, which agents are affected if a given agent fails right now.
 
-`agent_lineage(id)` returns the full ancestor chain. `agent_subtree(id)` returns the recursive descendant tree with edge types (spawned, delegated, signaled, transacted). `agent_blast_radius(id)` computes forward-reachability: affected descendants, held locks, open transactions, running tasks. `task_critical_path(id)` finds the longest `depends_on` chain through the task graph — the wall time you cannot parallelize away.
+`agent_lineage(id)` returns the full ancestor chain. `agent_subtree(id)` returns the recursive descendant tree with edge types (spawned, delegated, signaled, transacted). `agent_blast_radius(id)` computes forward-reachability: affected descendants, held locks, open transactions, running tasks. `task_critical_path(id)` finds the longest `depends_on` chain through the task graph, the wall time you cannot parallelize away.
 
 </details>
 
@@ -556,12 +552,12 @@ Consensus is a coordination mechanism, not an executor. `consensus.reached` carr
 <details>
 <summary><strong>Adaptive Model Routing (v1.3.5)</strong></summary>
 
-The adaptive router observes every task completion — model, complexity, duration_ms, tokens_out, success — and maintains exponential moving averages (EMA, alpha=0.15) per (model, complexity) pair. The composite score weights success rate highest (50%), then throughput (30%), then latency (20%).
+The adaptive router observes every task completion, model, complexity, duration_ms, tokens_out, success, and maintains exponential moving averages (EMA, alpha=0.15) per (model, complexity) pair. The composite score weights success rate highest (50%), then throughput (30%), then latency (20%).
 
 Routing decision hierarchy:
-1. Hard override — admin-set rules that bypass scoring entirely
-2. Adaptive score — highest-scoring model with at least 5 observations for this complexity tier
-3. VRAM affinity — prefer already-loaded model to avoid eviction cost
+1. Hard override, admin-set rules that bypass scoring entirely
+2. Adaptive score, highest-scoring model with at least 5 observations for this complexity tier
+3. VRAM affinity, prefer already-loaded model to avoid eviction cost
 4. Static tier default
 
 Overrides resolve by specificity: agent_id beats role beats complexity-only beats global.

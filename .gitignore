@@ -95,3 +95,34 @@ demo/hollow-demo.cast
 
 # Orphaned root-level gif (README uses demo/hollow-demo.gif)
 demo.gif
+
+# Wiki content — lives in the separate hollow-wiki repo, never in this one
+wiki-draft/
+wiki/
+
+# Local-only docs/drafts that shouldn't ship
+notes/
+draft/
+drafts/
+*.draft.md
+TODO.md
+NOTES.md
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.tmp
+
+# Local secrets and credentials
+.env.*
+*.local.json
+secrets/
+credentials/
+
+# Local benchmark outputs
+benchmarks/results/
+
+# Claude task outputs (per-session, machine-local)
+tasks/
