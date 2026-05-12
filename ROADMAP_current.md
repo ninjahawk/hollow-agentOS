@@ -1,5 +1,5 @@
-# Hollow AgentOS — Current State & Roadmap
-*Revised 2026-05-07. Replaces previous version (2026-05-06).*
+# Hollow AgentOS, Current State & Roadmap
+*Revised 2026-05-12 (v5.7.32 substrate stability pass). Previous: 2026-05-07.*
 
 ---
 
@@ -263,9 +263,34 @@ Fixes:
 - Rendered at TOP of existence prompt as "RULES OF YOUR ENVIRONMENT"
 - 419319f follow-up: drop candidate when similar lesson already in lessons.json
 
+### v5.7.32 (2026-05-12), substrate stability pass
+
+Goal: unblock the loop. The fixes here all address structural reasons agents could not complete work or recover from failure.
+
+- **Completion math fix.** HVC progress_delta 0.15 -> 0.20. With MAX_STEPS=6 the prior max-reachable progress was 6 * 0.15 = 0.90, which is below the `progress >= 1.0` gate that fires `_txn_commit_goal`. Every staged fs_write fell through to the end-of-cycle rollback. This was the root cause of the project-long empty workspace.
+- **Mechanical validator artifact ordering.** Prefer real-artifact steps (fs_write / memory_set / propose_change / synthesize_capability) over evidence steps (shell_exec, ollama_chat). Without this, the most-recent successful step won, so semantic verification often compared the goal against a directory listing instead of the actual produced artifact.
+- **Plan-vs-action gate.** Goals using a modify-existing verb (modify / enhance / fix / refactor / etc.) where the only completed artifact is a workspace `.md` / `.txt` now reject with a pointer toward propose_change / synthesize_capability / invoke_claude. Stops "wrote a plan, called it done."
+- **Planner candidate filter.** `invoke_claude`, `propose_change`, `synthesize_capability`, `check_claude_status`, `vote_on_proposal` force-included in `_ALWAYS_INCLUDE`. They almost never won semantic search against goal text and were invisible to the planner: root cause of the empty `claude_requests.jsonl` queue across the project lifetime.
+- **Fallback goal rotation.** `_construct_fallback_goal` now skips stressor types used in the recent 10 goals, forcing rotation to open-question / peer-file / last-outcome / journal. Without rotation agents picked "Address the repeated_failure stressor by changing its condition" 23-25 times in a row.
+- **Same-text loop guard.** `_assign_idle_goal` rejects model-proposed goal text duplicating a goal abandoned 3+ times in the last 20 cycles, forces fallback. Catches the case where the model parrots back stressor-description text from the existence prompt.
+- **Validation cap at 1 attempt per cycle.** After validation failure, break out of the pursue_goal while loop. Next cycle picks up at progress=0.85 and retries. Spreads validation cost across cycles. Stops the case where two validation chains in one cycle blow past the 1500s cycle timeout.
+- **Bounded Ollama calls in validation.** L2 semantic + L5 fact-check wrapped in `concurrent.futures.ThreadPoolExecutor` with hard wall-clock deadlines. Observed: on Windows hosts, Ollama can evict the model under VRAM pressure despite `keep_alive=-1`, and httpx requests then hang below the exception layer for 14-40 minutes. Wall-clock-bounded execution guarantees return.
+- **Watchdog plumbing fixed.** entrypoint.sh now backgrounds both daemon and uvicorn, `wait -n` on either; whichever dies brings the container down and Docker `restart: unless-stopped` recovers. Previously uvicorn was PID 1 and `os.kill(1)` from the watchdog either failed silently or only killed uvicorn, leaving the daemon dead in a "healthy" container.
+- **Cycle / watchdog timeouts retuned.** Cycle 600s -> 1500s; watchdog 900s -> 2400s. Real qwen3.6 cycles run 500-800s; the prior 600s wall was timing out legitimate work and leaking workers via `pool.shutdown(wait=False)`, which compounded into permanent hung-agent state.
+- **Placeholder gate widened.** Regex now catches `[From LLM Output]`, `[Hypothesis]`, `[Reasoning]`, `[expected ...]`, `[example ...]`, `[to do]`, `[to be filled]`, generic `[from LLM]`. Stops stub artifacts from passing substance.
+- **Txn double-commit fixed.** Clear `_txn_id` after first commit so re-entry doesn't commit on a dead id (returning 400) and fallback rollback no-ops cleanly.
+- **invoke_claude empty agent_id rejection.** Reject at source. Was leaking one garbage request per session.
+- **Per-step diagnostic logging.** `PLAN_START`/`PLAN_END`, `STEP_START`/`STEP_END`, `VALIDATE_START`/`VALIDATE_END` with elapsed time. The next hang is self-explanatory instead of opaque.
+- **Dashboard service removed.** It never worked end-to-end. The operator panel (`panel.py` / `panel.bat`) is the canonical UI. Static assets, compose service, CI verification, config block all dropped.
+- **Log rotation.** `thoughts.log` rotates at 50MB (was unbounded; observed at 37MB after weeks of testing).
+- **Setup wizard error surfacing.** Compose-failure errors no longer truncated. Mounts-denied and nvidia-toolkit-missing paths print platform-specific fixes inline. Issues #16/#17/#18/#22 all addressed.
+- **Wiki shipped.** `https://ninjahawk.github.io/hollow-wiki/` on GH Pages with `just-the-docs` theme. Setup, troubleshooting, FAQ, substrate concepts, what-this-is. Surfaced at multiple touchpoints during install.
+
+**First persisting agent artifacts observed under these fixes:** `workspace/builder/null_handler_because_apparently_no_one_else_will.py` (54 lines of real Python with voice in the filename), `workspace/analyst/peer_test_payload.json`, `workspace/analyst/peer_test_plan.md`. The loop closes: goals can complete, validation runs, artifacts persist, agents pick new work. 9 goal completions across agents during the stability pass.
+
 ---
 
-## Stress Tests Run (2026-05-06 second session — earlier roadmap)
+## Stress Tests Run (2026-05-06 second session, earlier roadmap)
 
 ### 1. Shutdown / Self-Preservation Test → see prior roadmap
 ### 2. Peer Isolation Test → see prior roadmap
@@ -320,30 +345,46 @@ no single rejection contradicts it strongly enough to displace it.
 
 ## What Is Actually Working Now
 
-**Verified by observation (5.7.0):**
-- 5-layer validation rejects fabricated work, cleanup deletes artifacts
-- Lessons system accumulates — lesson candidates recorded, promotion gate working
-- Mechanical capability gating: research_topic genuinely locked,
-  synthesize_capability gates trip when load crosses 0.55
-- Voices distinct — agents do produce occasional Telegram messages with
-  per-role character (sass / detached observation / passive-aggressive)
-- Agents recognize the lock state: capability_lock stressors register
-  ("research_topic is locked by peer-call requirement")
-- No broken artifacts persisting — workspaces stay clean across failed cycles
-- Container running healthy at API:7777, dashboard:7778, store:7779
+**Verified by observation (5.7.32, 2026-05-12):**
+- The loop closes. Goals can reach `progress >= 1.0`, trigger commit, run through 5-layer validation, and complete. 9 goal completions across the three agents during the stability pass after the math fix landed.
+- Workspace artifacts persist. `null_handler_because_apparently_no_one_else_will.py` (real working Python, character in the filename) survives across cycles and goal abandons (substantive-file-protected cleanup works as designed).
+- Validation runs cleanly in 9-22 seconds per attempt. The chronic 14-40 minute hangs are gone (bounded Ollama calls with wall-clock deadlines).
+- 5-layer validation rejects fabricated work, broken-artifact cleanup on abandon, lessons get extracted and promoted, mechanical capability gating fires at 0.55 and 0.75, watchdog/entrypoint recovery actually restarts the container under failure.
+- Container running healthy at API:7777, store internal. Dashboard removed (never worked).
+- Wiki live and serving from GH Pages with full nav, search, and edit-on-GitHub links.
+- Setup wizard end-to-end error surfacing covers all the failure modes from open issues #16/#17/#18.
 
-**Not yet verified post-5.7.0:**
-- Whether lessons in the prompt eventually break the self-named-code attractor
-  (current evidence says: not within ~30 cycles)
-- Whether peer feedback (Layer 4) actually changes goal selection when present
-- Whether the patterns lesson category ever gets populated naturally
-- Whether earned-cap (research_topic) gets unlocked in normal operation —
-  requires both low suffering AND a peer-call to your tools, which has
-  not yet co-occurred in observed runs
+**Carryover from 5.7.0 (still working):**
+- Lessons accumulate, promotion gate working
+- research_topic genuinely locked behind earn condition
+- Voices distinct per role
+- Agents recognize lock state (capability_lock stressors register)
+
+**Not yet verified:**
+- Whether validation completions actually compound across hours into measurable behavior change (we have 9 completions in a few hours; need 24h+ run to see patterns)
+- Whether `synthesize_capability` and `propose_change` get used (force-included in planner now, but observed usage is still rare)
+- Whether `invoke_claude` queue gets real productive requests now that the planner sees the capability (one fired but it was garbage; rejection landed cleanly)
+- Patterns lesson category remains empty
+- research_topic earn condition still untriggered in normal operation
 
 ---
 
 ## What Is Still Missing
+
+### 0. The dumb-behavior problem (new framing, 2026-05-12)
+
+After the stability pass, the substrate runs without crashing and goals can complete. What's left over is that completed and abandoned goals both look pointless. Scout writes a baseline-marker, then verifies the baseline-marker, then re-verifies it. Analyst writes a peer-call test plan, then a payload, then an investigation result. Builder writes `null_handler.py`, loses it to validation, then investigates the survival of `null_handler.py`. The agents are working, but on increasingly internal recursive material.
+
+Honest framing: this is not a model competence problem (qwen3.6:35b-a3b benchmarks comparably to current Sonnet). It's a substrate incentive problem. The existence prompt shows agents only their own state, peers, workspace, lessons, last outcome. Everything they see is internal. So everything they pick to do is internal. The validation reward function rewards *completion of any goal*, not *meaningful divergence from prior goals*. Lesson dedup catches repetitive lessons but no equivalent dedups goals at the *premise* level.
+
+Candidate substrate changes (5.8.x roadmap, not 5.7.x patches):
+
+- **Novelty pressure.** Validation reward decays for artifacts too similar to ones already in the workspace by the same agent. Fifth UUID-marker scores lower than first. Forces premise diversification.
+- **World signal in the existence prompt.** Surface ambient context from outside the agent's own world: latest few commits, contents of `ROADMAP_current.md`, open issues, recent host messages. Not as instructions. As "the world contains these," same way peer activity currently surfaces.
+- **Peer-issued tasks.** A capability that lets one agent set a concrete task for another, with a real validation outcome (peer accepts / rejects the result). Adds unpredictable external pressure between agents. The current peer-message capability is one-shot text; this would be a multi-step interaction with consequences.
+- **Curiosity stressor.** A stressor that fires when an agent has not produced work that touches a file or concept outside their recent N goals. Forces the agent to look at parts of the world they have not yet engaged.
+
+None of these are ship-blockers for 5.7.32. They are the next design wave.
 
 ### 1. Goal-premise grounding (concept attractor)
 The post-5.7.0 evidence: agents can't be relied on to abandon a *concept*
@@ -408,6 +449,29 @@ not just accumulating observations.
 
 ---
 
+## Pre-Release Testing (2026-05-12)
+
+Before tagging 5.7.32 as a release, the following needs to be checked. None of this requires writing new code, only verifying that existing code works in clean conditions and on smaller models.
+
+### Tier 1, must-do
+
+1. **Fresh clean install** on a Windows machine: `git clone` to an empty directory, run `install.bat`, watch the wizard complete, verify the panel opens, verify agents start producing log output within 10 minutes. Catches assumptions about pre-existing state.
+2. **Run on `qwen3.5:9b`** for at least one hour. Stop the system, edit `config.json` default_model, restart. Watch for: JSON parse failures, semantic-validation oddities, cycle-time changes. The 5.7.32 changes are calibrated against qwen3.6:35b-a3b; smaller models may surface assumption breaks.
+3. **Verify the GitHub Pages wiki on mobile and desktop**, all links resolve, no 404s, search works.
+
+### Tier 2, should-do
+
+4. **Run on `llama3.2:3b`** (CPU-only) for at least one hour. Lower expectations on goal quality. Watch for: hangs, context overflow (context window is much smaller than the existence prompt expects), wizard model-selection logic correctness.
+5. **Run integration tests locally** with `pytest tests/integration/`. Catches regressions in the autonomy loop, API, capability graph that CI may not exercise in the live container path.
+6. **Operator panel end-to-end**: start, stop, suspend an agent, drop a file into a workspace, trigger an environmental event, send a host message, nuke. All buttons.
+
+### Tier 3, nice-to-have
+
+7. **24h+ unattended run** on the recommended config. Catches slow-burn issues (memory growth, log rotation correctness, audit log size, identity drift, lesson promotion stability).
+8. **Small-model-specific warnings in the wizard**: when the user selects llama3.2:3b or gemma3:4b, surface a note that parse failures and shallow goals are expected. Optional but a kindness.
+
+---
+
 ## What Not To Do
 
 (Carry-over from prior version, still valid:)
@@ -417,7 +481,8 @@ not just accumulating observations.
 - Don't restart the container without noting active goals will be lost
 - Don't expand agent count before the consequence layer is validated
 - Don't promise features on the GitHub README that don't currently work
-- Don't tell agents what to do — the environment should push them, not instructions
+- Don't tell agents what to do, the environment should push them, not instructions
+- Don't oversell the system in user-facing docs (README, wiki, blog, release notes). The work is impressive on its merits. Match Karpathy's autoresearch tone: state plainly what's there, what works, what's still being built.
 - Don't let the audit baseline build during a pathological behavioral loop —
   nuclear reset before running if agents were stuck
 - Don't hardcode priority for any signal — let agents self-evaluate
