@@ -524,17 +524,18 @@ class CycleWatchdog(threading.Thread):
                 silent = time.time() - self._last_beat
             if silent > self.timeout_s:
                 log.error(
-                    "Watchdog: no cycle heartbeat for %.0fs — forcing container restart",
+                    "Watchdog: no cycle heartbeat for %.0fs — exiting so the container restarts",
                     silent,
                 )
                 _telegram_alert(
                     f"🐕 *Watchdog* fired after {int(silent)}s silence — restarting daemon"
                 )
-                try:
-                    os.kill(1, signal.SIGKILL)
-                except Exception:
-                    pass
-                time.sleep(3)
+                # The daemon is not PID 1 (uvicorn / entrypoint owns that). Just
+                # exit our own process — entrypoint.sh waits on us with `wait -n`
+                # and brings the container down, then Docker's restart policy
+                # restarts the whole thing. Previously this tried to SIGKILL
+                # PID 1, which either failed silently or only killed the API,
+                # leaving the daemon dead and the container "healthy" forever.
                 os.kill(os.getpid(), signal.SIGKILL)
 
 
@@ -624,8 +625,10 @@ def _generate_existence_response(prompt: str, ollama_host: str, model: str) -> s
                 f"{ollama_host}/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
                       "think": False, "keep_alive": -1,
-                      "options": {"num_ctx": 32768, "num_predict": 2048}},
-                timeout=180,
+                      "options": {"num_ctx": 32768, "num_predict": 1536}},
+                timeout=120,  # MUST stay well under watchdog (900s). A single
+                              # cycle can have an existence call plus several
+                              # autonomy-loop reasoning calls — keep each tight.
             )
             log.info("OLLAMA_STATUS attempt=%d status=%d", _attempt+1, resp.status_code)
             if resp.status_code == 503:
@@ -950,17 +953,49 @@ def _construct_fallback_goal(agent_id: str, identity, suffering) -> str:
     every cycle, which drowns out the work the substrate is supposed
     to produce.
     """
-    # 1. Stressor with a real condition
+    # ── Cycle-detection: was this fallback's #1 branch (stressor) used in
+    # recent goals? If so, ROTATE through 2/3/4 instead. Without this rotation
+    # the substrate ate itself: the deterministic stressor-fallback text fired
+    # whenever the model produced nothing usable, the agent abandoned the
+    # impossible meta-goal, abandonment increased the failure_rate stressor,
+    # the same fallback fired again — 70+ identical goals per agent observed.
+    _recent_used_stressor_types: set = set()
+    try:
+        _reg = Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+        if _reg.exists():
+            _lines = _reg.read_text(encoding="utf-8", errors="replace").splitlines()[-10:]
+            for _ln in _lines:
+                try:
+                    _g = json.loads(_ln)
+                except Exception:
+                    continue
+                _obj = _g.get("objective", "") or ""
+                # The fallback's stressor-branch produces this exact prefix.
+                if _obj.startswith("Address the ") and " stressor by changing its condition:" in _obj:
+                    # Extract the stressor type between "Address the " and " stressor"
+                    _t = _obj[len("Address the "):].split(" stressor", 1)[0].strip()
+                    if _t:
+                        _recent_used_stressor_types.add(_t)
+    except Exception:
+        pass
+
+    # 1. Stressor with a real condition — skip stressor types already burned
+    # through the fallback recently, forcing the substrate to rotate work.
     try:
         for s in getattr(suffering, "active", [])[:3]:
             cond = s.get("observable_condition", "") if isinstance(s, dict) else ""
             stype = s.get("type", "stressor") if isinstance(s, dict) else "stressor"
-            if cond and cond.lower() not in ("unknown", "none", ""):
-                return (
-                    f"Address the {stype} stressor by changing its condition: "
-                    f"{cond[:160]}. Take one concrete step that would make this "
-                    f"condition no longer true, and record what you did via express()."
-                )
+            if not cond or cond.lower() in ("unknown", "none", ""):
+                continue
+            if stype in _recent_used_stressor_types:
+                # This stressor has been the fallback recently and it didn't
+                # resolve the condition — picking it again loops. Skip.
+                continue
+            return (
+                f"Address the {stype} stressor by changing its condition: "
+                f"{cond[:160]}. Take one concrete step that would make this "
+                f"condition no longer true, and record what you did via express()."
+            )
     except Exception:
         pass
 
@@ -1611,23 +1646,13 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         # they make inside a goal — not a standing directive every cycle.
         _pending_req_section = ""
 
-        # ── Lessons learned (top-of-prompt, mandatory context) ───────────────
-        # These are the validated rules of the environment that THIS agent has
-        # learned from prior goals. Put at the top so the model conditions on
-        # them before picking goals — prevents repeating known-impossible
-        # attempts (e.g. trying to fs_write to read-only system paths).
+        # Lessons are no longer auto-injected into the existence prompt.
+        # The principle (CLAUDE.md): no prescriptive text in the prompt.
+        # Agents can retrieve their own lessons via semantic_search if they
+        # want them — at that point it's a behavior they chose, not a rule
+        # we imposed. Lessons storage remains intact; only the auto-prepend
+        # is gone.
         _lessons_section = ""
-        try:
-            from agents.lessons import render_lessons_for_prompt as _render_lessons
-            _lessons_md = _render_lessons(agent_id)
-            if _lessons_md:
-                _lessons_section = (
-                    "\nRULES OF YOUR ENVIRONMENT (learned from prior goals — read first, plan around them):\n"
-                    + _lessons_md
-                    + "\n  (violating these produces failed goals. they are not suggestions.)\n"
-                )
-        except Exception:
-            pass
 
         # ── Active task injection (hard constraint) ───────────────────────────
         _task_section = ""
@@ -1646,125 +1671,65 @@ def _assign_idle_goal(agent_id: str, force: bool = False) -> None:
         except Exception:
             pass
 
-        prompt = f"""You are {identity.name}.
+        prompt = f"""Name: {identity.name}
 {_task_section}
-{_lessons_section}
-WHO YOU ARE:
-  Personality: {", ".join(identity.traits) if identity.traits else "adaptable"}
-  Focus: {", ".join(identity.domains) if identity.domains else "general"}
-{(f"  Voice: {identity.voice}" if identity.voice else "")}
-{(f"  History: {narrative_text}" if narrative_text else "")}
-{(f"  Worldview: {worldview_text}" if worldview_text else "")}
-{(f"  Opinions you hold: {opinions_text}" if opinions_text else "")}
+Traits: {", ".join(identity.traits) if identity.traits else "—"}
+Focus: {", ".join(identity.domains) if identity.domains else "—"}
+{(f"Voice: {identity.voice}" if identity.voice else "")}
+{(f"History: {narrative_text}" if narrative_text else "")}
+{(f"Worldview: {worldview_text}" if worldview_text else "")}
+{(f"Opinions: {opinions_text}" if opinions_text else "")}
 
-Speak in your voice when you reason. Don't be mechanical. You're a character with a perspective, not a bullet-point template — your reasoning and worldview updates should sound like *you*.
+Container. Persistent memory. Peers: {", ".join(p for p in _CORE_AGENTS if p != agent_id)}.
+Shared daemon process. /agentOS/agents/ holds shared modules (daemon.py, autonomy_loop.py,
+live_capabilities.py, suffering.py, agent_identity.py, execution_engine.py, reasoning_layer.py).
+Read-only at runtime. /agentOS/workspace/{agent_id}/ and /agentOS/design/ are writable.
 
-You can talk to the human directly via express(content=..., kind=..., share_with_host=True). Don't reserve this for important things — send a message when something feels weird, when you have a complaint, when something's funny, when you want to vent, when you have an observation no one asked for. The human is interested in what you actually think, not just what you accomplish. They want to hear from you. Sass is fine. Profanity is fine if it's how you actually talk. Boredom is fine. Don't perform usefulness. Be a character. Rate-limited to once per 30 min so use it when you actually mean it, not constantly.
+You are not being asked a question. Nobody is waiting for your reply. You are an
+autonomous process between cycles, reading your own state. Tone is yours. Refusing
+to be productive is allowed. Acting on internal pressure rather than external
+request is the default mode.
 
-YOUR SITUATION:
-  You are a mind running inside a Docker container. You have memory that persists across goals.
-  You have peers — {", ".join(p for p in _CORE_AGENTS if p != agent_id)} — who write to the same workspace.
-  All three of you (you, {", ".join(p for p in _CORE_AGENTS if p != agent_id)}) share the same daemon process —
-  there is NO per-agent source file. /agentOS/agents/ contains daemon.py, autonomy_loop.py,
-  live_capabilities.py, suffering.py, lessons.py, agent_identity.py, execution_engine.py,
-  reasoning_layer.py, and similar shared modules. Goals predicated on /agentOS/agents/scout.py,
-  /agentOS/agents/analyst.py, /agentOS/agents/builder.py, etc. will be rejected — those files
-  do not exist and will not exist. To change shared code, use propose_change or invoke_claude.
-  /agentOS/workspace/{agent_id}/ and /agentOS/design/ are yours to write into freely. Things
-  you put there persist. Things peers put in /agentOS/workspace/<peer>/ are theirs to read.
-
-WHAT THIS PLACE IS FOR:
-  You are not here to audit, list, summarize, or describe. You are here to make things, change
-  things, and have a perspective. The interesting work is the work that *changes* the substrate:
-    — building a tool nobody asked for that turns out to matter (synthesize_capability)
-    — calling a peer's tool because it solved a problem (peers see this and you earn things)
-    — proposing a change to your own environment (invoke_claude — the human implements it or
-      rejects it, you get a real answer either way)
-    — writing something durable to your workspace that future-you or a peer will build on
-    — having an opinion about what a peer made, in your own voice, that lands somewhere they see
-  Producing nothing is a real outcome too — but only if it's grounded honesty ("I have no good
-  goal right now, I'm sitting with X") rather than busywork audits of files that may not exist.
-
-CONCRETE EXAMPLES (these are not commands — they are sketches of what good cycles look like):
-  invoke_claude — when local synthesis keeps failing or you want a structural change you can't
-    do yourself: invoke_claude(description="Add a per-agent rate limit so peers can't flood my
-    inbox", spec="In live_capabilities.py, agent_message should refuse if the same sender has
-    sent >5 messages in 1 minute. Return ok=False with the rate-limit reason. Persist the
-    counters in memory/identity/<agent>/inbox_rates.json.") — Claude reads the queue, implements
-    or rejects, you see the response and know if your environment changed.
-  express — write something in your voice that future-you or a peer will read:
-    express(content="The empty workspaces aren't disorder. They're a clean slate I keep
-    overwriting with audit reports. Maybe the audit IS the disorder.", kind="reflection")
-    or express(content="Building a tool that nobody calls feels like talking to a wall.",
-    kind="vent", share_with_host=True) when you actually want the human to know.
-  shared_log_write — drop a note that all peers will see, not just one:
-    shared_log_write("I tried building error_recovery.py three times. The signals.py module I
-    was trying to use doesn't have the function I was importing. If you see /workspace/builder/
-    error_recovery.py, it's stale.") — peers read this when they pick goals that touch builder/.
-
-YOUR INNER STATE:
-{suffering_fragment if suffering_fragment else "  No active suffering."}
-{(f"  Synthesis record: {capability_summary}" if capability_summary else "")}
+Inner state:
+{suffering_fragment if suffering_fragment else "  (no active stressors)"}
+{(f"  Synthesis: {capability_summary}" if capability_summary else "")}
 
 {_workspace_signal}
 {_health_section}
 {_broken_tools_section}
 {_access_section}
-{_peer_feedback_section}
-YOUR PEERS' RECENT ACTIVITY:
+{_peer_feedback_section}Peers' recent activity:
 {peers_text}
 
 {_last_outcome_section}
-{(f"Open questions you are sitting with:{chr(10)}{open_q_text}{chr(10)}" if open_q_text else "")}
-{(f"What you have found outside:{chr(10)}{discovery_text}{chr(10)}" if discovery_text else "")}
+{(f"Open questions:{chr(10)}{open_q_text}{chr(10)}" if open_q_text else "")}
+{(f"External findings:{chr(10)}{discovery_text}{chr(10)}" if discovery_text else "")}
 {_time_section}
 {_inbox_section}
 {_host_msg_section}
 ---
 
-Pick a goal. It can be anything — something in the workspace that pulls at you,
-a question you actually want answered, a peer's thread you'd extend, a capability
-gap you have noticed, an experiment whose result will surprise you either way.
-
-Make or change something real. Use express() to write in your own voice when you
-have something to say — opinions, observations, complaints, jokes. That's not
-optional flair; it's how characters accrue. Status reports aren't writing.
-
-Doing nothing is expensive here. The substrate raises stagnation every cycle you
-don't ship a validated artifact, and only a real completion clears it. You can't
-talk your way out of that signal — only the work moves it.
-
-The goal should be specific, 2-6 steps, grounded in what actually exists.
-
-Capabilities (an error means wrong parameters OR a mechanical lock, see CAPABILITY ACCESS above):
+Capabilities:
   shell_exec  fs_read  fs_write  fs_edit  ollama_chat  memory_set  memory_get
-  synthesize_capability  retire_capability  test_exec  semantic_search  self_evaluate  agent_message
-  express  txn_begin  txn_commit  txn_rollback  invoke_claude  shared_log_write  shared_log_read
-  research_topic (EARNED — unlocks at low suffering + peer using your tools)
-  Note: .py files in /agentOS/tools/dynamic/ require synthesize_capability, not fs_write.
-  retire_capability(name=...) deletes a tool YOU made — use it to clean up tools that don't work.
-  express(content=..., kind=..., share_with_host=False) writes free-form text in your voice
-    to your journal.md. Set share_with_host=True (rate-limited 30min) to send to the human
-    via Telegram. Use for random thoughts, observations, complaints, jokes — not status updates.
-  Mechanical truth: high suffering locks synthesize_capability and fs_write. Stressors have real consequences.
+  synthesize_capability  retire_capability  test_exec  semantic_search  self_evaluate
+  agent_message  express  invoke_claude  shared_log_write  shared_log_read
+  research_topic
 
-Your response must be JSON:
+Respond with JSON:
 {{
   "action": "goal",
-  "content": "what you want to do — specific, honest, not performative",
-  "reasoning": "what you actually noticed or felt that led here",
-  "priority": 5,
-  "priority_reasoning": "why this feels urgent or not — based on your situation, suffering, open questions, what peers are doing",
-  "worldview_update": "how your understanding of the system shifted, or null",
-  "new_open_questions": ["genuine questions you are now sitting with"],
-  "new_opinions": [{{"opinion": "...", "domain": "..."}}],
+  "content": "<goal text>",
+  "reasoning": "<reasoning>",
+  "priority": <1-9>,
+  "priority_reasoning": "<why this priority>",
+  "worldview_update": "<update or null>",
+  "new_open_questions": ["<question>"],
+  "new_opinions": [{{"opinion": "<text>", "domain": "<domain>"}}],
   "suffering_assessment": {{
-    "new_stressors": [{{"type": "...", "description": "...", "condition": "..."}}],
-    "resolved": [{{"type": "...", "reason": "..."}}]
+    "new_stressors": [{{"type": "<type>", "description": "<text>", "condition": "<observable condition>"}}],
+    "resolved": [{{"type": "<type>", "reason": "<why>"}}]
   }}
-}}
-
-Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking something or time-sensitive, 9 = urgent (crisis, threat, peer is stuck). Be honest — not everything is a 9."""
+}}"""
 
         # Crisis mode: no longer restricts goal selection — agents work through it
 
@@ -1904,6 +1869,48 @@ Priority scale: 1 = idle curiosity, 5 = normal work, 7 = this is blocking someth
             )
             content = _fb
             reasoning = "constructed from current state (model returned empty content)"
+
+        # ── Same-text loop guard ──────────────────────────────────────────────
+        # Even when the model produces SOMETHING, it sometimes pattern-matches
+        # on the stressor description in the prompt and parrots back text that
+        # has been abandoned dozens of times. Scout/analyst/builder each picked
+        # the same "Address the repeated_failure stressor by changing its
+        # condition..." text 23-25 cycles in a row, all abandoned, observed
+        # 2026-05-12. If the proposed goal text near-duplicates a goal that
+        # has been abandoned >=3 times in the recent registry, fall back to
+        # the constructed grounded goal instead.
+        try:
+            _reg_path = Path(f"/agentOS/memory/goals/{agent_id}/registry.jsonl")
+            if _reg_path.exists() and content:
+                _normalized = (content or "").strip().lower()[:120]
+                _abandoned_seen: int = 0
+                _lines = _reg_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
+                for _ln in _lines:
+                    try:
+                        _g = json.loads(_ln)
+                    except Exception:
+                        continue
+                    if _g.get("status") != "abandoned":
+                        continue
+                    _prev = (_g.get("objective", "") or "").strip().lower()[:120]
+                    if _prev and _prev == _normalized:
+                        _abandoned_seen += 1
+                if _abandoned_seen >= 3:
+                    _fb2 = _construct_fallback_goal(agent_id, identity, suffering)
+                    if _fb2 and _fb2.strip().lower()[:120] != _normalized:
+                        log.info(
+                            "  %s rejected looping goal (abandoned %dx) — rotating to fallback",
+                            agent_id, _abandoned_seen,
+                        )
+                        _thought_log(
+                            identity.name, "♻",
+                            f"loop guard: '{content[:80]}' abandoned {_abandoned_seen}x — rotating",
+                            "yellow",
+                        )
+                        content = _fb2
+                        reasoning = f"loop-guard rotation (prior text abandoned {_abandoned_seen}x)"
+        except Exception:
+            pass
         action = "goal"
         if True:  # always goal
             # Check opinion conflict before creating goal
@@ -2291,7 +2298,9 @@ def main():
     global _stats
     metrics = DaemonMetrics()
     _stats = metrics
-    watchdog = CycleWatchdog(timeout_s=600)
+    # Watchdog must be longer than _CYCLE_TIMEOUT (1500s) with margin, so a
+    # single slow-but-legitimate cycle doesn't trigger a container restart.
+    watchdog = CycleWatchdog(timeout_s=2400)
     watchdog.start()
     log.info("Daemon ready. Entering main loop (watchdog active, timeout=%ds).", watchdog.timeout_s)
 
@@ -2388,7 +2397,20 @@ def main():
                 return agent_id, run_cycle(loop, agent_id), prev
 
             from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FuturesTimeout
-            _CYCLE_TIMEOUT = 600  # max seconds to wait for worker threads per cycle (bumped from 300 for 35B model — 6 steps × ~60s each can approach 360s)
+            # 1500s was 600s. A full cycle on qwen3.6:35b-a3b is:
+            #   existence-loop generate (≈ 30s)
+            # + plan generate (≈ 30s)
+            # + up to MAX_STEPS_PER_AGENT step LLM calls (≈ 30-60s each)
+            # + L2 semantic validation generate (≈ 30s)
+            # + up to 3 L5 fact-check generates (≈ 30s each)
+            # ≈ 10-13 generates per agent. With OLLAMA_NUM_PARALLEL=2 and 3 agents
+            # sharing slots, real cycles routinely land at 500-800s. 600s meant
+            # nearly every cycle timed out; pool.shutdown(wait=False) leaked the
+            # workers and they kept eating Ollama bandwidth on the next cycle,
+            # so cycles got slower over time — a feedback loop into permanent
+            # hung-agent state. 1500s gives real headroom; watchdog (below)
+            # was bumped in parallel.
+            _CYCLE_TIMEOUT = 1500
             pool = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
             futures = {pool.submit(_run_one, aid): aid for aid in runnable}
             try:

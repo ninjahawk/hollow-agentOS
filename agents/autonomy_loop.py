@@ -11,13 +11,42 @@ Design:
 """
 
 import json
+import logging
 import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional, Tuple, List
+
+log = logging.getLogger("daemon")
+
+
+# Dedicated pool for wall-clock-bounded Ollama calls used by validation.
+# Observed 2026-05-12: httpx.post with explicit per-phase Timeout objects
+# still hung indefinitely (>40 min) when Ollama on the Windows host evicted
+# its model under VRAM pressure and a new generate request couldn't drive a
+# reload promptly. The hang was at a layer below httpx's exception layer —
+# even a broad `except Exception` didn't catch it. The only recovery was a
+# daemon restart. This pool plus _bounded_call below applies a hard external
+# deadline: if a call doesn't return in time, we abandon the future (the
+# worker thread leaks until the call eventually returns or the daemon dies,
+# which is the lesser cost vs blocking the whole cycle).
+# Sized to accommodate 3 agents × (semantic + 3 L5 fact-checks + follow-on)
+# concurrent calls without the submission itself blocking on a full pool.
+# Stuck workers do leak (Python can't kill threads) until they eventually
+# return or the daemon restarts — accepted cost vs. blocking the whole cycle.
+_BOUNDED_POOL = ThreadPoolExecutor(max_workers=24, thread_name_prefix="bounded-llm")
+
+
+def _bounded_call(fn, deadline_s: float, *args, **kwargs):
+    """Run fn(*args, **kwargs) with a hard wall-clock deadline. On timeout
+    or any exception, raises _FuturesTimeout-as-TimeoutError or the original
+    exception. Caller decides how to soft-pass."""
+    fut = _BOUNDED_POOL.submit(fn, *args, **kwargs)
+    return fut.result(timeout=deadline_s)
 
 try:
     from agents.resource_manager import ResourceManager as _ResourceManager
@@ -294,7 +323,16 @@ def _is_llm_refusal(text: str) -> bool:
 # non-code text via _has_text_template_placeholder().
 import re as _re
 _BRACKET_UNDERSCORE_PLACEHOLDER_RE = _re.compile(
-    r'(\[(?:insert|todo|placeholder|fill[ _-]?in|replace|add|xxx|tbd|specific|your[ _-](?:answer|code|text|recommendation))\b'
+    # Explicit placeholder keywords
+    r'(\[(?:insert|todo|placeholder|fill[ _-]?in|replace|add|xxx|tbd|specific|'
+    r'your[ _-](?:answer|code|text|recommendation)|'
+    # Generic "from/to/by/for/expected/from LLM" forms — caught scout/verification_log.txt
+    # where Hypothesis: [From LLM Output] etc. slipped past the keyword list.
+    r'from[ _-](?:llm|ollama|model|output|response|the\s+\w+)|'
+    r'to[ _-](?:do|fill|be[ _-]filled|be[ _-]added|come)|'
+    r'expected[ _-]\w+|'
+    r'example[ _-]\w+|'
+    r'hypothesis|reasoning|conclusion|analysis|details?|description)\b'
     r'|_{4,})',
     _re.IGNORECASE,
 )
@@ -640,7 +678,18 @@ class AutonomyLoop:
                 f"Goal '{active_goal.objective}' step {cap_id}: {json.dumps(result)[:200]}"
             )
 
-        # Progress — only count a step if it does something new
+        # Progress — only count a step if it does something new.
+        # Deltas were 0.15 / 0.10. With MAX_STEPS_PER_AGENT=6 that caps a
+        # maxed-out plan at 6 * 0.15 = 0.90 — meaning progress >= 1.0 (which
+        # is the only path that triggers _txn_commit_goal at line 938) was
+        # MATHEMATICALLY UNREACHABLE in 6 steps. Every goal fell through to
+        # the fallback _txn_rollback_goal("incomplete") at the bottom of
+        # pursue_goal, and every staged fs_write was wiped. That is the
+        # actual reason the workspace has been empty across the entire
+        # project lifetime — not bad goals, not bad agents, not validation.
+        # Bumping HVC to 0.20 means 5 HVCs = 1.0 (or 4 HVCs + 2 others = 1.0).
+        # Non-HVC stays at 0.10 — six non-HVC steps still cap at 0.6, so the
+        # "you need real output to complete" signal is preserved.
         metrics = dict(active_goal.metrics) if active_goal.metrics else {}
         progress_delta = 0.0
         if status == "success":
@@ -648,7 +697,7 @@ class AutonomyLoop:
             if cap_id != prev_cap:
                 # Meaningful progress: different capability than last step
                 _HIGH_VALUE_CAPS = ("memory_set", "fs_write", "wrap_repo", "shared_log_write", "propose_change", "synthesize_capability", "vote_on_proposal")
-                progress_delta = 0.15 if cap_id in _HIGH_VALUE_CAPS else 0.1
+                progress_delta = 0.20 if cap_id in _HIGH_VALUE_CAPS else 0.1
             else:
                 # Repeated same capability — marginal credit
                 progress_delta = 0.02
@@ -750,7 +799,12 @@ class AutonomyLoop:
                 pass
 
         # Generate plan
+        _t_plan_start = time.time()
+        log.info("[pursue] agent=%s goal=%s PLAN_START obj=%r",
+                 agent_id, goal_id, (goal.objective or "")[:80])
         plan = self._reasoning_layer.plan(agent_id, goal.objective + memory_context) if self._reasoning_layer else []
+        log.info("[pursue] agent=%s goal=%s PLAN_END took=%.1fs n_steps=%d",
+                 agent_id, goal_id, time.time() - _t_plan_start, len(plan or []))
         if not plan:
             plan = [{"capability_id": None, "params": {}, "rationale": "fallback"}]
         plan = plan[:max_steps]
@@ -820,12 +874,18 @@ class AutonomyLoop:
                 _step_params = dict(params)
                 _step_params["txn_id"] = _txn_id
 
+            _t_step_start = time.time()
+            log.info("[pursue] agent=%s goal=%s STEP_START idx=%d cap=%s",
+                     agent_id, goal_id, plan_index, cap_id or "<replan>")
             goal_id_out, success, result = self.execute_step(
                 agent_id,
                 context=context,
                 planned_cap=cap_id,
                 planned_params=_step_params,
             )
+            log.info("[pursue] agent=%s goal=%s STEP_END idx=%d cap=%s took=%.1fs success=%s",
+                     agent_id, goal_id, plan_index, cap_id or "<replan>",
+                     time.time() - _t_step_start, success)
 
             if goal_id_out is None:
                 break
@@ -935,8 +995,28 @@ class AutonomyLoop:
             # broken artifacts during the abandon path.
             current = self._goal_engine.get(agent_id, goal_id)
             if current and current.metrics.get("progress", 0.0) >= 1.0:
+                _t_val_start = time.time()
+                log.info("[pursue] agent=%s goal=%s VALIDATE_START", agent_id, goal_id)
                 _txn_commit_goal()
+                # After the first commit the server-side txn is gone. If we
+                # leave _txn_id set, two bad things happen later:
+                #   1. If validation fails and the loop keeps iterating, the
+                #      next progress=1.0 trigger calls _txn_commit_goal again
+                #      on a stale id → 400 Bad Request.
+                #   2. The final-fallthrough _txn_rollback_goal("incomplete")
+                #      at the bottom of this function also hits the dead id.
+                # Also: subsequent fs_write/memory_set steps would inject the
+                # stale _txn_id (via _TRANSACTIONABLE injection above) and
+                # the API would reject those writes too.
+                # Clearing _txn_id puts us in "post-commit direct-write" mode
+                # for the rest of the goal — staged writes are real now, any
+                # further writes apply directly, and the commit/rollback
+                # helpers no-op (they check `if _txn_id:`).
+                _txn_id = ""
                 validation = self.validate_goal_artifact(agent_id, goal_id)
+                log.info("[pursue] agent=%s goal=%s VALIDATE_END took=%.1fs validated=%s",
+                         agent_id, goal_id, time.time() - _t_val_start,
+                         validation.get("validated"))
                 if validation.get("validated"):
                     _thought(agent_id, f"  artifact ok | {validation.get('artifact_type','')} {validation.get('artifact_value','')[:60]}")
                     self._goal_engine.complete(agent_id, goal_id)
@@ -1225,13 +1305,20 @@ class AutonomyLoop:
             except Exception:
                 pass
             if raw is None:
-                resp = httpx.post(
-                    f"{ollama_host}/api/generate",
-                    json={"model": model, "prompt": prompt, "stream": False,
-                          "think": False, "keep_alive": -1,
-                          "options": {"num_ctx": 32768}},
-                    timeout=240,
-                )
+                # Wall-clock-bounded — see _bounded_call rationale at top of file.
+                try:
+                    resp = _bounded_call(
+                        httpx.post, 260.0,
+                        f"{ollama_host}/api/generate",
+                        json={"model": model, "prompt": prompt, "stream": False,
+                              "think": False, "keep_alive": -1,
+                              "options": {"num_ctx": 32768}},
+                        timeout=httpx.Timeout(connect=10.0, read=240.0,
+                                              write=10.0, pool=10.0),
+                    )
+                except (_FuturesTimeout, httpx.ReadTimeout, httpx.ConnectTimeout,
+                        httpx.PoolTimeout, httpx.ReadError, httpx.ConnectError):
+                    return None  # soft-skip: no follow-on proposal this time
                 resp.raise_for_status()
                 raw = resp.json().get("response", "").strip()
             data = json.loads(raw)
@@ -1625,18 +1712,26 @@ class AutonomyLoop:
                     f'Reply STRICT JSON only: {{"accurate": true|false, '
                     f'"mismatches": ["<concrete mismatch 1>", "<mismatch 2>"]}}'
                 )
-                resp = _hx.post(
-                    f"{ollama_host}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "think": False,
-                        "keep_alive": -1,
-                        "options": {"num_ctx": 32768, "num_predict": 512},
-                    },
-                    timeout=240,
-                )
+                # Per-phase timeouts + wall-clock deadline (see _semantic_verify_goal
+                # for the rationale; httpx alone wasn't enough).
+                _t5 = _hx.Timeout(connect=10.0, read=240.0, write=10.0, pool=10.0)
+                try:
+                    resp = _bounded_call(
+                        _hx.post, 260.0,
+                        f"{ollama_host}/api/generate",
+                        json={
+                            "model": model,
+                            "prompt": prompt,
+                            "stream": False,
+                            "think": False,
+                            "keep_alive": -1,
+                            "options": {"num_ctx": 32768, "num_predict": 512},
+                        },
+                        timeout=_t5,
+                    )
+                except (_FuturesTimeout, _hx.ReadTimeout, _hx.ConnectTimeout,
+                        _hx.PoolTimeout, _hx.ReadError, _hx.ConnectError):
+                    continue  # soft-pass: skip this ref, fact-check is best-effort
                 if resp.status_code != 200:
                     continue  # transient error — skip this ref, soft-pass
                 raw = resp.json().get("response", "{}").strip()
@@ -1724,18 +1819,34 @@ class AutonomyLoop:
                 f'"text": "<rule form, < 240 chars, applicable to many future goals>", '
                 f'"confidence": "low|medium|high"}} OR null}}'
             )
-            resp = _hx.post(
-                f"{ollama_host}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "think": False,
-                    "keep_alive": -1,
-                    "options": {"num_ctx": 32768, "num_predict": 256},
-                },
-                timeout=180,
-            )
+            # Hard per-phase timeouts plus external wall-clock deadline.
+            # The per-phase timeouts catch normal slow-Ollama cases; the
+            # wall-clock deadline catches the failure mode where httpx itself
+            # hangs below its own exception layer (seen 2026-05-12: 40+ min
+            # hang with no exception). _bounded_call runs the post in a
+            # separate thread and abandons it on deadline.
+            _timeout = _hx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
+            try:
+                resp = _bounded_call(
+                    _hx.post, 200.0,
+                    f"{ollama_host}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "think": False,
+                        "keep_alive": -1,
+                        "options": {"num_ctx": 32768, "num_predict": 256},
+                    },
+                    timeout=_timeout,
+                )
+            except (_FuturesTimeout, _hx.ReadTimeout, _hx.ConnectTimeout,
+                    _hx.PoolTimeout, _hx.ReadError, _hx.ConnectError) as _e:
+                # Soft-pass: don't block legit work because Ollama hiccuped.
+                # The mechanical layer already gated substance; this is belt+suspenders.
+                return {"accomplished": True, "reasoning": "",
+                        "raw": None,
+                        "skipped": f"ollama_timeout:{type(_e).__name__}"}
             if resp.status_code != 200:
                 return {"accomplished": True, "reasoning": "",
                         "raw": None, "skipped": f"http_{resp.status_code}"}
@@ -1852,7 +1963,70 @@ class AutonomyLoop:
                     "artifact_value": None,
                     "checks": checks,
                 }
-        for step in reversed(steps):
+
+        # ── Plan-vs-action gate ────────────────────────────────────────────
+        # If the goal uses a MODIFY-EXISTING verb (enhance/refactor/fix/patch/
+        # improve/etc.) and the only substantive artifact is a .md in workspace/,
+        # the agent wrote a wish-list, not a change. Reject and surface the
+        # alternatives. Create-new verbs (write/draft/document/design) are
+        # exempt because a .md is a legitimate artifact for them.
+        _modify_verbs_re = _re.compile(
+            r"\b(?:modify|edit|enhance|fix|patch|refactor|extend|alter|improve|update|tweak|change|rework|adjust)\b",
+            _re.IGNORECASE,
+        )
+        if _modify_verbs_re.search(_objective or ""):
+            _has_real_action = False
+            for _s in steps:
+                _cap = _s.capability_id or ""
+                _r = _s.execution_result or {}
+                if not _r.get("ok") and _cap not in ("shell_exec", "ollama_chat"):
+                    continue
+                if _cap in ("propose_change", "synthesize_capability", "invoke_claude"):
+                    _has_real_action = True
+                    break
+                if _cap == "fs_write":
+                    _p = (_r.get("path") or "").lower()
+                    # fs_write counts as a real action UNLESS it's a .md sitting
+                    # under workspace/<agent>/ — that's the plan-as-completion pattern.
+                    _is_workspace_md = (
+                        ("/workspace/" in _p or _p.startswith("workspace/"))
+                        and (_p.endswith(".md") or _p.endswith(".markdown")
+                             or _p.endswith(".txt") or _p.endswith(".rst"))
+                    )
+                    if not _is_workspace_md:
+                        _has_real_action = True
+                        break
+            if not _has_real_action:
+                checks.append(
+                    "goal uses a modify-existing verb but no real action step "
+                    "completed — only a plan/notes document in workspace/. "
+                    "Use propose_change, synthesize_capability, invoke_claude, "
+                    "or fs_write to the actual target file. A markdown plan in "
+                    "your workspace is not the change."
+                )
+                return {
+                    "validated": False,
+                    "artifact_type": None,
+                    "artifact_value": None,
+                    "checks": checks,
+                }
+
+        # Prefer real-artifact steps over evidence-of-process steps. Without
+        # this ordering the iterator returns the most recent successful step,
+        # which is often a shell_exec ('ls workspace/' for diagnostics).
+        # Semantic verification then sees only a directory listing and rejects
+        # — even when an earlier fs_write produced the actual artifact the
+        # goal asked for. Two passes: real artifacts first, evidence second.
+        _ARTIFACT_CAPS = {"fs_write", "memory_set", "propose_change",
+                          "synthesize_capability", "shared_log_write",
+                          "wrap_repo", "vote_on_proposal"}
+        _real_artifact_steps = [s for s in steps
+                                if (s.capability_id or "") in _ARTIFACT_CAPS]
+        _evidence_steps = [s for s in steps
+                           if (s.capability_id or "") not in _ARTIFACT_CAPS]
+        _ordered_steps = list(reversed(_real_artifact_steps)) + list(reversed(_evidence_steps))
+
+        for step in _ordered_steps:
             r = step.execution_result or {}
             cap = step.capability_id or ""
 

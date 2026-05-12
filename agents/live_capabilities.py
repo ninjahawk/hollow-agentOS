@@ -1498,6 +1498,22 @@ def invoke_claude(description: str = "", spec: str = "",
     except Exception:
         _agent_id = ""
 
+    # Refuse to enqueue an unattributable request. Empty agent_id means the
+    # ContextVar wasn't set on the path that called us, so we cannot tie the
+    # request back to who submitted it, attribute the outcome to their
+    # narrative, or check their grounding. The previous queue entry had
+    # agent_id="" and referenced a nonexistent builder.py — exactly the kind
+    # of garbage we want to block at the source.
+    if not _agent_id:
+        return {"ok": False, "error": (
+            "invoke_claude was called without a propagated agent identity "
+            "(agent_id empty). This usually means the call is happening "
+            "outside an execution-engine path that sets the ContextVar. "
+            "If you're an agent submitting a real request, make sure you "
+            "called this through the normal capability execution path. "
+            "Request not queued."
+        )}
+
     entry = {
         "request_id": request_id,
         "agent_id": _agent_id,

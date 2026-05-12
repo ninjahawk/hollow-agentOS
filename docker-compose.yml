@@ -47,6 +47,7 @@ services:
       - ./agents/execution_engine.py:/agentOS/agents/execution_engine.py:ro
       - ./agents/transaction.py:/agentOS/agents/transaction.py:ro
       - ./agents/lessons.py:/agentOS/agents/lessons.py:ro
+      - ./entrypoint.sh:/agentOS/entrypoint.sh:ro
       - ./design:/agentOS/design
       # Store data mounted so repair_wrappers.py can write directly (bypasses SHA dedup)
       - ./store/data:/agentOS/store/data
@@ -82,17 +83,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-  dashboard:
-    image: nginx:alpine
-    container_name: hollow-dashboard
-    ports:
-      - "7778:80"
-    volumes:
-      - ./dashboard:/usr/share/nginx/html:ro
-    depends_on:
-      - api
-    restart: unless-stopped
 
   store:
     # Use pre-built image from GHCR when available; falls back to local build.

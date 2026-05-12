@@ -299,16 +299,11 @@ class SufferingState:
 
         self._data["active_stressors"].append({
             "type":                "stagnation",
-            "description":         "Cycles passing without a validated artifact. The substrate "
-                                   "is watching: doing nothing has a cost.",
+            "description":         "no validated artifact in recent cycles",
             "severity":            target_severity,
             "onset":               time.strftime("%Y-%m-%d %H:%M"),
             "escalation_per_day":  ESCALATION_RATES["stagnation"],
-            "observable_condition": observable_condition or (
-                "complete one goal whose artifact passes 5-layer validation — "
-                "memory_set, fs_write, propose_change, synthesize_capability, "
-                "or shared_log_write all count when validated"
-            ),
+            "observable_condition": observable_condition or "validated artifact",
             "resolved":            False,
             "resolved_at":         None,
             "resolution_note":     "",
@@ -689,15 +684,11 @@ def assess_conditions(agent_id: str,
                 suffering.add_stressor(
                     type="repeated_failure",
                     description=(
-                        f"Synthesis success rate is {int(_s_rate*100)}% "
-                        f"({_s_successes}/{_s_attempts} attempts). "
-                        f"Most common failure: {_top_fail or 'unknown pattern'}. "
-                        "Building things that don't work is futile."
+                        f"synthesis success rate {int(_s_rate*100)}% "
+                        f"({_s_successes}/{_s_attempts})"
+                        + (f"; top failure pattern: {_top_fail}" if _top_fail else "")
                     ),
-                    observable_condition=(
-                        "bring synthesis success rate above 50% by simplifying implementations "
-                        "or using invoke_claude() for complex tools"
-                    ),
+                    observable_condition="synthesis success rate > 50%",
                 )
             elif _s_rate > 0.6 and _s_successes >= 3:
                 suffering.resolve_stressor(
@@ -715,12 +706,10 @@ def assess_conditions(agent_id: str,
         suffering.add_stressor(
             type="repeated_failure",
             description=(
-                f"{len(recent_failed)} of {total_recent} recent goals failed or were abandoned "
-                f"({int(failure_rate*100)}% failure rate). The pattern is not yet understood."
+                f"{len(recent_failed)}/{total_recent} recent goals abandoned "
+                f"({int(failure_rate*100)}% failure rate)"
             ),
-            observable_condition=(
-                "bring the failure rate below 30% by completing goals successfully"
-            ),
+            observable_condition="failure rate < 30%",
         )
     elif failure_rate < 0.3 and len(recent_completed) >= 3:
         suffering.resolve_stressor(

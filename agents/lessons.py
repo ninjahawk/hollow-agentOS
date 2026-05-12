@@ -215,6 +215,16 @@ _LESSON_FAMILIES: tuple = (
         ("read-only", "read only", "readonly"),
         ("/agentos/agents", "agents/", "system path"),
     )),
+    # "shell/tool output must contain real content, not just exit_code 0" —
+    # observed across all three agents as multiple distinct-by-Jaccard bullets
+    # ("verify shell output has content", "evidence must contain actual read
+    # output", "tool responses must contain artifacts", etc.)
+    ("evidence_substance", (
+        ("evidence", "output", "response", "result", "stdout", "artifact"),
+        ("substanti", "meaningful", "actual", "real", "non-empty", "non empty",
+         "specific", "executable", "content"),
+        ("not", "rather than", "instead of", "beyond", "more than"),
+    )),
 )
 
 

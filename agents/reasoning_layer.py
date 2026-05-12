@@ -30,6 +30,7 @@ Storage:
 """
 
 import json
+import logging
 import os
 import threading
 import time
@@ -37,6 +38,8 @@ import uuid
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional, Tuple, List
+
+log = logging.getLogger("daemon")
 
 REASONING_PATH = Path(os.getenv("AGENTOS_MEMORY_PATH", "/agentOS/memory")) / "reasoning"
 THOUGHTS_LOG = Path("/agentOS/logs/thoughts.log")
@@ -322,8 +325,19 @@ class ReasoningLayer:
             candidates = [(cap.capability_id, cap.description[:60], cap.input_schema)
                           for cap, _ in results
                           if cap.capability_id not in _LOOP_MANAGED]
-            # Always include core output caps so the planner can use them
-            _ALWAYS_INCLUDE = {"memory_set", "fs_write", "ollama_chat", "shell_exec", "memory_get"}
+            # Always include core output caps so the planner can use them.
+            # Self-modification caps (invoke_claude, propose_change, synthesize_capability)
+            # are ALSO force-included — they almost never win semantic search
+            # against goal text like "investigate workspace" or "examine
+            # suffering", so the model has effectively never had the option
+            # to pick them. The planner_candidates log confirmed highvalue=NONE
+            # across all three agents on cycle 1, which explains why the
+            # invoke_claude queue has been empty since the project started.
+            _ALWAYS_INCLUDE = {
+                "memory_set", "fs_write", "ollama_chat", "shell_exec", "memory_get",
+                "invoke_claude", "propose_change", "synthesize_capability",
+                "check_claude_status", "vote_on_proposal",
+            }
             existing_ids = {c[0] for c in candidates}
             for cap in self._capability_graph.list_all(limit=500):
                 if (cap.capability_id in _ALWAYS_INCLUDE
@@ -346,9 +360,26 @@ class ReasoningLayer:
             import httpx
 
             cap_lines = []
+            cap_ids_for_log = []
             for cap_id, desc, schema in candidates:
                 cap_lines.append(f"  {cap_id}: {desc} | params: {schema}")
+                cap_ids_for_log.append(cap_id)
             caps_text = "\n".join(cap_lines)
+
+            # One-line diagnostic: which capabilities does the planner actually
+            # see? Useful for verifying invoke_claude / propose_change / synthesize_capability
+            # are in the candidate set — they've never shown traffic, and CLAUDE.md
+            # flags "is the model even seeing them?" as an open question.
+            _highvalue_present = sorted(
+                c for c in cap_ids_for_log
+                if c in ("invoke_claude", "propose_change", "synthesize_capability",
+                         "check_claude_status", "vote_on_proposal")
+            )
+            log.info(
+                "[planner candidates] agent=%s n=%d highvalue=%s",
+                agent_id, len(cap_ids_for_log),
+                ",".join(_highvalue_present) if _highvalue_present else "NONE",
+            )
 
             # Load agent identity preamble if available
             identity_preamble = ""

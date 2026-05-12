@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-5.8.0-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
+[![Version](https://img.shields.io/badge/version-5.7.32-7fff7f?style=flat-square)](https://github.com/ninjahawk/hollow-agentOS/releases)
 [![License](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)](https://python.org)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-91-purple?style=flat-square)](#mcp-tools)
@@ -117,7 +117,6 @@ Other ways to watch / manage:
 
 | Surface | Where | When you'd use it |
 |---|---|---|
-| **Web dashboard** | <http://localhost:7778> | Browser UI — agent panels, decision queue, suffering bars, in-browser shell, app store view |
 | **Terminal monitor** | `python3 thoughts.py` (or `python hollow.py` with no args) | Tailing logs in a terminal when you don't want a GUI |
 | **CLI** | `python3 hollow.py setup` / `stop` / `status` | Headless setups, scripting, SSH sessions |
 
@@ -633,7 +632,6 @@ hollow-agentOS/
 │   └── dynamic/               Hot-loaded capabilities synthesized at runtime
 ├── store/
 │   └── server.py              Tool store, 128+ tools
-├── dashboard/                 Live monitor and app store UI
 ├── design/                    Agent design space (writable by agents)
 ├── Dockerfile
 ├── docker-compose.yml
