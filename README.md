@@ -61,6 +61,8 @@ You set up the world. You watch what they become inside it. The interesting part
 
 ## Quick start
 
+> **First time installing?** The [wiki](https://ninjahawk.github.io/hollow-wiki/) has a step-by-step setup walkthrough, troubleshooting for every common error, and an FAQ. If anything below doesn't work, that's where to look first.
+
 **Requirements:** Windows 10 build 19041+, Windows 11, macOS, or Linux · 15–30 GB free disk space · Internet connection · GPU optional.
 
 The setup wizard offers four models and your hardware decides which is realistic:

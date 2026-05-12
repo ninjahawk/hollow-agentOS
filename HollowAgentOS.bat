@@ -79,6 +79,8 @@ echo   ║   API:        http://localhost:7777                  ║
 echo   ║   API docs:   http://localhost:7777/docs             ║
 echo   ╚══════════════════════════════════════════════════════╝
 echo.
+echo   Docs and troubleshooting: https://ninjahawk.github.io/hollow-wiki/
+echo.
 echo   Press any key to open the live monitor (requires Python)...
 pause >nul
 
