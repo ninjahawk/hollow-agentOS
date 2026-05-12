@@ -22,6 +22,18 @@ import time
 import asyncio
 from pathlib import Path
 
+# Force UTF-8 on Windows consoles. Without this, `python hollow.py status`
+# (and any other command that prints the arrow glyph or other non-cp1252
+# characters) crashes with UnicodeEncodeError on Windows cmd.exe / PowerShell
+# whose default encoding is still cp1252. Verified by fresh-clone install test
+# 2026-05-12.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # ── Root directory (wherever hollow.py lives) ─────────────────────────────────
 ROOT = Path(__file__).parent.resolve()
 CONFIG_PATH = ROOT / "config.json"
