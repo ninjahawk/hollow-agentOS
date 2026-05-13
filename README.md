@@ -34,7 +34,7 @@ Star us, and you will receive all release notifications from GitHub without any 
 
 ---
 
-DISCLAIMER: As of May 13, the latest release is very experimental and buggy. If you encounter any issues, please open an issue and a fix will be made as soon as possible.
+Note: Hollow is currently in active Beta testing. Bugs, breaking changes, and edge-case issues are expected—please feel free to report them via GitHub Issues.
 
 **Docs and troubleshooting → [the wiki](https://ninjahawk.github.io/hollow-wiki/)** (setup walkthroughs, common errors, concept docs)
 
