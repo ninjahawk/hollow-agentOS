@@ -34,7 +34,7 @@ Star us, and you will receive all release notifications from GitHub without any 
 
 ---
 
-DISCLAIMER: As of May 11, the latest release is very experimental and buggy. If you encounter any issues, please open an issue and a fix will be made as soon as possible.
+DISCLAIMER: As of May 13, the latest release is very experimental and buggy. If you encounter any issues, please open an issue and a fix will be made as soon as possible.
 
 **Docs and troubleshooting → [the wiki](https://ninjahawk.github.io/hollow-wiki/)** (setup walkthroughs, common errors, concept docs)
 
