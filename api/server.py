@@ -86,6 +86,7 @@ HOLLOW_STORE_URL = os.getenv("HOLLOW_STORE_URL", "http://host.docker.internal:77
 
 # ── Ollama availability ───────────────────────────────────────────────────────
 _ollama_available: bool = False
+OLLAMA_CHECK_INTERVAL = 15  # seconds between background availability refreshes
 
 
 async def _check_ollama_available() -> bool:
@@ -98,6 +99,19 @@ async def _check_ollama_available() -> bool:
     except Exception:
         _ollama_available = False
     return _ollama_available
+
+
+async def _ollama_check_loop():
+    """
+    Background task: periodically refresh _ollama_available so the flag
+    tracks reality instead of freezing at its startup value.  Without this,
+    an Ollama that becomes reachable after the API starts (e.g. a separate
+    container starting in parallel) leaves every Ollama-gated endpoint
+    returning 503 until the API process is restarted.
+    """
+    while True:
+        await asyncio.sleep(OLLAMA_CHECK_INTERVAL)
+        await _check_ollama_available()
 
 
 def _require_ollama():
@@ -317,6 +331,8 @@ async def _startup():
     _goal_engine = PersistentGoalEngine()
     goal_routes.init(_goal_engine, registry=_registry)
     await _check_ollama_available()
+    # Keep Ollama availability fresh (self-heals when Ollama starts after the API)
+    asyncio.create_task(_ollama_check_loop())
     # Restore user-installed tools from persistent manifest (survives container restarts)
     asyncio.create_task(_restore_tools_on_startup())
     # Start background auto-versioning task
