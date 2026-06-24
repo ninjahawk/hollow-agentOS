@@ -63,8 +63,8 @@ def _load_broken_tools() -> list:
     try:
         if _BROKEN_TOOLS_PATH.exists():
             return json.loads(_BROKEN_TOOLS_PATH.read_text()).get("broken", [])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("broken_tools read failed (%s): %s", _BROKEN_TOOLS_PATH, e)
     return []
 
 
@@ -76,8 +76,8 @@ def _persist_broken_tool(cap_id: str) -> None:
         if cap_id not in data.get("broken", []):
             data.setdefault("broken", []).append(cap_id)
             _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("broken_tools persist failed for %s: %s", cap_id, e)
 
 
 _CROSS_CYCLE_FAIL_THRESHOLD = 5
@@ -117,8 +117,8 @@ def _increment_cross_cycle_failures(cap_id: str, result=None) -> bool:
             _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
             return True
         _BROKEN_TOOLS_PATH.write_text(json.dumps(data))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("broken_tools cross-cycle update failed for %s: %s", cap_id, e)
     return False
 
 
