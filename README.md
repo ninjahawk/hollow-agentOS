@@ -24,11 +24,12 @@
 
 Star us, and you will receive all release notifications from GitHub without any delay!
 
-<a href="https://www.star-history.com/?repos=ninjahawk%2Fhollow-agentOS&type=date&legend=top-left">
+<a href="https://github.com/ninjahawk/hollow-agentOS/stargazers">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ninjahawk/hollow-agentOS&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ninjahawk/hollow-agentOS&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ninjahawk/hollow-agentOS&type=date&legend=top-left" />
+   <!-- Chart is regenerated daily by .github/workflows/star-history.yml -->
+   <source media="(prefers-color-scheme: dark)" srcset="media/star-history-dark.svg" />
+   <source media="(prefers-color-scheme: light)" srcset="media/star-history.svg" />
+   <img alt="Star History Chart" src="media/star-history.svg" />
  </picture>
 </a>
 
