@@ -402,6 +402,10 @@ POST   /agents/{id}/rate-limits
 
 ---
 
+## Community ports
+
+- [Hollow on Osaurus](https://github.com/betterfuture2030/hollow-osaurus-): a clean-room reimplementation for macOS / Apple Silicon that runs inference through Osaurus (MLX) instead of Ollama and Docker. Built and maintained independently by [betterfuture2030](https://github.com/betterfuture2030); not officially supported here.
+
 ---
 
 ## Under the hood
