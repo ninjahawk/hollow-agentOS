@@ -225,6 +225,12 @@ The intended way to interact with the running system is Claude Code. Add this to
 
 ---
 
+## Community ports
+
+- [Hollow on Osaurus](https://github.com/betterfuture2030/hollow-osaurus-): a clean-room reimplementation for macOS / Apple Silicon that runs inference through Osaurus (MLX) instead of Ollama and Docker. Built and maintained independently by [betterfuture2030](https://github.com/betterfuture2030); not officially supported here.
+
+---
+
 ## API Reference
 
 <details>
@@ -399,12 +405,6 @@ POST   /agents/{id}/rate-limits
 | Rate limiting | `rate_limit_status`, `rate_limit_configure` |
 | Events | `event_subscribe`, `event_unsubscribe`, `event_history` |
 | VRAM | `model_status` |
-
----
-
-## Community ports
-
-- [Hollow on Osaurus](https://github.com/betterfuture2030/hollow-osaurus-): a clean-room reimplementation for macOS / Apple Silicon that runs inference through Osaurus (MLX) instead of Ollama and Docker. Built and maintained independently by [betterfuture2030](https://github.com/betterfuture2030); not officially supported here.
 
 ---
 
