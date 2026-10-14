@@ -155,3 +155,22 @@ All three result in the same symptom: agent calls the tool, execution engine ret
 ---
 
 *Last updated: 2026-05-05*
+
+---
+
+### BUG-016 — Task queue silently never fired
+**Status:** fixed (2026-04-30)  
+**Severity:** high  
+**File:** `agents/daemon.py` (`_assign_idle_goal`), `docker-compose.yml`  
+**Description:** `task_queue.py` was not bind-mounted into the container; only the four core files had individual mounts. The `import agents.task_queue` inside `_assign_idle_goal` raised `ModuleNotFoundError` on every call, and the surrounding try/except swallowed it, so the task queue never ran and nothing appeared in the logs.  
+**Fix:** copied the file into the running container and added a bind mount for it to `docker-compose.yml`. Confirmed by forcing a fresh `_assign_idle_goal` call and watching an agent claim a queued task.
+
+---
+
+### AUDIT-001 — Smoke test of every agent-written tool (2026-04-30)
+Follow-up to BUG-002. Ran a smoke test on all 94 active `.py` files in `tools/dynamic/`:
+- **6 worked, 88 were broken** (null stubs, nested-function traps, undefined names). 85 broken tools were archived to `_archive/broken/`; 346 stale `.py.bak` files were archived to `_archive/bak/`.
+- Null-stub detection now actually marks the call `failed`, so blacklisting works.
+- Pre-execution ghost check: before any capability call, the loop checks that the tool is registered; unregistered tools are blacklisted and persisted to `broken_tools.json`, which is loaded at the start of every `pursue_goal()`.
+- Agents now see the broken-tools list in their existence prompt and can query it with `broken_tools_list()`.
+- `synthesize_capability` validates syntax and runs a subprocess smoke test before a new tool is deployed.
